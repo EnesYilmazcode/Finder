@@ -3,6 +3,9 @@
 const BASE = "https://content.osu.edu/v2";
 const CAMPUS = "col";
 const TIMEOUT_MS = 12000;
+// Relevance is the upstream default and it reshuffles between identical
+// requests. Catalog order does not. See docs/osu-api.md.
+const SORT = "catalogNumber";
 
 export class ApiError extends Error {
   constructor(message, { status = null, cause = null } = {}) {
@@ -100,12 +103,19 @@ export function defaultTerm(terms, date = new Date()) {
 /**
  * Search classes. Returns { totalItems, totalPages, page, courses }.
  *
- * Paging is non-deterministic upstream, so callers should keep queries narrow
- * enough to fit on one page rather than trying to enumerate everything.
+ * `sort` and `subject` are both real upstream parameters, documented in
+ * docs/osu-api.md. `subject` has to be lowercase: `subject=CSE` returns zero.
  */
-export async function searchClasses({ q, term, page = 1 }) {
+export async function searchClasses({ q, term, page = 1, sort, subject }) {
   if (!term) throw new ApiError("Pick a term before searching.");
-  const data = await getJson("/classes/search", { q: q ?? "", campus: CAMPUS, term, p: page });
+  const data = await getJson("/classes/search", {
+    q: q ?? "",
+    campus: CAMPUS,
+    term,
+    p: page,
+    sort,
+    subject,
+  });
   return {
     totalItems: data?.totalItems ?? 0,
     totalPages: data?.totalPages ?? 0,
@@ -114,28 +124,77 @@ export async function searchClasses({ q, term, page = 1 }) {
   };
 }
 
+const SUBJECT_TOKEN = /^[A-Za-z]{2,8}$/;
+const NUMBER_TOKEN = /^\d{3,4}(\.\d+)?[A-Za-z]*$/;
+
+/**
+ * Read "CSE 2331" as a subject plus a catalog number.
+ *
+ * Only a query that carries both shapes is treated this way. A lone word is
+ * left alone because "Smith" and "MATH" look identical from here, and guessing
+ * wrong on a professor's name costs a wasted round trip on the commonest
+ * search there is.
+ */
+export function subjectScope(raw) {
+  const tokens = String(raw ?? "").trim().split(/\s+/).filter(Boolean);
+  const s = tokens.findIndex((t) => SUBJECT_TOKEN.test(t));
+  if (s < 0 || !tokens.some((t, i) => i !== s && NUMBER_TOKEN.test(t))) return null;
+  return { subject: tokens[s].toLowerCase(), q: tokens.filter((_, i) => i !== s).join(" ") };
+}
+
 /**
  * Search across several pages and merge.
  *
- * Relevance does not reliably put a match on page 1: "Smith" returns 674 items
- * over 4 pages with zero of that professor's courses on the first. Upstream
- * paging is also non-deterministic, so pulling more pages raises coverage
- * rather than lowering it.
+ * Two things upstream shape this, both measured in docs/osu-api.md.
+ *
+ * Relevance order does not reliably put a match on page 1: "Smith" returns 674
+ * sections over 4 pages with zero of that professor's courses on either of the
+ * first two, which is why this fetches more than one page at all.
+ *
+ * Relevance order is also not repeatable. Three identical "Smith" pulls
+ * returned 93, 86 and 93 of his courses. `sort=catalogNumber` pins it, so it is
+ * the default here.
+ *
+ * The catch is that a sorted page 1 is the lowest catalog numbers rather than
+ * the best matches, which only hurts when the result runs past `maxPages` and
+ * gets truncated. Bare "MATH" is the worst case: 11 pages, and five of them in
+ * catalog order carry 21 of the 89 courses that relevance finds in three. So
+ * when the answer does not fit, the relevance pass runs as well and both are
+ * merged. rank.js dedupes by class number, so the extra page is free coverage.
  */
 export async function searchAllPages({ q, term, maxPages = 5 }) {
-  const first = await searchClasses({ q, term, page: 1 });
-  const pages = Math.min(first.totalPages ?? 1, maxPages);
-  if (pages <= 1) return { ...first, pagesFetched: 1 };
+  const scope = subjectScope(q);
+  let params = scope ? { q: scope.q, subject: scope.subject } : { q };
 
-  const rest = await Promise.all(
-    Array.from({ length: pages - 1 }, (_, i) =>
-      searchClasses({ q, term, page: i + 2 }).catch(() => ({ courses: [] }))
-    )
-  );
+  let first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
+
+  // The subject guess was wrong, so that word was a name or a title, not a
+  // subject code. Nothing matches a subject that is not offered.
+  if (scope && first.totalItems === 0) {
+    params = { q };
+    first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
+  }
+
+  const totalPages = first.totalPages ?? 1;
+  const truncated = totalPages > maxPages;
+
+  // When the whole result fits, catalog order is both complete and repeatable,
+  // so the rest of it comes back the same way. When it does not fit, that first
+  // sorted page is the wrong 200 sections, so the pull restarts in relevance
+  // order and the sorted page stays in as extra coverage rather than a waste.
+  const pending = truncated
+    ? Array.from({ length: maxPages }, (_, i) => searchClasses({ ...params, term, page: i + 1 }))
+    : Array.from({ length: totalPages - 1 }, (_, i) =>
+        searchClasses({ ...params, term, sort: SORT, page: i + 2 })
+      );
+
+  const rest = await Promise.all(pending.map((r) => r.catch(() => ({ courses: [] }))));
 
   return {
     ...first,
     courses: [...first.courses, ...rest.flatMap((r) => r.courses)],
-    pagesFetched: pages,
+    pagesFetched: 1 + pending.length,
+    sorted: !truncated,
+    subject: params.subject ?? null,
   };
 }
