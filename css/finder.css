@@ -577,3 +577,94 @@ body {
   outline: 2px solid var(--scarlet);
   outline-offset: -2px;
 }
+
+/* Filter rail ------------------------------------------------------------- */
+
+.f-set { border: 0; margin: 0 0 1.25rem; padding: 0; }
+.f-set .eyebrow { padding: 0; }
+
+.f-days { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+
+.f-day input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.f-day span {
+  display: block;
+  min-width: 2.1rem;
+  text-align: center;
+  padding: 0.35rem 0.3rem;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  font-family: var(--data);
+  font-size: 0.78rem;
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.f-day input:checked + span {
+  background: var(--scarlet);
+  border-color: var(--scarlet);
+  color: var(--paper);
+  font-weight: 600;
+}
+
+.f-day input:focus-visible + span { outline: 2px solid var(--scarlet); outline-offset: 2px; }
+
+.f-hint { margin: 0.45rem 0 0; font-size: 0.72rem; color: var(--mute); }
+
+.f-label { display: block; font-size: 0.78rem; color: var(--mute); margin: 0.5rem 0 0.25rem; }
+
+.f-ctl {
+  width: 100%;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--wash);
+  color: inherit;
+  cursor: pointer;
+}
+
+.f-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--mute);
+  margin-top: 0.5rem;
+  cursor: pointer;
+}
+
+.f-check input { accent-color: var(--scarlet); width: 0.95rem; height: 0.95rem; }
+
+.f-clear {
+  font: inherit;
+  font-size: 0.8rem;
+  width: 100%;
+  padding: 0.45rem;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.f-clear:hover { color: var(--ink); border-color: var(--ink); }
+
+.hidden-note {
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+  color: var(--mute);
+  font-size: 0.85rem;
+}
+
+.hidden-note button {
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--scarlet);
+  cursor: pointer;
+  text-decoration: underline;
+}

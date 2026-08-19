@@ -4,6 +4,7 @@ import { renderResults } from "./render.js";
 import { loadRatings } from "./ratings.js";
 import { loadSeats, seatsTerm, seatsUpdated } from "./seats.js";
 import { renderDetail } from "./detail.js";
+import { applyFilters, isActive, DEFAULTS } from "./filters.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -13,6 +14,8 @@ const els = {
   detail: document.querySelector("#detail"),
   detailBody: document.querySelector("#detail-body"),
   detailBack: document.querySelector("#detail-back"),
+  filters: document.querySelector("#filters"),
+  clear: document.querySelector("#f-clear"),
   query: document.querySelector("#q"),
   term: document.querySelector("#term"),
   submit: document.querySelector("#go"),
@@ -27,6 +30,37 @@ let latestRequest = 0;
 // pane needs the real objects, not text scraped back out of the DOM.
 let sectionIndex = new Map();
 let currentEntries = [];
+// The unfiltered result of the last search, so changing a filter re-renders
+// rather than refetching.
+let lastResult = null;
+let showHidden = false;
+
+function readFilters() {
+  const data = new FormData(els.filters);
+  return {
+    ...DEFAULTS,
+    days: data.getAll("day"),
+    from: data.get("from") ?? "",
+    to: data.get("to") ?? "",
+    rating: data.get("rating") ?? "",
+    hideFull: els.filters.hideFull.checked,
+    hideOnline: els.filters.hideOnline.checked,
+    ratedOnly: els.filters.ratedOnly.checked,
+    term: els.term.value,
+  };
+}
+
+function writeFilters(params) {
+  for (const box of els.filters.querySelectorAll('input[name="day"]')) {
+    box.checked = params.getAll("day").includes(box.value);
+  }
+  els.filters.from.value = params.get("from") ?? "";
+  els.filters.to.value = params.get("to") ?? "";
+  els.filters.rating.value = params.get("rating") ?? "";
+  els.filters.hideFull.checked = params.get("hideFull") === "1";
+  els.filters.hideOnline.checked = params.get("hideOnline") === "1";
+  els.filters.ratedOnly.checked = params.get("ratedOnly") === "1";
+}
 
 /**
  * True while the layout is collapsed to one column. Matches the CSS breakpoint,
@@ -102,6 +136,17 @@ function syncUrl(q, term) {
   const url = new URL(location.href);
   if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
   if (term) url.searchParams.set("term", term);
+
+  // Filters live in the URL so a filtered view can be shared or reloaded.
+  const f = readFilters();
+  url.searchParams.delete("day");
+  for (const day of f.days) url.searchParams.append("day", day);
+  for (const [key, value] of [["from", f.from], ["to", f.to], ["rating", f.rating]]) {
+    if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
+  }
+  for (const key of ["hideFull", "hideOnline", "ratedOnly"]) {
+    if (f[key]) url.searchParams.set(key, "1"); else url.searchParams.delete(key);
+  }
   history.replaceState(null, "", url);
 }
 
@@ -125,26 +170,9 @@ async function runSearch(q, term) {
       loadSeats().catch(() => null),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
-    const { primary, related } = filterCourses(courses, q);
-    currentEntries = [...primary, ...related];
-    sectionIndex = new Map();
-    for (const entry of currentEntries) {
-      for (const section of entry.sections) {
-        sectionIndex.set(String(section.classNumber), { section, course: entry.course });
-      }
-    }
-    renderResults(els.results, { primary, related }, term);
-    resetDetail();
-    if (!primary.length) {
-      setStatus(`Nothing matched "${q}" in ${termName(term)}. Try a subject and number, like CSE 2221.`);
-    } else {
-      const sections = primary.reduce((n, e) => n + e.sections.length, 0);
-      const noun = primary.length === 1 ? "course" : "courses";
-      // Barrett refreshes once a day, so the numbers are dated, and during a
-      // registration window that distinction matters.
-      const dated = seatsTerm() === term && seatsUpdated() ? ` Seats as of ${formatDate(seatsUpdated())}.` : "";
-      setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`);
-    }
+    lastResult = filterCourses(courses, q);
+    showHidden = false;
+    paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
     els.results.replaceChildren();
@@ -153,6 +181,61 @@ async function runSearch(q, term) {
   } finally {
     if (requestId === latestRequest) setBusy(false);
   }
+}
+
+/** Re-render from the last search. Filters never refetch. */
+function paint(term = els.term.value) {
+  if (!lastResult) return;
+  const filters = readFilters();
+  const active = isActive(filters);
+  els.clear.hidden = !active;
+
+  const primaryAll = lastResult.primary;
+  const { entries: primary, hiddenSections, hiddenCourses } =
+    showHidden ? { entries: primaryAll, hiddenSections: 0, hiddenCourses: 0 } : applyFilters(primaryAll, filters);
+  const related = showHidden ? lastResult.related : applyFilters(lastResult.related, filters).entries;
+
+    currentEntries = [...primary, ...related];
+    sectionIndex = new Map();
+    for (const entry of currentEntries) {
+      for (const section of entry.sections) {
+        sectionIndex.set(String(section.classNumber), { section, course: entry.course });
+      }
+    }
+  renderResults(els.results, { primary, related }, term);
+  resetDetail();
+
+  if (hiddenSections || hiddenCourses) {
+    // Never hide silently. Say what was removed and offer it back.
+    const note = document.createElement("p");
+    note.className = "hidden-note";
+    const parts = [];
+    if (hiddenSections) parts.push(`${hiddenSections} section${hiddenSections === 1 ? "" : "s"}`);
+    if (hiddenCourses) parts.push(`${hiddenCourses} course${hiddenCourses === 1 ? "" : "s"}`);
+    note.append(document.createTextNode(`${parts.join(" and ")} hidden by your filters. `));
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Show them anyway";
+    button.addEventListener("click", () => { showHidden = true; paint(term); });
+    note.append(button);
+    els.results.append(note);
+  }
+
+  if (!primary.length) {
+    setStatus(
+      isActive(filters)
+        ? "Your filters removed everything. Loosen one, or clear them."
+        : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`
+    );
+    return;
+  }
+
+  const sections = primary.reduce((n, e) => n + e.sections.length, 0);
+  const noun = primary.length === 1 ? "course" : "courses";
+  // Barrett refreshes once a day, so the numbers are dated, and during a
+  // registration window that distinction matters.
+  const dated = seatsTerm() === term && seatsUpdated() ? ` Seats as of ${formatDate(seatsUpdated())}.` : "";
+  setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`);
 }
 
 function formatDate(iso) {
@@ -199,6 +282,21 @@ async function init() {
   const wanted = params.get("term");
   els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
   els.term.disabled = false;
+
+  writeFilters(params);
+
+  els.filters.addEventListener("change", () => {
+    showHidden = false;
+    syncUrl(els.query.value, els.term.value);
+    paint();
+  });
+
+  els.clear.addEventListener("click", () => {
+    els.filters.reset();
+    showHidden = false;
+    syncUrl(els.query.value, els.term.value);
+    paint();
+  });
 
   els.railToggle.addEventListener("click", () => {
     openRail(els.app.dataset.rail !== "open");
