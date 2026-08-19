@@ -35,6 +35,20 @@
     </header>
 
     <aside class="rail" id="rail" aria-label="Filters">
+      <form id="picker" class="picker">
+        <p class="eyebrow">Find a course</p>
+        <label class="f-label" for="p-subject">Subject</label>
+        <input class="f-ctl" id="p-subject" list="subject-list" autocomplete="off"
+               placeholder="CSE, or computer" aria-describedby="p-hint">
+        <datalist id="subject-list"></datalist>
+
+        <label class="f-label" for="p-number">Course number</label>
+        <input class="f-ctl" id="p-number" list="number-list" autocomplete="off"
+               placeholder="2331, or foundations" disabled>
+        <datalist id="number-list"></datalist>
+        <p class="f-hint" id="p-hint">Pick a subject to browse its courses. You can still type a course or a professor in the search box.</p>
+      </form>
+
       <form id="filters">
         <fieldset class="f-set">
           <legend class="eyebrow">Meets on</legend>
