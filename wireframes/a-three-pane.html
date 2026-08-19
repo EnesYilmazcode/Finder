@@ -1,0 +1,115 @@
+<!doctype html><meta charset=utf-8><link rel=stylesheet href=shared.css>
+<style>
+.app{grid-template-columns:264px 1fr 372px;grid-template-rows:auto 1fr}
+.card{border:1px solid var(--rule);border-left:3px solid var(--scarlet);border-radius:3px;background:var(--panel);margin-bottom:12px}
+.chead{display:flex;align-items:baseline;gap:9px;padding:11px 13px;border-bottom:1px solid var(--rule)}
+.tblk{border-top:1px solid var(--rule)}
+.tblk:first-of-type{border-top:0}
+.tname{font-family:var(--display);font-weight:700;font-size:14px;padding:9px 13px 3px;margin:0;display:flex;align-items:center;gap:7px}
+.sec{display:grid;grid-template-columns:54px 1fr 92px;gap:2px 12px;padding:6px 13px 8px;align-items:baseline;font-size:13px}
+.sec.sel{background:#20242b;box-shadow:inset 3px 0 0 var(--scarlet)}
+.sec .n{font-family:var(--data);font-size:11.5px;color:var(--dim)}
+.sec .rm{grid-column:2;color:var(--mute);font-size:11.5px}
+.sec .s{grid-column:3;text-align:right;font-family:var(--data);font-size:11.5px;color:var(--mute)}
+.dgrp{margin-bottom:16px}
+.drow{display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--rule)}
+.drow span:first-child{color:var(--mute)}
+.big{font-family:var(--display);font-weight:800;font-size:34px;letter-spacing:-.03em;line-height:1}
+</style>
+<div class=app>
+  <div class=topbar>
+    <p class=wordmark>Finder</p>
+    <div style="flex:1"></div>
+    <div class=ctl style="width:210px"><span class=mono>CSE 2331</span><span class=car>▾</span></div>
+    <div class=ctl style="width:150px"><span>Autumn 2026</span><span class=car>▾</span></div>
+    <span class=count>8 sections · seats Aug 18</span>
+  </div>
+
+  <aside class=rail>
+    <p class=eyebrow>Course</p>
+    <div class=field><label class=label>Subject</label><div class=ctl mono><span class=mono>CSE</span><span class=car>▾</span></div></div>
+    <div class=field><label class=label>Number</label><div class=ctl><span class=mono>2331</span><span class=car>▾</span></div>
+      <div style="border:1px solid var(--rule2);border-top:0;border-radius:0 0 3px 3px;background:var(--panel2)">
+        <div style="padding:5px 9px;font-size:12px;background:#22262d"><span class=mono>2331</span> <span style="color:var(--mute)">Foundations II</span></div>
+        <div style="padding:5px 9px;font-size:12px"><span class=mono>2321</span> <span style="color:var(--mute)">Foundations I</span></div>
+        <div style="padding:5px 9px;font-size:12px"><span class=mono>2421</span> <span style="color:var(--mute)">Systems I</span></div>
+      </div>
+    </div>
+    <div class=sep></div>
+    <p class=eyebrow>Filters</p>
+    <div class=field><label class=label>Days</label>
+      <div class=chiprow><span class="chip on">Mo</span><span class=chip>Tu</span><span class="chip on">We</span><span class=chip>Th</span><span class="chip on">Fr</span></div>
+    </div>
+    <div class=field><label class=label>Earliest start</label><div class=ctl><span class=mono>10:00a</span><span class=car>▾</span></div></div>
+    <div class=field><label class=label>Latest end</label><div class=ctl><span class=mono>4:00p</span><span class=car>▾</span></div></div>
+    <div class=field><label class=label>Minimum rating</label>
+      <div class=chiprow><span class=chip>any</span><span class=chip>3.0+</span><span class="chip on">3.5+</span><span class=chip>4.0+</span></div>
+    </div>
+    <div class=field style="margin-top:12px">
+      <div class=chk><span class="box on"></span>Hide full sections</div>
+      <div class=chk><span class=box></span>Hide online</div>
+      <div class=chk><span class="box on"></span>Rated instructors only</div>
+    </div>
+    <div class=sep></div>
+    <p class=eyebrow>Matching</p>
+    <p style="font-size:12px;color:var(--mute);margin:0">3 of 8 sections<br><span class=count>5 hidden by filters</span></p>
+  </aside>
+
+  <main class=main>
+    <div class=card>
+      <div class=chead><span class="mono" style="font-family:var(--display);font-weight:800;font-size:16px">CSE 2331</span>
+        <span style="font-weight:600">Foundations II: Data Structures and Algorithms</span>
+        <span style="margin-left:auto" class=count>3 credits · 8 sections</span></div>
+
+      <div class=tblk><h3 class=tname>Nickalaus Painter <span class="mono" style="font-size:11px;color:var(--mute)"><span class=star>★</span> 4.8 (68)</span></h3>
+        <div class="sec sel"><span class=n>5353</span><span>MoWeFr 4:10p–5:05p <span class=pill>lecture</span></span><span class="s full">50/50 +2</span><span class=rm>JR 239</span></div>
+        <div class=sec><span class=n>5377</span><span>MoWeFr 3:00p–3:55p <span class=pill>lecture</span></span><span class="s full">50/50 +3</span><span class=rm>JR 239</span></div>
+      </div>
+      <div class=tblk><h3 class=tname>Nabhan Salih <span class="mono" style="font-size:11px;color:var(--mute)"><span class=star>★</span> 2.7 (9)</span></h3>
+        <div class=sec><span class=n>10158</span><span>MoWeFr 10:20a–11:15a <span class=pill>lecture</span></span><span class="s">36/40 +1</span><span class=rm>KN 190</span></div>
+        <div class=sec><span class=n>9767</span><span>MoWeFr 1:50p–2:45p <span class=pill>lecture</span></span><span class="s ok">25/40</span><span class=rm>BE 188</span></div>
+      </div>
+      <div class=tblk><h3 class=tname style="color:var(--dim)">Ali Alilooee <span class="mono" style="font-size:11px;color:var(--dim)">no ratings</span></h3>
+        <div class=sec><span class=n>9269</span><span>MoWeFr 11:30a–12:25p <span class=pill>lecture</span></span><span class="s ok">30/40</span><span class=rm>KN 190</span></div>
+      </div>
+    </div>
+    <div style="border:1px dashed var(--rule2);border-radius:3px;padding:10px 13px;color:var(--dim);font-size:12.5px">
+      5 sections hidden by your filters. <span style="color:var(--scarlet)">Show them</span>
+    </div>
+  </main>
+
+  <aside class=detail>
+    <p class=eyebrow>Section 5353</p>
+    <h2 class=h2>Nickalaus Painter</h2>
+    <p class=sub>CSE 2331 · Lecture · 3 credits</p>
+    <div style="display:flex;gap:18px;align-items:flex-end;margin-bottom:16px">
+      <div><div class="big star">4.8</div><div class=count>68 ratings</div></div>
+      <div><div class=big>2.9</div><div class=count>difficulty</div></div>
+      <div><div class=big>91%</div><div class=count>take again</div></div>
+    </div>
+    <div class=dgrp>
+      <p class=eyebrow>Seats</p>
+      <div class=bar><i class=f style="width:100%"></i></div>
+      <div class=drow><span>Enrolled</span><span class="mono full">50 / 50</span></div>
+      <div class=drow><span>Waitlist</span><span class="mono full">2 waiting</span></div>
+      <div class=drow><span>As of</span><span class=mono>Aug 18, 6:50a</span></div>
+    </div>
+    <div class=dgrp>
+      <p class=eyebrow>Meets</p>
+      <div class=drow><span>Days</span><span class=mono>Mo We Fr</span></div>
+      <div class=drow><span>Time</span><span class=mono>4:10p – 5:05p</span></div>
+      <div class=drow><span>Room</span><span class=mono>Journalism 239</span></div>
+      <div class=drow><span>Mode</span><span>In person</span></div>
+    </div>
+    <div class=dgrp>
+      <p class=eyebrow>Also teaches</p>
+      <div class=drow><span>CSE 2331 · 5377</span><span class="mono full">50/50</span></div>
+      <div class=drow><span>CSE 5331 · 5359</span><span class="mono ok">18/25</span></div>
+      <div class=drow><span>CSE 6331 · 5363</span><span class="mono ok">9/30</span></div>
+    </div>
+    <div class=dgrp>
+      <p class=eyebrow>Description</p>
+      <p style="font-size:12.5px;color:var(--mute);margin:0">Basic data structures and algorithms. Sorting, searching, graphs, greedy and dynamic programming, complexity analysis. Prereq: 2321.</p>
+    </div>
+  </aside>
+</div>

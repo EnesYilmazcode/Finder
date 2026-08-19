@@ -1,0 +1,90 @@
+<!doctype html><meta charset=utf-8><link rel=stylesheet href=shared.css>
+<style>
+.app{grid-template-columns:264px 1fr;grid-template-rows:auto 1fr}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-family:var(--data);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);
+   text-align:left;padding:0 12px 8px;font-weight:400;border-bottom:1px solid var(--rule)}
+th.r,td.r{text-align:right}
+td{padding:11px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
+td:last-child,th:last-child{padding-right:20px}
+tr.head td{background:var(--panel);border-bottom:1px solid var(--rule2)}
+.nm{font-family:var(--display);font-weight:700;font-size:14.5px;white-space:nowrap}
+.rate{font-family:var(--data);font-size:19px;font-weight:500}
+.sub2{font-size:11px;color:var(--dim);font-family:var(--data)}
+.slot{display:flex;gap:6px;align-items:baseline;padding:2px 0;font-size:12.5px}
+.slot .n{font-family:var(--data);font-size:11px;color:var(--dim);width:44px;flex:none}
+.meter{width:66px;height:5px;background:var(--rule2);border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle}
+.meter i{display:block;height:100%;background:var(--good)}
+.meter i.f{background:var(--scarlet)}
+.best{box-shadow:inset 3px 0 0 var(--good)}
+.tag{font-family:var(--data);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--good);border:1px solid var(--good);border-radius:2px;padding:1px 4px}
+</style>
+<div class=app>
+  <div class=topbar>
+    <p class=wordmark>Finder</p>
+    <div style="flex:1"></div>
+    <div class=ctl style="width:210px"><span class=mono>CSE 2331</span><span class=car>▾</span></div>
+    <div class=ctl style="width:150px"><span>Autumn 2026</span><span class=car>▾</span></div>
+    <span class=count>comparing 4 instructors</span>
+  </div>
+
+  <aside class=rail>
+    <p class=eyebrow>Course</p>
+    <div class=field><label class=label>Subject</label><div class="ctl mono"><span>CSE</span><span class=car>▾</span></div></div>
+    <div class=field><label class=label>Number</label><div class=ctl><span class=mono>2331</span><span class=car>▾</span></div></div>
+    <div class=sep></div>
+    <p class=eyebrow>Rank instructors by</p>
+    <div class=field>
+      <div class=chk><span class="box on"></span>Rating</div>
+      <div class=chk><span class=box></span>Easiest</div>
+      <div class=chk><span class=box></span>Most seats left</div>
+      <div class=chk><span class=box></span>Earliest class</div>
+    </div>
+    <div class=sep></div>
+    <p class=eyebrow>Only show</p>
+    <div class=field>
+      <div class=chk><span class="box on"></span>Sections with seats</div>
+      <div class=chk><span class=box></span>No 8am</div>
+      <div class=chk><span class=box></span>No Friday</div>
+    </div>
+    <div class=sep></div>
+    <p class=eyebrow>Weigh confidence</p>
+    <p style="font-size:12px;color:var(--mute);margin:0 0 8px">Ignore instructors with fewer than</p>
+    <div class=chiprow><span class=chip>1</span><span class="chip on">10</span><span class=chip>25</span><span class=chip>50</span></div>
+    <p class=count style="margin-top:8px">ratings</p>
+  </aside>
+
+  <main class=main style="padding:0">
+    <div style="padding:14px 12px 6px">
+      <h2 class=h2 style="font-size:19px">CSE 2331 · Foundations II: Data Structures and Algorithms</h2>
+      <p class=sub style="margin-bottom:0">4 instructors, 8 sections, Autumn 2026. Seats as of Aug 18.</p>
+    </div>
+    <table>
+      <tr><th style="width:210px">Instructor</th><th class=r style="width:74px">Rating</th><th class=r style="width:74px">Difficulty</th>
+          <th class=r style="width:82px">Take again</th><th>Sections</th><th class=r style="width:170px">Seats</th></tr>
+
+      <tr class=best><td><div class=nm>Nickalaus Painter</div><div class=sub2>68 ratings <span class=tag style="margin-left:4px">best rated</span></div></td>
+        <td class=r><span class="rate star">4.8</span></td><td class=r><span class=rate>2.9</span></td><td class=r><span class=rate>91%</span></td>
+        <td><div class=slot><span class=n>5353</span><span>MoWeFr 4:10p</span></div><div class=slot><span class=n>5377</span><span>MoWeFr 3:00p</span></div></td>
+        <td class=r><div><span class=meter><i class=f style="width:100%"></i></span> <span class="mono full">50/50 +2</span></div>
+                    <div style="margin-top:5px"><span class=meter><i class=f style="width:100%"></i></span> <span class="mono full">50/50 +3</span></div></td></tr>
+
+      <tr><td><div class=nm>Ali Alilooee</div><div class=sub2>no ratings yet</div></td>
+        <td class=r><span class=rate style="color:var(--dim)">—</span></td><td class=r><span class=rate style="color:var(--dim)">—</span></td><td class=r><span class=rate style="color:var(--dim)">—</span></td>
+        <td><div class=slot><span class=n>5354</span><span>TuTh 2:20p</span></div><div class=slot><span class=n>8837</span><span>MoWeFr 12:40p</span></div><div class=slot><span class=n>9269</span><span>MoWeFr 11:30a</span></div></td>
+        <td class=r><div><span class=meter><i style="width:90%"></i></span> <span class=mono>38/42 +1</span></div>
+                    <div style="margin-top:5px"><span class=meter><i class=f style="width:100%"></i></span> <span class="mono full">45/45</span></div>
+                    <div style="margin-top:5px"><span class=meter><i style="width:75%"></i></span> <span class="mono ok">30/40</span></div></td></tr>
+
+      <tr><td><div class=nm>Nabhan Salih</div><div class=sub2>9 ratings · thin evidence</div></td>
+        <td class=r><span class=rate style="opacity:.6">2.7</span></td><td class=r><span class=rate style="opacity:.6">4.1</span></td><td class=r><span class=rate style="opacity:.6">33%</span></td>
+        <td><div class=slot><span class=n>10158</span><span>MoWeFr 10:20a</span></div><div class=slot><span class=n>10269</span><span>MoWeFr 9:10a</span></div><div class=slot><span class=n>9767</span><span>MoWeFr 1:50p</span></div></td>
+        <td class=r><div><span class=meter><i style="width:90%"></i></span> <span class=mono>36/40 +1</span></div>
+                    <div style="margin-top:5px"><span class=meter><i style="width:48%"></i></span> <span class="mono ok">19/40</span></div>
+                    <div style="margin-top:5px"><span class=meter><i style="width:63%"></i></span> <span class="mono ok">25/40</span></div></td></tr>
+    </table>
+    <div style="padding:12px;color:var(--dim);font-size:12.5px">
+      1 instructor hidden: fewer than 10 ratings. <span style="color:var(--scarlet)">Include them</span>
+    </div>
+  </main>
+</div>
