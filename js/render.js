@@ -9,6 +9,7 @@
 import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
+const UNLISTED = "Instructor not listed";
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -28,6 +29,41 @@ function sortSections(sections) {
   });
 }
 
+/**
+ * Group a course's sections by who teaches them.
+ *
+ * Sections are keyed by their whole instructor set, not by each person, so a
+ * co-taught section lands in exactly one block. Filing it under every teacher
+ * would double-count sections and make a course look bigger than it is.
+ */
+export function groupByInstructor(sections) {
+  const groups = new Map();
+  for (const section of sections ?? []) {
+    const people = instructorsOf(section);
+    const key = people.length ? people.map((p) => p.name).sort().join(" & ") : UNLISTED;
+    if (!groups.has(key)) groups.set(key, { key, people, sections: [] });
+    groups.get(key).sections.push(section);
+  }
+
+  return [...groups.values()].sort((a, b) => {
+    if (a.key === UNLISTED) return 1;
+    if (b.key === UNLISTED) return -1;
+    return surname(a.key).localeCompare(surname(b.key));
+  });
+}
+
+const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
+
+/** Last name for sorting, skipping generational suffixes like "Smith III". */
+function surname(name) {
+  const parts = name.split(" & ")[0].trim().split(/\s+/);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const word = parts[i].replace(/\.$/, "").toLowerCase();
+    if (!SUFFIXES.has(word)) return parts[i];
+  }
+  return name;
+}
+
 export function renderSection(section) {
   const li = el("li", "section");
   const meeting = section.meetings?.[0] ?? null;
@@ -40,9 +76,6 @@ export function renderSection(section) {
   li.append(when);
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
-
-  const people = instructorsOf(section);
-  li.append(el("span", "section-who", people.length ? people.map((p) => p.name).join(", ") : "Instructor not listed"));
 
   return li;
 }
@@ -59,9 +92,19 @@ export function renderCourse({ course, sections }) {
   head.append(el("span", "course-meta", units ? `${units} · ${count}` : count));
   article.append(head);
 
-  const list = el("ul", "sections");
-  for (const section of sortSections(sections)) list.append(renderSection(section));
-  article.append(list);
+  for (const group of groupByInstructor(sections)) {
+    const block = el("section", "teacher");
+
+    const heading = el("h3", "teacher-name", group.key);
+    if (group.key === UNLISTED) heading.classList.add("is-unlisted");
+    block.append(heading);
+
+    const list = el("ul", "sections");
+    for (const section of sortSections(group.sections)) list.append(renderSection(section));
+    block.append(list);
+
+    article.append(block);
+  }
 
   return article;
 }

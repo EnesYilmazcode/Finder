@@ -291,3 +291,27 @@ body {
   white-space: nowrap;
   border: 0;
 }
+
+/* Instructor blocks. The teacher is the heading and sections nest under them,
+   which is the inversion the whole project exists for. */
+
+.teacher { border-top: 1px solid var(--rule); }
+.course > .teacher:first-of-type { border-top: 0; }
+
+.teacher-name {
+  margin: 0;
+  padding: 0.7rem 1rem 0.2rem;
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.teacher-name.is-unlisted {
+  font-family: var(--body);
+  font-weight: 500;
+  color: var(--mute);
+}
+
+.teacher .sections > .section:first-child { border-top: 0; }
+.teacher .section { padding-top: 0.35rem; padding-bottom: 0.6rem; }
