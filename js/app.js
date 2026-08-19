@@ -1,5 +1,5 @@
 import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
-import { filterCourses } from "./rank.js";
+import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, topRated, ratedCount, profileUrl } from "./ratings.js";
 import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount } from "./seats.js";
@@ -190,6 +190,29 @@ function fillNumbers() {
   );
   if (!courses.length) els.number.value = "";
   return courses;
+}
+
+/**
+ * Reflect a query back into the pickers.
+ *
+ * Deliberately does not touch the course index: a subject and number are
+ * parseable from the query itself, so a shared link fills the rail without
+ * pulling the 177 KB index that #36 made lazy. The dropdown options still
+ * arrive on first focus.
+ */
+function reflectQuery(q) {
+  const parsed = parseQuery(q);
+  // A query only maps onto the pickers when it names both. "Bucci" and bare
+  // "CSE" are searches, not course selections, and should leave them empty.
+  if (!parsed.subject || !parsed.number) {
+    els.subject.value = "";
+    els.number.value = "";
+    els.number.disabled = true;
+    return;
+  }
+  els.subject.value = parsed.subject;
+  els.number.value = parsed.number;
+  els.number.disabled = false;
 }
 
 /** A picked subject and number becomes an ordinary search. */
@@ -552,6 +575,7 @@ async function init() {
     event.preventDefault();
     if (els.submit.getAttribute("aria-disabled") === "true") return;
     const q = els.query.value;
+    reflectQuery(q);
     syncUrl(q, els.term.value);
     runSearch(q, els.term.value);
   });
@@ -566,13 +590,17 @@ async function init() {
     const button = event.target.closest("[data-q]");
     if (!button) return;
     els.query.value = button.dataset.q;
+    reflectQuery(button.dataset.q);
     syncUrl(button.dataset.q, els.term.value);
     runSearch(button.dataset.q, els.term.value);
   });
 
   const initialQuery = params.get("q") ?? "";
   els.query.value = initialQuery;
-  if (initialQuery.trim()) runSearch(initialQuery, els.term.value);
+  if (initialQuery.trim()) {
+    reflectQuery(initialQuery);
+    runSearch(initialQuery, els.term.value);
+  }
   else {
     // Ratings and seats are already in flight; fill the landing screen once
     // they land rather than showing an empty frame in the meantime.
