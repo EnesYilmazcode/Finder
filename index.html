@@ -17,9 +17,6 @@
       <h1 class="wordmark">Finder</h1>
       <p class="tagline">Who teaches it, before everyone else finds out.</p>
 
-      <button class="rail-toggle" id="rail-toggle" type="button"
-              aria-expanded="false" aria-controls="rail">Filters</button>
-
       <form class="search" id="search" role="search" aria-label="Course search">
         <label class="visually-hidden" for="q">Course or professor</label>
         <input id="q" name="q" type="search" autocomplete="off" autocapitalize="none"
@@ -32,6 +29,12 @@
 
         <button id="go" type="submit">Search</button>
       </form>
+
+      <!-- After the search in the DOM as well as on screen: the collapsed
+           layout paints it below the search box, and #38 measured the tab
+           order jumping backwards when `order: 3` was the only thing moving it. -->
+      <button class="rail-toggle" id="rail-toggle" type="button"
+              aria-expanded="false" aria-controls="rail">Filters</button>
     </header>
 
     <aside class="rail" id="rail" aria-label="Filters">
@@ -53,11 +56,16 @@
         <fieldset class="f-set">
           <legend class="eyebrow">Meets on</legend>
           <div class="f-days" id="f-days" role="group" aria-label="Days of the week">
-            <button type="button" class="f-day" data-day="monday" data-state="any"><span>Mo</span></button>
-            <button type="button" class="f-day" data-day="tuesday" data-state="any"><span>Tu</span></button>
-            <button type="button" class="f-day" data-day="wednesday" data-state="any"><span>We</span></button>
-            <button type="button" class="f-day" data-day="thursday" data-state="any"><span>Th</span></button>
-            <button type="button" class="f-day" data-day="friday" data-state="any"><span>Fr</span></button>
+            <button type="button" class="f-day" data-day="monday" data-state="any"
+                    aria-label="Monday: any"><span>Mo</span></button>
+            <button type="button" class="f-day" data-day="tuesday" data-state="any"
+                    aria-label="Tuesday: any"><span>Tu</span></button>
+            <button type="button" class="f-day" data-day="wednesday" data-state="any"
+                    aria-label="Wednesday: any"><span>We</span></button>
+            <button type="button" class="f-day" data-day="thursday" data-state="any"
+                    aria-label="Thursday: any"><span>Th</span></button>
+            <button type="button" class="f-day" data-day="friday" data-state="any"
+                    aria-label="Friday: any"><span>Fr</span></button>
           </div>
           <p class="f-hint">Click once to require a day, twice to avoid it.</p>
         </fieldset>
@@ -133,7 +141,7 @@
     </main>
 
     <aside class="detail" id="detail" aria-label="Section detail" tabindex="-1">
-      <button class="detail-back" id="detail-back" type="button" hidden>Back to results</button>
+      <button class="detail-back" id="detail-back" type="button">Back to results</button>
       <div id="detail-body">
         <p class="detail-idle">Pick a section to see the instructor, seats and room.</p>
       </div>

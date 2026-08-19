@@ -7,9 +7,12 @@ import { toMinutes } from "./filters.js";
 import { ratingFor } from "./ratings.js";
 import { seatsFor } from "./seats.js";
 
+// Short label for the column head, full name for the accessible name: a screen
+// reader gets the day from the label, since the grid only says it by position.
 const DAYS = [
-  ["monday", "Mon"], ["tuesday", "Tue"], ["wednesday", "Wed"],
-  ["thursday", "Thu"], ["friday", "Fri"], ["saturday", "Sat"], ["sunday", "Sun"],
+  ["monday", "Mon", "Monday"], ["tuesday", "Tue", "Tuesday"], ["wednesday", "Wed", "Wednesday"],
+  ["thursday", "Thu", "Thursday"], ["friday", "Fri", "Friday"],
+  ["saturday", "Sat", "Saturday"], ["sunday", "Sun", "Sunday"],
 ];
 
 // Sized so a standard 55 minute class has room for its time label plus three
@@ -109,7 +112,7 @@ export function renderCalendar(entries, term) {
   }
   grid.append(gutter);
 
-  for (const [key, label] of usedDays) {
+  for (const [key, label, fullDay] of usedDays) {
     const column = el("div", "cal-col");
     column.append(el("div", "cal-head", label));
 
@@ -122,18 +125,26 @@ export function renderCalendar(entries, term) {
     }
 
     for (const slot of slots.filter((s) => s.days.includes(key))) {
-      body.append(renderSlot(slot, first));
+      body.append(renderSlot(slot, first, fullDay));
     }
     column.append(body);
     grid.append(column);
   }
 
-  wrap.append(grid);
+  // A week is two-dimensional, so it scrolls sideways rather than crushing its
+  // columns. #38 measured the instructor name at 0-8px wide on every phone
+  // width while the grid was squeezing to fit.
+  const scroll = el("div", "cal-scroll");
+  scroll.tabIndex = 0;
+  scroll.setAttribute("role", "group");
+  scroll.setAttribute("aria-label", "Week grid");
+  scroll.append(grid);
+  wrap.append(scroll);
   if (unscheduled.length) wrap.append(unscheduledList(unscheduled));
   return wrap;
 }
 
-function renderSlot(slot, first) {
+function renderSlot(slot, first, fullDay) {
   const box = el("div", `cal-slot ${slotTone(slot.items)}`);
   const height = Math.max((slot.end - slot.start) * PX_PER_MIN, MIN_SLOT);
   box.style.top = `${(slot.start - first) * PX_PER_MIN}px`;
@@ -159,12 +170,24 @@ function renderSlot(slot, first) {
 
     line.append(el("span", "cal-who", name));
 
+    // Spoken, "Paolo Bucci 3.0 32/40" is three numbers with no units, and the
+    // day and time exist only as a position in the grid. The label says all of
+    // it out loud.
+    const said = [`${fullDay} ${clock(slot.start)} to ${clock(slot.end)}`, name];
+
     const rating = people.length === 1 ? ratingFor(people[0].name) : null;
-    if (rating) line.append(el("span", "cal-rate", Number(rating.avgRating).toFixed(1)));
+    if (rating) {
+      line.append(el("span", "cal-rate", Number(rating.avgRating).toFixed(1)));
+      said.push(`rated ${Number(rating.avgRating).toFixed(1)} out of 5`);
+    }
     if (item.seats) {
       line.append(el("span", item.seats.full ? "cal-seats is-full" : "cal-seats",
         `${item.seats.enrolled}/${item.seats.limit}`));
+      said.push(item.seats.full
+        ? `full, ${item.seats.enrolled} of ${item.seats.limit} seats taken`
+        : `${item.seats.enrolled} of ${item.seats.limit} seats taken`);
     }
+    line.setAttribute("aria-label", said.join(", "));
     box.append(line);
   }
 
@@ -182,12 +205,15 @@ function unscheduledList(items) {
   wrap.append(el("p", "eyebrow", `${items.length} without a set time`));
   for (const { entry, section } of items.slice(0, 12)) {
     const people = instructorsOf(section);
+    const who = people.map((p) => p.name).join(" & ") || "Instructor not listed";
+    const course = `${entry.course.subject} ${entry.course.catalogNumber}`;
     const line = el("button", "cal-item");
     line.type = "button";
     line.dataset.classNumber = String(section.classNumber);
-    line.append(el("span", "cal-who",
-      `${entry.course.subject} ${entry.course.catalogNumber} · ${people.map((p) => p.name).join(" & ") || "Instructor not listed"}`));
+    line.append(el("span", "cal-who", `${course} · ${who}`));
     line.append(el("span", "cal-seats", section.instructionMode ?? ""));
+    line.setAttribute("aria-label",
+      [course, who, "no set time", section.instructionMode].filter(Boolean).join(", "));
     wrap.append(line);
   }
   if (items.length > 12) wrap.append(el("p", "d-note", `and ${items.length - 12} more`));
