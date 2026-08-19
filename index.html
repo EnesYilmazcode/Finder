@@ -4,20 +4,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Finder</title>
-  <meta name="description" content="Find who teaches your Ohio State classes.">
+  <meta name="description" content="Find who teaches your Ohio State classes before everyone else.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/finder.css">
 </head>
 <body>
-  <main>
-    <h1>Finder</h1>
-    <p>Find who teaches your classes before everyone else.</p>
+  <div class="shell">
+    <header class="masthead">
+      <h1 class="wordmark">Finder</h1>
+      <p class="tagline">Who teaches it, before everyone else finds out.</p>
+    </header>
 
-    <label for="term">Term</label>
-    <select id="term" disabled></select>
+    <form class="search" id="search" role="search">
+      <label class="visually-hidden" for="q">Course or professor</label>
+      <input id="q" name="q" type="search" autocomplete="off" placeholder="CSE 2221, or a professor's name">
 
-    <p id="status" role="status" hidden></p>
+      <label class="visually-hidden" for="term">Term</label>
+      <select id="term" name="term" disabled></select>
 
-    <p>Search lands in <a href="https://github.com/EnesYilmazcode/Finder/issues/4">#4</a>.</p>
-  </main>
+      <button id="go" type="submit">Search</button>
+    </form>
+
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+    <div class="results" id="results"></div>
+  </div>
+
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
