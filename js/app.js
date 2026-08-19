@@ -296,10 +296,10 @@ function syncUrl(q, term) {
  */
 function showWelcome(term) {
   els.welcome.hidden = false;
-  const sections = seatsTerm() === term ? seatsSectionCount() : 0;
+  const sections = seatsSectionCount(term);
   const bits = [termName(term)];
   if (sections) bits.push(`${sections.toLocaleString()} sections`);
-  if (seatsTerm() === term && seatsUpdated()) bits.push(`seats as of ${formatDate(seatsUpdated())}`);
+  if (seatsUpdated(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
   els.wStats.textContent = bits.join(" · ");
 
   const best = topRated();
@@ -356,7 +356,7 @@ async function runSearch(q, term) {
     const [{ courses }] = await Promise.all([
       searchAllPages({ q, term }),
       loadRatings().catch(() => null),
-      loadSeats().catch(() => null),
+      loadSeats(term).catch(() => null),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
     lastResult = filterCourses(courses, q);
@@ -450,7 +450,7 @@ function paint(term = els.term.value) {
   const noun = primary.length === 1 ? "course" : "courses";
   // Barrett refreshes once a day, so the numbers are dated, and during a
   // registration window that distinction matters.
-  const dated = seatsTerm() === term && seatsUpdated() ? ` Seats as of ${formatDate(seatsUpdated())}.` : "";
+  const dated = seatsTerm(term) && seatsUpdated(term) ? ` Seats as of ${formatDate(seatsUpdated(term))}.` : "";
   setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`);
 }
 
@@ -468,7 +468,7 @@ function termName(code) {
 async function init() {
   // Start the ratings download early so the first search rarely waits on it.
   loadRatings().catch((error) => console.warn("ratings unavailable", error));
-  loadSeats().catch((error) => console.warn("seats unavailable", error));
+  loadSeats(els.term.value).catch((error) => console.warn("seats unavailable", error));
 
   const params = new URLSearchParams(location.search);
   setBusy(false);
@@ -582,6 +582,9 @@ async function init() {
 
   els.term.addEventListener("change", () => {
     if (isLoaded()) { fillSubjects(); fillNumbers(); }
+    // Seats are per term since #48, so the new term has to arrive before the
+    // repaint, or the first view after a switch shows none.
+    loadSeats(els.term.value).then(() => paint()).catch(() => {});
     syncUrl(els.query.value, els.term.value);
     if (els.query.value.trim()) runSearch(els.query.value, els.term.value);
   });
@@ -605,7 +608,7 @@ async function init() {
     // Ratings and seats are already in flight; fill the landing screen once
     // they land rather than showing an empty frame in the meantime.
     setStatus("");
-    Promise.allSettled([loadRatings(), loadSeats()]).then(() => showWelcome(els.term.value));
+    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => showWelcome(els.term.value));
   }
 }
 
