@@ -1,8 +1,8 @@
 import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
 import { filterCourses } from "./rank.js";
 import { renderResults } from "./render.js";
-import { loadRatings } from "./ratings.js";
-import { loadSeats, seatsTerm, seatsUpdated } from "./seats.js";
+import { loadRatings, topRated, ratedCount, profileUrl } from "./ratings.js";
+import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount } from "./seats.js";
 import { renderDetail } from "./detail.js";
 import { applyFilters, isActive, DEFAULTS } from "./filters.js";
 import { renderCalendar } from "./calendar.js";
@@ -23,6 +23,10 @@ const els = {
   subjectList: document.querySelector("#subject-list"),
   numberList: document.querySelector("#number-list"),
   hint: document.querySelector("#p-hint"),
+  welcome: document.querySelector("#welcome"),
+  wStats: document.querySelector("#w-stats"),
+  wSub: document.querySelector("#w-sub"),
+  wList: document.querySelector("#w-list"),
   viewList: document.querySelector("#view-list"),
   viewCal: document.querySelector("#view-cal"),
   clear: document.querySelector("#f-clear"),
@@ -262,12 +266,62 @@ function syncUrl(q, term) {
   history.replaceState(null, "", url);
 }
 
+/**
+ * The landing screen. Everything here comes from snapshots already in memory,
+ * so it costs no extra request and never delays first paint. It also does not
+ * touch the course index, which #36 made lazy on purpose.
+ */
+function showWelcome(term) {
+  els.welcome.hidden = false;
+  const sections = seatsTerm() === term ? seatsSectionCount() : 0;
+  const bits = [termName(term)];
+  if (sections) bits.push(`${sections.toLocaleString()} sections`);
+  if (seatsTerm() === term && seatsUpdated()) bits.push(`seats as of ${formatDate(seatsUpdated())}`);
+  els.wStats.textContent = bits.join(" · ");
+
+  const best = topRated();
+  const rated = ratedCount();
+  // Deliberately does not claim these people teach this term. The ratings
+  // snapshot covers everyone RateMyProfessors knows about, and checking who is
+  // actually teaching would mean a search per name.
+  els.wSub.textContent = rated
+    ? `From ${rated.toLocaleString()} rated instructors, those with at least 50 ratings. Not all teach every term.`
+    : "";
+
+  els.wList.replaceChildren(
+    ...best.map((person) => {
+      const name = `${person.firstName} ${person.lastName}`;
+      const li = document.createElement("li");
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "w-name";
+      button.dataset.q = name;
+      button.textContent = name;
+      li.append(button);
+
+      const score = document.createElement("span");
+      score.className = "w-score";
+      score.textContent = Number(person.avgRating).toFixed(1);
+      li.append(score);
+
+      const meta = document.createElement("span");
+      meta.className = "w-meta";
+      meta.textContent = `${person.numRatings} ratings · ${person.department ?? ""}`;
+      li.append(meta);
+      return li;
+    })
+  );
+}
+
 async function runSearch(q, term) {
   if (!q.trim()) {
     els.results.replaceChildren();
-    setStatus("Type a course like CSE 2221, or a professor's name.");
+    showWelcome(term);
+    setStatus("");
     return;
   }
+  els.welcome.hidden = true;
 
   const requestId = ++latestRequest;
   setBusy(true);
@@ -508,10 +562,23 @@ async function init() {
     if (els.query.value.trim()) runSearch(els.query.value, els.term.value);
   });
 
+  els.welcome.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-q]");
+    if (!button) return;
+    els.query.value = button.dataset.q;
+    syncUrl(button.dataset.q, els.term.value);
+    runSearch(button.dataset.q, els.term.value);
+  });
+
   const initialQuery = params.get("q") ?? "";
   els.query.value = initialQuery;
   if (initialQuery.trim()) runSearch(initialQuery, els.term.value);
-  else setStatus("Type a course like CSE 2221, or a professor's name.");
+  else {
+    // Ratings and seats are already in flight; fill the landing screen once
+    // they land rather than showing an empty frame in the meantime.
+    setStatus("");
+    Promise.allSettled([loadRatings(), loadSeats()]).then(() => showWelcome(els.term.value));
+  }
 }
 
 init();
