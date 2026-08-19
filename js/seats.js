@@ -143,7 +143,12 @@ export function seatsFor(classNumber, term) {
   };
 }
 
-/** How many sections the snapshot covers, for the landing screen. */
-export function seatsSectionCount() {
-  return Object.keys(snapshot?.sections ?? {}).length;
+/**
+ * How many sections a term covers, for the landing screen.
+ *
+ * Answers from the index, so it is available as soon as the 361-byte index
+ * lands rather than waiting for that term's seats.
+ */
+export function seatsSectionCount(term) {
+  return entryFor(String(term ?? ""))?.sections ?? 0;
 }

@@ -123,7 +123,8 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
     seatBlock.append(row("Enrolled", `${seats.enrolled} / ${seats.limit}`, seats.full ? "is-full" : "is-open"));
     seatBlock.append(row("Waitlist", seats.waitlist > 0 ? `${seats.waitlist} waiting` : "none",
       seats.waitlist > 0 ? "is-full" : null));
-    if (seatsUpdated()) seatBlock.append(row("As of", formatDate ? formatDate(seatsUpdated()) : seatsUpdated()));
+    const asOf = seatsUpdated(term);
+    if (asOf) seatBlock.append(row("As of", formatDate ? formatDate(asOf) : asOf));
   } else {
     seatBlock.append(el("p", "d-note", "No seat data for this section."));
   }

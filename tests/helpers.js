@@ -5,7 +5,7 @@
 // hand-building the index and skipping the code that builds it, these helpers
 // serve a fixture over a stubbed fetch and let the real loaders run.
 
-import { RATINGS, SEATS } from "./fixtures.js";
+import { RATINGS, SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
 
 /** Swap in a fetch that serves fixtures by URL. Returns a restore function. */
 export function stubFetch(routes) {
@@ -25,11 +25,16 @@ export function stubFetch(routes) {
  * test that needs a different snapshot, or none at all, asks for a fresh
  * instance by passing a suffix the import cache has not seen.
  */
-export async function withSeats(snapshot = SEATS, suffix = "") {
+export async function withSeats(terms = ["1268"], suffix = "", index = SEATS_INDEX) {
   const mod = await import(`../js/seats.js${suffix}`);
-  const restore = stubFetch({ "seats.json": snapshot });
+  const routes = { "seats.json": index };
+  for (const entry of index.terms ?? []) {
+    if (SEATS_TERMS[entry.term]) routes[entry.file] = SEATS_TERMS[entry.term];
+  }
+  const restore = stubFetch(routes);
   try {
-    await mod.loadSeats("seats.json");
+    // One call per term, the same way app.js loads the term on screen.
+    for (const term of terms) await mod.loadSeats(term, "seats.json");
   } finally {
     restore();
   }

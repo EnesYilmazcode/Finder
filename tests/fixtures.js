@@ -43,20 +43,39 @@ export function taught(classNumber, days, start, end, names, opts = {}) {
 }
 
 // Seat snapshot. Term 1268 only, which is what makes the term guard testable.
-export const SEATS = {
-  term: "1268",
-  termName: "Autumn 2026",
+// Seats, in the same shape as the real snapshot since #48: a small index plus
+// one file per term, so the loader under test does the real two-step fetch.
+export const SEATS_INDEX = {
   source: "https://www.asc.ohio-state.edu/barrett.3/schedule/",
-  sourceUpdated: "2026-08-18",
   fields: ["enrolled", "limit", "waitlist"],
-  sections: {
-    "1001": [30, 40, 0],    // open
-    "1002": [40, 40, 3],    // exactly full, three waiting
-    "1003": [41, 40, 1],    // over cap, which OSU's own API calls open
-    "1004": [0, 0, 1],      // no published capacity, someone already waiting
-    "1005": [12],           // malformed, too short
-    "1006": ["12", 40, 0],  // malformed, enrolled is not a number
-    "1007": [5, 30],        // no waitlist column
+  note: "A missing class number means unknown, not zero.",
+  terms: [
+    { term: "1262", termName: "Spring 2026", sourceUpdated: "2026-04-27", sections: 2, file: "seats-1262.json" },
+    { term: "1268", termName: "Autumn 2026", sourceUpdated: "2026-08-18", sections: 7, file: "seats-1268.json" },
+  ],
+};
+
+export const SEATS_TERMS = {
+  "1268": {
+    term: "1268",
+    sections: {
+      "1001": [30, 40, 0],    // open
+      "1002": [40, 40, 3],    // exactly full, three waiting
+      "1003": [41, 40, 1],    // over cap, which OSU's own API calls open
+      "1004": [0, 0, 1],      // no published capacity, someone already waiting
+      "1005": [12],           // malformed, too short
+      "1006": ["12", 40, 0],  // malformed, enrolled is not a number
+      "1007": [5, 30],        // no waitlist column
+    },
+  },
+  // A second term proves the guard: 1001 exists in both with different numbers,
+  // so serving one term's row for another would be visible rather than subtle.
+  "1262": {
+    term: "1262",
+    sections: {
+      "1001": [10, 55, 0],
+      "2001": [55, 55, 2],
+    },
   },
 };
 
