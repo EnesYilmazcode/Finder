@@ -7,3 +7,6 @@ Thumbs.db
 .vscode/
 .idea/
 scratch/
+
+# Wrangler local state for the analytics worker.
+.wrangler/

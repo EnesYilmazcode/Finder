@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Finder stats</title>
+  <meta name="description" content="Traffic for Finder, the Ohio State course search.">
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/stats.css">
+</head>
+<body>
+  <div class="page">
+
+    <header class="head">
+      <div>
+        <h1 class="wordmark"><a href="../">Finder</a> <span>stats</span></h1>
+        <p class="tagline">Who is actually using it.</p>
+      </div>
+      <nav class="ranges" id="ranges" aria-label="Time range">
+        <button type="button" data-days="7">7d</button>
+        <button type="button" data-days="30" class="on" aria-current="true">30d</button>
+        <button type="button" data-days="90">90d</button>
+        <button type="button" data-days="365">1y</button>
+      </nav>
+    </header>
+
+    <p class="status" id="status" role="status">Loading…</p>
+
+    <main id="main" hidden>
+      <section class="tiles" aria-label="Totals">
+        <div class="tile"><span class="k">Page views</span><span class="v" id="t-views">0</span></div>
+        <div class="tile"><span class="k">Visitors</span><span class="v" id="t-visitors">0</span></div>
+        <div class="tile"><span class="k">Busiest day</span><span class="v" id="t-peak">0</span><span class="sub" id="t-peak-day"></span></div>
+        <div class="tile"><span class="k">Countries</span><span class="v" id="t-countries">0</span></div>
+      </section>
+
+      <section class="card">
+        <h2>Page views per day</h2>
+        <div class="chart" id="chart"></div>
+        <div class="chart-axis"><span id="ax-from"></span><span id="ax-to"></span></div>
+      </section>
+
+      <div class="cards">
+        <section class="card">
+          <h2>Top pages</h2>
+          <ol class="list" id="l-paths"></ol>
+        </section>
+        <section class="card">
+          <h2>Countries</h2>
+          <ol class="list" id="l-countries"></ol>
+        </section>
+        <section class="card">
+          <h2>Where they came from</h2>
+          <ol class="list" id="l-referrers"></ol>
+        </section>
+      </div>
+
+      <footer class="foot">
+        <p>Counted by Finder itself, no third-party analytics. No IP addresses or
+          cookies are stored. A visitor is one person per day, so someone who
+          comes back tomorrow counts again.</p>
+        <p class="stamp" id="stamp"></p>
+      </footer>
+    </main>
+
+  </div>
+  <script type="module" src="../js/stats.js"></script>
+</body>
+</html>
