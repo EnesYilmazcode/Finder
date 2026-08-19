@@ -61,25 +61,35 @@ body {
   :focus-visible { outline: 2px solid Highlight; }
 }
 
-.shell {
-  max-width: 62rem;
-  margin: 0 auto;
-  padding: var(--gap);
+/* Three-pane shell --------------------------------------------------------
+
+   Desktop is a real three-column application: filters, results, detail.
+   Below the breakpoint it becomes one column, because three panes squeezed
+   into a phone is worse than one pane at a time, and registration happens
+   on a phone. */
+
+.app {
+  display: grid;
+  grid-template-columns: 17rem minmax(0, 1fr) 23rem;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
 }
 
-/* Masthead ---------------------------------------------------------------- */
-
-.masthead {
+.topbar {
+  grid-column: 1 / -1;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.75rem;
+  padding: 0.6rem var(--gap);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
   flex-wrap: wrap;
-  margin-bottom: 1.25rem;
 }
 
 .wordmark {
   font-family: var(--display);
-  font-size: clamp(1.75rem, 5vw, 2.5rem);
+  font-size: 1.4rem;
   font-weight: 800;
   letter-spacing: -0.03em;
   margin: 0;
@@ -89,22 +99,46 @@ body {
 .tagline {
   margin: 0;
   color: var(--mute);
-  font-size: 0.95rem;
+  font-size: 0.85rem;
 }
+
+.rail {
+  overflow-y: auto;
+  padding: var(--gap);
+  background: var(--paper);
+  border-right: 1px solid var(--rule);
+}
+
+.rail-empty { margin: 0; color: var(--mute); font-size: 0.85rem; }
+
+.centre {
+  overflow-y: auto;
+  padding: var(--gap);
+  min-width: 0;
+}
+
+.detail {
+  overflow-y: auto;
+  padding: var(--gap);
+  background: var(--paper);
+  border-left: 1px solid var(--rule);
+}
+
+.detail-idle { margin: 0; color: var(--mute); font-size: 0.9rem; }
+
+/* The rail toggle and the detail back button exist only in the collapsed
+   layout, so they are hidden by default rather than created conditionally. */
+.rail-toggle,
+.detail-back { display: none; }
 
 /* Search ------------------------------------------------------------------ */
 
 .search {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 0.5rem;
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  padding: 0.5rem;
-  position: sticky;
-  top: 0.5rem;
-  z-index: 10;
+  margin-left: auto;
+  min-width: min(28rem, 100%);
 }
 
 .search input,
@@ -122,7 +156,7 @@ body {
 .search input {
   min-width: 0;
   border-color: var(--field);
-  background: var(--paper);
+  background: var(--wash);
 }
 
 .search input::placeholder { color: var(--mute); }
@@ -156,7 +190,7 @@ body {
 /* Status ------------------------------------------------------------------ */
 
 .status {
-  margin: 1rem 0 0;
+  margin: 0 0 0.9rem;
   color: var(--mute);
   font-size: 0.95rem;
   overflow-wrap: break-word;
@@ -167,7 +201,7 @@ body {
 
 /* Course records ---------------------------------------------------------- */
 
-.results { margin-top: 1.25rem; display: grid; gap: 0.75rem; }
+.results { display: grid; gap: 0.75rem; }
 
 .course {
   background: var(--paper);
@@ -254,9 +288,77 @@ body {
 
 /* Small screens ----------------------------------------------------------- */
 
+/* Collapsed layout --------------------------------------------------------
+
+   One column. The rail becomes a sheet the top bar opens, and the detail pane
+   becomes a full view pushed over the results with a way back. */
+
+@media (max-width: 64rem) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .rail {
+    display: none;
+    grid-column: 1;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .app[data-rail="open"] .rail { display: block; }
+
+  .rail-toggle {
+    display: inline-block;
+    order: 3;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.45rem 0.7rem;
+    border: 1px solid var(--field);
+    border-radius: var(--radius);
+    background: var(--wash);
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .rail-toggle[aria-expanded="true"] {
+    background: var(--scarlet);
+    border-color: var(--scarlet);
+    color: var(--paper);
+  }
+
+  .centre { grid-column: 1; }
+
+  .detail {
+    display: none;
+    grid-column: 1;
+    border-left: 0;
+  }
+
+  /* Detail replaces the results rather than sitting beside them. */
+  .app[data-view="detail"] .detail { display: block; }
+  .app[data-view="detail"] .centre { display: none; }
+
+  .app[data-view="detail"] .detail-back {
+    display: inline-block;
+    font: inherit;
+    font-size: 0.85rem;
+    margin-bottom: 0.9rem;
+    padding: 0.45rem 0.7rem;
+    border: 1px solid var(--field);
+    border-radius: var(--radius);
+    background: var(--wash);
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .tagline { display: none; }
+  .search { margin-left: 0; width: 100%; min-width: 0; }
+}
+
 @media (max-width: 34rem) {
-  .search { grid-template-columns: 1fr; position: static; }
-  .section { grid-template-columns: 1fr auto; }
+  .search { grid-template-columns: minmax(0, 1fr); }
+  .section { grid-template-columns: minmax(0, 1fr) auto; }
   .section-number { grid-column: 1; }
   .section-when,
   .section-where,
@@ -376,4 +478,33 @@ body {
 
 @media (max-width: 34rem) {
   .seats { grid-column: 1 / -1; text-align: left; }
+}
+
+/* Selection --------------------------------------------------------------- */
+
+.section { cursor: pointer; }
+.section:hover { background: var(--wash); }
+
+.section.is-selected {
+  background: var(--wash);
+  box-shadow: inset 3px 0 0 var(--scarlet);
+}
+
+.detail .h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.6rem;
+}
+
+.detail-line {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+  color: var(--mute);
+}
+
+.section:focus-visible {
+  outline: 2px solid var(--scarlet);
+  outline-offset: -2px;
 }

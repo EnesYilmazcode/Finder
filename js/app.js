@@ -5,7 +5,13 @@ import { loadRatings } from "./ratings.js";
 import { loadSeats, seatsTerm, seatsUpdated } from "./seats.js";
 
 const els = {
+  app: document.querySelector(".app"),
   form: document.querySelector("#search"),
+  rail: document.querySelector("#rail"),
+  railToggle: document.querySelector("#rail-toggle"),
+  detail: document.querySelector("#detail"),
+  detailBody: document.querySelector("#detail-body"),
+  detailBack: document.querySelector("#detail-back"),
   query: document.querySelector("#q"),
   term: document.querySelector("#term"),
   submit: document.querySelector("#go"),
@@ -15,6 +21,49 @@ const els = {
 
 let terms = [];
 let latestRequest = 0;
+
+/**
+ * True while the layout is collapsed to one column. Matches the CSS breakpoint,
+ * which is the only place the number should really live, so it is read from a
+ * media query rather than duplicated as a magic width.
+ */
+const collapsed = window.matchMedia("(max-width: 64rem)");
+
+function openRail(open) {
+  els.app.dataset.rail = open ? "open" : "closed";
+  els.railToggle.setAttribute("aria-expanded", String(open));
+}
+
+/**
+ * Show a section in the detail pane.
+ *
+ * On desktop the pane is always visible, so this only swaps content. Collapsed,
+ * it takes over the screen and focus moves with it, otherwise a keyboard user
+ * is left on a control that is no longer on screen.
+ */
+function showDetail(node) {
+  els.detailBody.replaceChildren(node);
+  if (collapsed.matches) {
+    els.app.dataset.view = "detail";
+    els.detail.focus();
+  }
+}
+
+function selectSection(row) {
+  for (const other of els.results.querySelectorAll(".section.is-selected")) {
+    other.classList.remove("is-selected");
+    other.removeAttribute("aria-current");
+  }
+  row.classList.add("is-selected");
+  // Selection is state, not just colour, so it is exposed rather than implied.
+  row.setAttribute("aria-current", "true");
+  showDetail(buildDetailPlaceholder(row));
+}
+
+function closeDetail() {
+  els.app.dataset.view = "results";
+  els.results.focus();
+}
 
 // The status element is never removed or hidden, only its text changes. A live
 // region that was hidden when content arrived usually goes unannounced.
@@ -79,6 +128,28 @@ async function runSearch(q, term) {
   }
 }
 
+/**
+ * Minimal stand-in so the third pane is demonstrable. The real content, with
+ * ratings, difficulty, other sections and the description, lands in #28.
+ */
+function buildDetailPlaceholder(row) {
+  const wrap = document.createElement("div");
+  const heading = document.createElement("h2");
+  heading.className = "h2";
+  heading.textContent = row.querySelector(".section-who")?.textContent ?? "Section";
+  wrap.append(heading);
+
+  for (const selector of [".section-number", ".section-when", ".section-where", ".seats"]) {
+    const found = row.querySelector(selector);
+    if (!found) continue;
+    const line = document.createElement("p");
+    line.className = "detail-line";
+    line.textContent = found.textContent.trim();
+    wrap.append(line);
+  }
+  return wrap;
+}
+
 function formatDate(iso) {
   const date = new Date(`${iso}T12:00:00`);
   return Number.isNaN(date.getTime())
@@ -123,6 +194,32 @@ async function init() {
   const wanted = params.get("term");
   els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
   els.term.disabled = false;
+
+  els.railToggle.addEventListener("click", () => {
+    openRail(els.app.dataset.rail !== "open");
+  });
+
+  els.detailBack.addEventListener("click", closeDetail);
+
+  // Returning to a wide layout must not leave the results hidden behind a
+  // detail view that no longer takes over the screen.
+  collapsed.addEventListener("change", (event) => {
+    if (!event.matches) els.app.dataset.view = "results";
+  });
+
+  // Selecting a section is delegated, so results can re-render freely.
+  els.results.addEventListener("click", (event) => {
+    const row = event.target.closest(".section");
+    if (row && !event.target.closest("a")) selectSection(row);
+  });
+
+  els.results.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const row = event.target.closest(".section");
+    if (!row || event.target.closest("a")) return;
+    event.preventDefault(); // Space would otherwise scroll the results pane
+    selectSection(row);
+  });
 
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
