@@ -315,3 +315,22 @@ body {
 
 .teacher .sections > .section:first-child { border-top: 0; }
 .teacher .section { padding-top: 0.35rem; padding-bottom: 0.6rem; }
+
+/* Related courses stay reachable without competing with the answer. */
+
+.related {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+.related > summary {
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  color: var(--mute);
+  font-size: 0.9rem;
+}
+
+.related > summary:hover { color: var(--ink); }
+.related[open] > summary { border-bottom: 1px solid var(--rule); }
+.related > .course { border: 0; border-radius: 0; border-top: 1px solid var(--rule); }
