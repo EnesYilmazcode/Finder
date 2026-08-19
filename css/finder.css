@@ -585,7 +585,13 @@ body {
 
 .f-days { display: flex; gap: 0.3rem; flex-wrap: wrap; }
 
-.f-day input { position: absolute; opacity: 0; width: 0; height: 0; }
+.f-day {
+  font: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
 
 .f-day span {
   display: block;
@@ -597,17 +603,25 @@ body {
   font-family: var(--data);
   font-size: 0.78rem;
   color: var(--mute);
-  cursor: pointer;
 }
 
-.f-day input:checked + span {
+.f-day[data-state="require"] span {
   background: var(--scarlet);
   border-color: var(--scarlet);
   color: var(--paper);
   font-weight: 600;
 }
 
-.f-day input:focus-visible + span { outline: 2px solid var(--scarlet); outline-offset: 2px; }
+/* Avoided reads as struck out, which needs no legend to understand. */
+.f-day[data-state="avoid"] span {
+  border-style: dashed;
+  border-color: var(--mute);
+  color: var(--mute);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.f-day:focus-visible span { outline: 2px solid var(--scarlet); outline-offset: 2px; }
 
 .f-hint { margin: 0.45rem 0 0; font-size: 0.72rem; color: var(--mute); }
 

@@ -8,7 +8,8 @@ import { seatsFor } from "./seats.js";
 const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 export const DEFAULTS = {
-  days: [],          // empty means no day constraint, not "no days"
+  days: [],          // days that must be met; empty means no constraint
+  avoid: [],         // days that must not be met
   from: "",          // earliest start, as minutes past midnight
   to: "",            // latest end
   rating: "",        // minimum average rating
@@ -58,9 +59,12 @@ function keepSection(section, filters) {
     if (best < Number(filters.rating)) return false;
   }
 
-  if (filters.days.length) {
-    const days = sectionDays(section);
-    if (days.size && !filters.days.every((d) => days.has(d))) return false;
+  // A section with no meeting pattern has no days to judge, so neither rule
+  // applies to it. Online and arranged sections must not vanish either way.
+  const meetsOn = sectionDays(section);
+  if (meetsOn.size) {
+    if (filters.days.length && !filters.days.every((d) => meetsOn.has(d))) return false;
+    if (filters.avoid.length && filters.avoid.some((d) => meetsOn.has(d))) return false;
   }
 
   const meeting = section.meetings?.find((m) => m.startTime) ?? null;
@@ -76,7 +80,7 @@ function keepSection(section, filters) {
 
 export function isActive(filters) {
   return Boolean(
-    filters.days.length || filters.from || filters.to || filters.rating ||
+    filters.days.length || filters.avoid.length || filters.from || filters.to || filters.rating ||
     filters.hideFull || filters.hideOnline || filters.ratedOnly
   );
 }
