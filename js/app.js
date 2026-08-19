@@ -5,6 +5,7 @@ import { loadRatings } from "./ratings.js";
 import { loadSeats, seatsTerm, seatsUpdated } from "./seats.js";
 import { renderDetail } from "./detail.js";
 import { applyFilters, isActive, DEFAULTS } from "./filters.js";
+import { renderCalendar } from "./calendar.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -15,6 +16,8 @@ const els = {
   detailBody: document.querySelector("#detail-body"),
   detailBack: document.querySelector("#detail-back"),
   filters: document.querySelector("#filters"),
+  viewList: document.querySelector("#view-list"),
+  viewCal: document.querySelector("#view-cal"),
   clear: document.querySelector("#f-clear"),
   query: document.querySelector("#q"),
   term: document.querySelector("#term"),
@@ -34,6 +37,7 @@ let currentEntries = [];
 // rather than refetching.
 let lastResult = null;
 let showHidden = false;
+let view = "list";
 
 function readFilters() {
   const data = new FormData(els.filters);
@@ -98,11 +102,20 @@ function resetDetail() {
   );
 }
 
+function setView(next) {
+  view = next;
+  for (const [button, name] of [[els.viewList, "list"], [els.viewCal, "calendar"]]) {
+    button.classList.toggle("is-on", name === next);
+    button.setAttribute("aria-pressed", String(name === next));
+  }
+  paint();
+}
+
 function selectSection(row) {
   const found = sectionIndex.get(row.dataset.classNumber);
   if (!found) return;
 
-  for (const other of els.results.querySelectorAll(".section.is-selected")) {
+  for (const other of els.results.querySelectorAll(".is-selected")) {
     other.classList.remove("is-selected");
     other.removeAttribute("aria-current");
   }
@@ -208,7 +221,11 @@ function paint(term = els.term.value) {
         sectionIndex.set(String(section.classNumber), { section, course: entry.course });
       }
     }
-  renderResults(els.results, { primary, related }, term);
+  if (view === "calendar") {
+    els.results.replaceChildren(renderCalendar(primary, term));
+  } else {
+    renderResults(els.results, { primary, related }, term);
+  }
   resetDetail();
 
   if (hiddenSections || hiddenCourses) {
@@ -293,6 +310,9 @@ async function init() {
 
   writeFilters(params);
 
+  els.viewList.addEventListener("click", () => setView("list"));
+  els.viewCal.addEventListener("click", () => setView("calendar"));
+
   els.filters.addEventListener("change", () => {
     showHidden = false;
     syncUrl(els.query.value, els.term.value);
@@ -320,7 +340,7 @@ async function init() {
 
   // Selecting a section is delegated, so results can re-render freely.
   els.results.addEventListener("click", (event) => {
-    const row = event.target.closest(".section");
+    const row = event.target.closest(".section, .cal-item");
     if (row && !event.target.closest("a")) selectSection(row);
   });
 
