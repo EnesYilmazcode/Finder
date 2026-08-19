@@ -109,6 +109,16 @@ export function renderCourse({ course, sections }) {
   return article;
 }
 
-export function renderResults(container, entries) {
-  container.replaceChildren(...entries.map(renderCourse));
+export function renderResults(container, { primary, related }) {
+  const nodes = primary.map(renderCourse);
+
+  if (related?.length) {
+    const details = el("details", "related");
+    const summary = el("summary", null, `Show ${related.length} related course${related.length === 1 ? "" : "s"}`);
+    details.append(summary);
+    for (const entry of related) details.append(renderCourse(entry));
+    nodes.push(details);
+  }
+
+  container.replaceChildren(...nodes);
 }

@@ -75,6 +75,71 @@ function scoreCourse({ course, sections }, parsed) {
   return score;
 }
 
+const NON_TEACHING_COMPONENTS = new Set([
+  "Independent Study",
+  "Research",
+  "Thesis Research",
+  "Dissertation",
+]);
+
+/**
+ * Independent study, research and thesis courses carry dozens of one-student
+ * sections with no meeting pattern. CSE 4193 alone has 66. They are real, but
+ * nobody searching a subject wants them, so they stay out of generic results
+ * and remain reachable by name.
+ */
+export function isIndividualStudy({ course, sections }) {
+  if (!sections?.length) return false;
+  const scheduled = sections.some((s) =>
+    (s.meetings ?? []).some((m) => m.monday || m.tuesday || m.wednesday || m.thursday || m.friday || m.saturday || m.sunday)
+  );
+  if (scheduled) return false;
+  const components = new Set(sections.map((s) => s.component).filter(Boolean));
+  if ([...components].every((c) => NON_TEACHING_COMPONENTS.has(c))) return true;
+  return /individual studies|research|thesis|dissertation/i.test(course.title ?? "");
+}
+
+/**
+ * Split results into what was asked for and what merely matched.
+ *
+ * Ranking alone left 103 courses on screen for "CSE 2321". Ordering the noise
+ * correctly is not the same as removing it.
+ */
+export function filterCourses(entries, rawQuery) {
+  const parsed = parseQuery(rawQuery);
+  const ranked = rankCourses(entries, rawQuery);
+  if (!ranked.length) return { primary: [], related: [], reason: "none" };
+
+  const wantsStudy = /individual|research|thesis|dissertation/i.test(parsed.raw);
+  const setAside = wantsStudy ? [] : ranked.filter(isIndividualStudy);
+  const pool = wantsStudy ? ranked : ranked.filter((e) => !isIndividualStudy(e));
+  // Nothing is ever discarded outright. Demoted results move to `related` so a
+  // student who really did want CSE 4193 can still reach it.
+  if (!pool.length) return { primary: ranked.slice(0, 25), related: ranked.slice(25), reason: "ranked" };
+
+  // An exact subject plus number is unambiguous. Answer the question asked.
+  if (parsed.subject && parsed.number) {
+    const exact = pool.filter(
+      (e) =>
+        (e.course.subject ?? "").toUpperCase() === parsed.subject &&
+        (e.course.catalogNumber ?? "").toUpperCase() === parsed.number
+    );
+    if (exact.length) {
+      const rest = [...pool.filter((e) => !exact.includes(e)), ...setAside];
+      return { primary: exact, related: rest, reason: "exact" };
+    }
+  }
+
+  // Otherwise keep what scores near the top and drop the long tail.
+  const scored = pool.map((entry) => ({ entry, score: scoreCourse(entry, parsed) }));
+  const best = Math.max(...scored.map((s) => s.score));
+  const floor = best > 200 ? best * 0.25 : 0;
+  const kept = scored.filter((s) => s.score >= floor).map((s) => s.entry);
+  const primary = kept.slice(0, 25);
+  const related = [...kept.slice(25), ...pool.filter((e) => !kept.includes(e)), ...setAside];
+  return { primary, related, reason: "ranked" };
+}
+
 export function rankCourses(entries, rawQuery) {
   const parsed = parseQuery(rawQuery);
   const merged = mergeCourses(entries);
