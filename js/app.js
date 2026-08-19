@@ -14,9 +14,18 @@ const els = {
 let terms = [];
 let latestRequest = 0;
 
+// The status element is never removed or hidden, only its text changes. A live
+// region that was hidden when content arrived usually goes unannounced.
 function setStatus(message, kind = "info") {
   els.status.textContent = message ?? "";
   els.status.dataset.kind = kind;
+}
+
+// aria-disabled, not the disabled property: searching by pressing Enter leaves
+// focus on the button, and disabling it would throw that focus back to the body.
+function setBusy(busy) {
+  els.submit.setAttribute("aria-disabled", String(busy));
+  els.results.setAttribute("aria-busy", String(busy));
 }
 
 function syncUrl(q, term) {
@@ -34,7 +43,7 @@ async function runSearch(q, term) {
   }
 
   const requestId = ++latestRequest;
-  els.submit.disabled = true;
+  setBusy(true);
   setStatus("Searching...");
   try {
     const { courses } = await searchAllPages({ q, term });
@@ -54,7 +63,7 @@ async function runSearch(q, term) {
     setStatus(error instanceof ApiError ? error.message : "Something went wrong. Try again.", "error");
     if (!(error instanceof ApiError)) console.error(error);
   } finally {
-    if (requestId === latestRequest) els.submit.disabled = false;
+    if (requestId === latestRequest) setBusy(false);
   }
 }
 
@@ -64,6 +73,7 @@ function termName(code) {
 
 async function init() {
   const params = new URLSearchParams(location.search);
+  setBusy(false);
   setStatus("Loading terms...");
   els.term.disabled = true;
 
@@ -93,6 +103,7 @@ async function init() {
 
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (els.submit.getAttribute("aria-disabled") === "true") return;
     const q = els.query.value;
     syncUrl(q, els.term.value);
     runSearch(q, els.term.value);

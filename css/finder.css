@@ -6,12 +6,13 @@
   --wash: #f0f1f4;
   --sunk: #e7e9ee;
   --ink: #16171a;
-  --mute: #656a72;
+  --mute: #5f646c;
   --rule: #dee0e5;
+  --field: #8a9099;
   --scarlet: #bb0000;
   --open: #0e7a50;
   --wait: #a65b00;
-  --closed: #767c85;
+  --closed: #686d76;
 
   --display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
   --body: "IBM Plex Sans", system-ui, sans-serif;
@@ -29,6 +30,7 @@
     --ink: #eceef2;
     --mute: #9aa1ab;
     --rule: #2c2f35;
+    --field: #6b7079;
     --scarlet: #ff5c4d;
     --open: #4cc38a;
     --wait: #e0a44a;
@@ -51,6 +53,12 @@ body {
 :focus-visible {
   outline: 2px solid var(--scarlet);
   outline-offset: 2px;
+}
+
+.search button:focus-visible { outline-color: var(--ink); }
+
+@media (forced-colors: active) {
+  :focus-visible { outline: 2px solid Highlight; }
 }
 
 .shell {
@@ -103,6 +111,7 @@ body {
 .search select,
 .search button {
   font: inherit;
+  min-height: 2.75rem;
   border-radius: var(--radius);
   border: 1px solid transparent;
   padding: 0.6rem 0.75rem;
@@ -112,14 +121,14 @@ body {
 
 .search input {
   min-width: 0;
-  border-color: var(--rule);
+  border-color: var(--field);
   background: var(--paper);
 }
 
 .search input::placeholder { color: var(--mute); }
 
 .search select {
-  border-color: var(--rule);
+  border-color: var(--field);
   background: var(--paper);
   cursor: pointer;
 }
@@ -133,7 +142,12 @@ body {
 }
 
 .search button:hover { filter: brightness(1.08); }
-.search button:disabled { opacity: 0.5; cursor: default; }
+.search button[aria-disabled="true"] {
+  background: var(--mute);
+  border-color: var(--mute);
+  cursor: default;
+}
+.search button[aria-disabled="true"]:hover { filter: none; }
 
 @media (prefers-color-scheme: dark) {
   .search button { color: #16171a; }
@@ -145,6 +159,7 @@ body {
   margin: 1rem 0 0;
   color: var(--mute);
   font-size: 0.95rem;
+  overflow-wrap: break-word;
 }
 
 .status:empty { margin: 0; }
@@ -170,6 +185,12 @@ body {
   padding: 0.9rem 1rem;
   border-bottom: 1px solid var(--rule);
 }
+
+.course-title,
+.teacher-name,
+.section-when,
+.section-where,
+.section-who { overflow-wrap: break-word; }
 
 .course-code {
   font-family: var(--display);
@@ -273,11 +294,20 @@ body {
   .section-where,
   .section-who { grid-column: 1 / -1; }
   .seats { grid-column: 1 / -1; text-align: left; }
-  .course-meta { margin-left: 0; width: 100%; }
+  .course-meta { margin-left: 0; width: 100%; white-space: normal; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
+  html { scroll-behavior: auto !important; }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .visually-hidden {
@@ -288,6 +318,7 @@ body {
   margin: -1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }
