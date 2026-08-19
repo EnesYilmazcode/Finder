@@ -190,10 +190,16 @@ function paint(term = els.term.value) {
   const active = isActive(filters);
   els.clear.hidden = !active;
 
-  const primaryAll = lastResult.primary;
-  const { entries: primary, hiddenSections, hiddenCourses } =
-    showHidden ? { entries: primaryAll, hiddenSections: 0, hiddenCourses: 0 } : applyFilters(primaryAll, filters);
-  const related = showHidden ? lastResult.related : applyFilters(lastResult.related, filters).entries;
+  const blank = { entries: [], hiddenSections: 0, hiddenCourses: 0 };
+  const p = showHidden ? { ...blank, entries: lastResult.primary } : applyFilters(lastResult.primary, filters);
+  const r = showHidden ? { ...blank, entries: lastResult.related } : applyFilters(lastResult.related, filters);
+
+  const primary = p.entries;
+  const related = r.entries;
+  // Count what the filters removed from everything on the page, not just from
+  // the primary results, or the note understates its own effect.
+  const hiddenSections = p.hiddenSections + r.hiddenSections;
+  const hiddenCourses = p.hiddenCourses + r.hiddenCourses;
 
     currentEntries = [...primary, ...related];
     sectionIndex = new Map();
@@ -222,9 +228,11 @@ function paint(term = els.term.value) {
   }
 
   if (!primary.length) {
+    // Careful not to claim everything went when related courses may still be
+    // on screen underneath this message.
     setStatus(
       isActive(filters)
-        ? "Your filters removed everything. Loosen one, or clear them."
+        ? `No sections match your filters in ${termName(term)}. Loosen one, or clear them.`
         : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`
     );
     return;
