@@ -52,9 +52,16 @@ export function groupByInstructor(sections) {
   });
 }
 
+const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
+
+/** Last name for sorting, skipping generational suffixes like "Smith III". */
 function surname(name) {
   const parts = name.split(" & ")[0].trim().split(/\s+/);
-  return parts[parts.length - 1] ?? name;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const word = parts[i].replace(/\.$/, "").toLowerCase();
+    if (!SUFFIXES.has(word)) return parts[i];
+  }
+  return name;
 }
 
 export function renderSection(section) {
