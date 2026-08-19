@@ -241,38 +241,6 @@ body {
 
 .section-who { color: var(--ink); }
 
-.chip {
-  font-family: var(--data);
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.chip::before {
-  content: "";
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.chip[data-kind="open"] { color: var(--open); }
-.chip[data-kind="wait"] { color: var(--wait); }
-.chip[data-kind="closed"] { color: var(--closed); }
-.chip[data-kind="unknown"] { color: var(--mute); }
-
-.seats {
-  grid-column: 3;
-  font-family: var(--data);
-  font-size: 0.78rem;
-  color: var(--mute);
-  text-align: right;
-}
-
 .component {
   font-family: var(--data);
   font-size: 0.72rem;
