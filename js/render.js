@@ -114,9 +114,18 @@ export function renderResults(container, { primary, related }) {
 
   if (related?.length) {
     const details = el("details", "related");
-    const summary = el("summary", null, `Show ${related.length} related course${related.length === 1 ? "" : "s"}`);
-    details.append(summary);
-    for (const entry of related) details.append(renderCourse(entry));
+    details.append(el("summary", null, `Show ${related.length} related course${related.length === 1 ? "" : "s"}`));
+
+    // <details> hides its content, it does not defer building it. Rendering
+    // these up front costs thousands of nodes to display none of them, so they
+    // are built on first open instead.
+    let built = false;
+    details.addEventListener("toggle", () => {
+      if (built || !details.open) return;
+      built = true;
+      details.append(...related.map(renderCourse));
+    });
+
     nodes.push(details);
   }
 
