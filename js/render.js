@@ -103,6 +103,10 @@ function renderTeacher(group) {
 
 export function renderSection(section, term) {
   const li = el("li", "section");
+  // Selecting a section is the primary action in the three-pane layout, so the
+  // row has to be a real control rather than a div with a click handler.
+  li.tabIndex = 0;
+  li.setAttribute("role", "button");
   const meeting = section.meetings?.[0] ?? null;
 
   li.append(el("span", "section-number", section.classNumber ?? ""));

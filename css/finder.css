@@ -503,3 +503,8 @@ body {
   font-size: 0.9rem;
   color: var(--mute);
 }
+
+.section:focus-visible {
+  outline: 2px solid var(--scarlet);
+  outline-offset: -2px;
+}

@@ -41,12 +41,23 @@ function openRail(open) {
  * it takes over the screen and focus moves with it, otherwise a keyboard user
  * is left on a control that is no longer on screen.
  */
-export function showDetail(node) {
+function showDetail(node) {
   els.detailBody.replaceChildren(node);
   if (collapsed.matches) {
     els.app.dataset.view = "detail";
     els.detail.focus();
   }
+}
+
+function selectSection(row) {
+  for (const other of els.results.querySelectorAll(".section.is-selected")) {
+    other.classList.remove("is-selected");
+    other.removeAttribute("aria-current");
+  }
+  row.classList.add("is-selected");
+  // Selection is state, not just colour, so it is exposed rather than implied.
+  row.setAttribute("aria-current", "true");
+  showDetail(buildDetailPlaceholder(row));
 }
 
 function closeDetail() {
@@ -199,12 +210,15 @@ async function init() {
   // Selecting a section is delegated, so results can re-render freely.
   els.results.addEventListener("click", (event) => {
     const row = event.target.closest(".section");
+    if (row && !event.target.closest("a")) selectSection(row);
+  });
+
+  els.results.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const row = event.target.closest(".section");
     if (!row || event.target.closest("a")) return;
-    for (const other of els.results.querySelectorAll(".section.is-selected")) {
-      other.classList.remove("is-selected");
-    }
-    row.classList.add("is-selected");
-    showDetail(buildDetailPlaceholder(row));
+    event.preventDefault(); // Space would otherwise scroll the results pane
+    selectSection(row);
   });
 
   els.form.addEventListener("submit", (event) => {
