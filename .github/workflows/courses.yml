@@ -1,0 +1,50 @@
+name: Course index
+
+# Weekly rather than daily like the other two. Nothing in this file changes from
+# one day to the next: it is the catalog, not enrollment, and a full build is
+# about 2500 requests against a university API. 08:40 UTC on Monday is off the
+# top of the hour so the run does not sit in GitHub's busiest scheduling window.
+# Dispatch it by hand when a term rolls over and the new one should appear early.
+on:
+  schedule:
+    - cron: '40 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: courses
+  cancel-in-progress: false
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No term argument: the script indexes every searchable term, and naming
+      # one would drop the others from the file.
+      - name: Build course index
+        run: node scripts/fetch-courses.mjs
+
+      - name: Commit if changed
+        run: |
+          # --porcelain rather than git diff so a first run, where the file is not
+          # tracked yet, still counts as a change.
+          if [ -z "$(git status --porcelain -- data/courses.json)" ]; then
+            echo "No change in data/courses.json, nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/courses.json
+          git commit -m "Update course index"
+          # The scheduled run and a manual dispatch can overlap, and the branch may have
+          # moved on while the build was running.
+          git pull --rebase origin ${{ github.ref_name }}
+          git push origin HEAD:${{ github.ref_name }}
