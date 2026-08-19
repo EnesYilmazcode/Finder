@@ -6,6 +6,7 @@ import { loadSeats, seatsTerm, seatsUpdated } from "./seats.js";
 import { renderDetail } from "./detail.js";
 import { applyFilters, isActive, DEFAULTS } from "./filters.js";
 import { renderCalendar } from "./calendar.js";
+import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -16,6 +17,11 @@ const els = {
   detailBody: document.querySelector("#detail-body"),
   detailBack: document.querySelector("#detail-back"),
   filters: document.querySelector("#filters"),
+  subject: document.querySelector("#p-subject"),
+  number: document.querySelector("#p-number"),
+  subjectList: document.querySelector("#subject-list"),
+  numberList: document.querySelector("#number-list"),
+  hint: document.querySelector("#p-hint"),
   viewList: document.querySelector("#view-list"),
   viewCal: document.querySelector("#view-cal"),
   clear: document.querySelector("#f-clear"),
@@ -100,6 +106,65 @@ function resetDetail() {
       textContent: "Pick a section to see the instructor, seats and room.",
     })
   );
+}
+
+/**
+ * Fill the subject list. Called on first focus rather than at startup, since
+ * the index is 177 KB gzipped and nobody needs it until they open a picker.
+ */
+async function ensureCourses() {
+  if (isLoaded()) return true;
+  els.hint.textContent = "Loading the course list...";
+  try {
+    await loadCourses();
+  } catch {
+    els.hint.textContent = "Could not load the course list. The search box still works.";
+    return false;
+  }
+  fillSubjects();
+  els.hint.textContent = "Pick a subject to browse its courses. You can still type a course or a professor in the search box.";
+  return true;
+}
+
+function fillSubjects() {
+  const subjects = subjectsFor(els.term.value);
+  els.subjectList.replaceChildren(
+    ...subjects.map((subject) => {
+      const option = document.createElement("option");
+      option.value = subjectLabel(subject);
+      return option;
+    })
+  );
+}
+
+function fillNumbers() {
+  const code = codeFromInput(els.subject.value);
+  const courses = coursesFor(els.term.value, code);
+  els.number.disabled = !courses.length;
+  els.numberList.replaceChildren(
+    ...courses.map((course) => {
+      const option = document.createElement("option");
+      // The value is what lands in the field, so it stays a bare number the
+      // search can use. The title rides along as the visible hint.
+      option.value = course.number;
+      option.label = course.title;
+      option.textContent = course.title;
+      return option;
+    })
+  );
+  if (!courses.length) els.number.value = "";
+  return courses;
+}
+
+/** A picked subject and number becomes an ordinary search. */
+function searchFromPickers() {
+  const code = codeFromInput(els.subject.value);
+  if (!code) return;
+  const number = els.number.value.trim();
+  const q = number ? `${code} ${number}` : code;
+  els.query.value = q;
+  syncUrl(q, els.term.value);
+  runSearch(q, els.term.value);
 }
 
 function setView(next) {
@@ -325,6 +390,24 @@ async function init() {
 
   writeFilters(params);
 
+  for (const field of [els.subject, els.number]) {
+    field.addEventListener("focus", ensureCourses);
+  }
+
+  els.subject.addEventListener("input", async () => {
+    if (!(await ensureCourses())) return;
+    const courses = fillNumbers();
+    // Committing a whole subject is a useful search on its own, but only once
+    // the typed text actually names one.
+    if (courses.length && !els.number.value) searchFromPickers();
+  });
+
+  els.number.addEventListener("input", () => {
+    const code = codeFromInput(els.subject.value);
+    const wanted = els.number.value.trim();
+    if (coursesFor(els.term.value, code).some((c) => c.number === wanted)) searchFromPickers();
+  });
+
   els.viewList.addEventListener("click", () => setView("list"));
   els.viewCal.addEventListener("click", () => setView("calendar"));
 
@@ -376,6 +459,7 @@ async function init() {
   });
 
   els.term.addEventListener("change", () => {
+    if (isLoaded()) { fillSubjects(); fillNumbers(); }
     syncUrl(els.query.value, els.term.value);
     if (els.query.value.trim()) runSearch(els.query.value, els.term.value);
   });

@@ -778,3 +778,10 @@ body {
 .cal-empty { color: var(--mute); font-size: 0.9rem; }
 
 .cal-more { margin: 0; font-family: var(--data); font-size: 0.6rem; color: var(--scarlet); }
+
+/* Course pickers ---------------------------------------------------------- */
+
+.picker { margin-bottom: 1.25rem; padding-bottom: 1.1rem; border-bottom: 1px solid var(--rule); }
+.picker .f-ctl { cursor: text; }
+.picker .f-ctl:disabled { opacity: 0.5; cursor: default; }
+.picker .f-ctl::placeholder { color: var(--mute); }
