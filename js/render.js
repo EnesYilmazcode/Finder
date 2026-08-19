@@ -107,6 +107,7 @@ export function renderSection(section, term) {
   // row has to be a real control rather than a div with a click handler.
   li.tabIndex = 0;
   li.setAttribute("role", "button");
+  li.dataset.classNumber = String(section.classNumber ?? "");
   const meeting = section.meetings?.[0] ?? null;
 
   li.append(el("span", "section-number", section.classNumber ?? ""));

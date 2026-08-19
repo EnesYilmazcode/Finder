@@ -3,6 +3,7 @@ import { filterCourses } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings } from "./ratings.js";
 import { loadSeats, seatsTerm, seatsUpdated } from "./seats.js";
+import { renderDetail } from "./detail.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -21,6 +22,11 @@ const els = {
 
 let terms = [];
 let latestRequest = 0;
+
+// Class number to its section and course, rebuilt on every render. The detail
+// pane needs the real objects, not text scraped back out of the DOM.
+let sectionIndex = new Map();
+let currentEntries = [];
 
 /**
  * True while the layout is collapsed to one column. Matches the CSS breakpoint,
@@ -49,7 +55,19 @@ function showDetail(node) {
   }
 }
 
+function resetDetail() {
+  els.detailBody.replaceChildren(
+    Object.assign(document.createElement("p"), {
+      className: "detail-idle",
+      textContent: "Pick a section to see the instructor, seats and room.",
+    })
+  );
+}
+
 function selectSection(row) {
+  const found = sectionIndex.get(row.dataset.classNumber);
+  if (!found) return;
+
   for (const other of els.results.querySelectorAll(".section.is-selected")) {
     other.classList.remove("is-selected");
     other.removeAttribute("aria-current");
@@ -57,7 +75,8 @@ function selectSection(row) {
   row.classList.add("is-selected");
   // Selection is state, not just colour, so it is exposed rather than implied.
   row.setAttribute("aria-current", "true");
-  showDetail(buildDetailPlaceholder(row));
+
+  showDetail(renderDetail({ ...found, term: els.term.value, entries: currentEntries }));
 }
 
 function closeDetail() {
@@ -107,7 +126,15 @@ async function runSearch(q, term) {
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
     const { primary, related } = filterCourses(courses, q);
+    currentEntries = [...primary, ...related];
+    sectionIndex = new Map();
+    for (const entry of currentEntries) {
+      for (const section of entry.sections) {
+        sectionIndex.set(String(section.classNumber), { section, course: entry.course });
+      }
+    }
     renderResults(els.results, { primary, related }, term);
+    resetDetail();
     if (!primary.length) {
       setStatus(`Nothing matched "${q}" in ${termName(term)}. Try a subject and number, like CSE 2221.`);
     } else {
@@ -126,28 +153,6 @@ async function runSearch(q, term) {
   } finally {
     if (requestId === latestRequest) setBusy(false);
   }
-}
-
-/**
- * Minimal stand-in so the third pane is demonstrable. The real content, with
- * ratings, difficulty, other sections and the description, lands in #28.
- */
-function buildDetailPlaceholder(row) {
-  const wrap = document.createElement("div");
-  const heading = document.createElement("h2");
-  heading.className = "h2";
-  heading.textContent = row.querySelector(".section-who")?.textContent ?? "Section";
-  wrap.append(heading);
-
-  for (const selector of [".section-number", ".section-when", ".section-where", ".seats"]) {
-    const found = row.querySelector(selector);
-    if (!found) continue;
-    const line = document.createElement("p");
-    line.className = "detail-line";
-    line.textContent = found.textContent.trim();
-    wrap.append(line);
-  }
-  return wrap;
 }
 
 function formatDate(iso) {
