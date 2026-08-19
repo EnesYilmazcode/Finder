@@ -1,12 +1,14 @@
 name = "finder-analytics"
 main = "src/index.js"
 compatibility_date = "2026-08-19"
+workers_dev = true
+preview_urls = false
 
 # Filled in by `wrangler d1 create finder-analytics`.
 [[d1_databases]]
 binding = "DB"
 database_name = "finder-analytics"
-database_id = "PASTE_DATABASE_ID_HERE"
+database_id = "71e16ea9-c719-49de-8366-0e37c601b805"
 
 [observability]
 enabled = true
