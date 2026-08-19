@@ -81,6 +81,6 @@ export function rankCourses(entries, rawQuery) {
   if (!parsed.tokens.length) return merged;
   return merged
     .map((entry) => ({ entry, score: scoreCourse(entry, parsed) }))
-    .sort((a, b) => b.score - a.score || a.entry.course.catalogNumber.localeCompare(b.entry.course.catalogNumber))
+    .sort((a, b) => b.score - a.score || String(a.entry.course.catalogNumber ?? "").localeCompare(String(b.entry.course.catalogNumber ?? "")))
     .map((x) => x.entry);
 }

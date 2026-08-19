@@ -1,4 +1,4 @@
-import { fetchTerms, defaultTerm, searchClasses, ApiError } from "./api.js";
+import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
 import { rankCourses } from "./rank.js";
 import { renderResults } from "./render.js";
 
@@ -12,6 +12,7 @@ const els = {
 };
 
 let terms = [];
+let latestRequest = 0;
 
 function setStatus(message, kind = "info") {
   els.status.textContent = message ?? "";
@@ -32,24 +33,31 @@ async function runSearch(q, term) {
     return;
   }
 
+  const requestId = ++latestRequest;
   els.submit.disabled = true;
   setStatus("Searching...");
   try {
-    const { courses } = await searchClasses({ q, term });
+    const { courses, totalPages, pagesFetched } = await searchAllPages({ q, term });
+    if (requestId !== latestRequest) return; // a newer search already answered
     const ranked = rankCourses(courses, q);
     renderResults(els.results, ranked);
     if (!ranked.length) {
       setStatus(`Nothing matched "${q}" in ${termName(term)}. Try a subject and number, like CSE 2221.`);
     } else {
       const sections = ranked.reduce((n, e) => n + e.sections.length, 0);
-      setStatus(`${ranked.length} course${ranked.length === 1 ? "" : "s"}, ${sections} sections in ${termName(term)}.`);
+      const truncated = totalPages > pagesFetched;
+      setStatus(
+        `Showing ${ranked.length} course${ranked.length === 1 ? "" : "s"}, ${sections} sections in ${termName(term)}` +
+          (truncated ? ". Narrow the search to see more." : ".")
+      );
     }
   } catch (error) {
+    if (requestId !== latestRequest) return;
     els.results.replaceChildren();
     setStatus(error instanceof ApiError ? error.message : "Something went wrong. Try again.", "error");
     if (!(error instanceof ApiError)) console.error(error);
   } finally {
-    els.submit.disabled = false;
+    if (requestId === latestRequest) els.submit.disabled = false;
   }
 }
 
