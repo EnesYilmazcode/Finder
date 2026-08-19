@@ -2,6 +2,8 @@
 
 Find who teaches your classes before everyone else.
 
+**Live: https://enesyilmazcode.github.io/Finder/**
+
 Ohio State's own class search will tell you a course exists. It is far less
 helpful when the question you actually have is "which of these six sections
 should I take, and who is teaching them." Finder answers that one instead:

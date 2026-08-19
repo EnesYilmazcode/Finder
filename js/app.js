@@ -1,6 +1,7 @@
 import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
 import { filterCourses } from "./rank.js";
 import { renderResults } from "./render.js";
+import { loadRatings } from "./ratings.js";
 
 const els = {
   form: document.querySelector("#search"),
@@ -72,6 +73,10 @@ function termName(code) {
 }
 
 async function init() {
+  // Fire and forget. Ratings are an enhancement, so a failed or slow load must
+  // never hold up or break a search.
+  loadRatings().catch((error) => console.warn("ratings unavailable", error));
+
   const params = new URLSearchParams(location.search);
   setBusy(false);
   setStatus("Loading terms...");

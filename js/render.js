@@ -7,6 +7,7 @@
 // it per section would tell students a full section is open. See #13.
 
 import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
+import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
 const UNLISTED = "Instructor not listed";
@@ -64,6 +65,41 @@ function surname(name) {
   return name;
 }
 
+/**
+ * Instructor heading, with a rating when we have one.
+ *
+ * Only about a third of instructors appear on RateMyProfessors, so the
+ * unmatched case has to cost nothing visually. The name itself is the link,
+ * which means an unrated professor adds no extra marks to the page at all.
+ */
+function renderTeacher(group) {
+  const nodes = [];
+  const people = group.people.length ? group.people : [{ name: group.key }];
+
+  people.forEach((person, i) => {
+    if (i) nodes.push(document.createTextNode(" & "));
+    const rating = ratingFor(person.name);
+
+    const link = el("a", "teacher-link", person.name);
+    link.href = rating ? profileUrl(rating.legacyId) : searchUrl(person.name);
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    nodes.push(link);
+
+    if (!rating) return;
+
+    const score = el("span", "score", Number(rating.avgRating).toFixed(1));
+    // A 4.9 from two people is not a 4.9 from two hundred, so the count is
+    // never optional and thin evidence is marked as thin.
+    score.dataset.thin = rating.numRatings < 5 ? "true" : "false";
+    score.append(el("span", "score-count", `${rating.numRatings}`));
+    score.title = `${rating.avgRating} out of 5 from ${rating.numRatings} rating${rating.numRatings === 1 ? "" : "s"} on RateMyProfessors`;
+    nodes.push(score);
+  });
+
+  return nodes;
+}
+
 export function renderSection(section) {
   const li = el("li", "section");
   const meeting = section.meetings?.[0] ?? null;
@@ -95,8 +131,13 @@ export function renderCourse({ course, sections }) {
   for (const group of groupByInstructor(sections)) {
     const block = el("section", "teacher");
 
-    const heading = el("h3", "teacher-name", group.key);
-    if (group.key === UNLISTED) heading.classList.add("is-unlisted");
+    const heading = el("h3", "teacher-name");
+    if (group.key === UNLISTED) {
+      heading.classList.add("is-unlisted");
+      heading.textContent = group.key;
+    } else {
+      heading.append(...renderTeacher(group));
+    }
     block.append(heading);
 
     const list = el("ul", "sections");

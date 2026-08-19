@@ -365,3 +365,29 @@ body {
 .related > summary:hover { color: var(--ink); }
 .related[open] > summary { border-bottom: 1px solid var(--rule); }
 .related > .course { border: 0; border-radius: 0; border-top: 1px solid var(--rule); }
+
+/* Ratings. The name is the link, so an unrated instructor costs nothing. */
+
+.teacher-link { color: inherit; text-decoration-color: var(--rule); text-underline-offset: 3px; }
+.teacher-link:hover { text-decoration-color: var(--scarlet); }
+
+.score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin-left: 0.5rem;
+  font-family: var(--data);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--mute);
+  vertical-align: baseline;
+}
+
+.score::before { content: "★"; color: var(--scarlet); font-size: 0.75rem; }
+.score[data-thin="true"] { opacity: 0.65; }
+.score[data-thin="true"]::before { color: var(--mute); }
+/* Parenthesised, because "2.7 / 3" reads as a score out of three when 3 is
+   actually how many people rated them. */
+.score-count { font-size: 0.7rem; color: var(--mute); }
+.score-count::before { content: "("; }
+.score-count::after { content: ")"; }
