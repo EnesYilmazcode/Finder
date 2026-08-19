@@ -52,14 +52,14 @@
       <form id="filters">
         <fieldset class="f-set">
           <legend class="eyebrow">Meets on</legend>
-          <div class="f-days" role="group" aria-label="Days of the week">
-            <label class="f-day"><input type="checkbox" name="day" value="monday"><span>Mo</span></label>
-            <label class="f-day"><input type="checkbox" name="day" value="tuesday"><span>Tu</span></label>
-            <label class="f-day"><input type="checkbox" name="day" value="wednesday"><span>We</span></label>
-            <label class="f-day"><input type="checkbox" name="day" value="thursday"><span>Th</span></label>
-            <label class="f-day"><input type="checkbox" name="day" value="friday"><span>Fr</span></label>
+          <div class="f-days" id="f-days" role="group" aria-label="Days of the week">
+            <button type="button" class="f-day" data-day="monday" data-state="any"><span>Mo</span></button>
+            <button type="button" class="f-day" data-day="tuesday" data-state="any"><span>Tu</span></button>
+            <button type="button" class="f-day" data-day="wednesday" data-state="any"><span>We</span></button>
+            <button type="button" class="f-day" data-day="thursday" data-state="any"><span>Th</span></button>
+            <button type="button" class="f-day" data-day="friday" data-state="any"><span>Fr</span></button>
           </div>
-          <p class="f-hint">Sections must meet on every day you pick.</p>
+          <p class="f-hint">Click once to require a day, twice to avoid it.</p>
         </fieldset>
 
         <fieldset class="f-set">

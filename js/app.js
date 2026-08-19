@@ -17,6 +17,7 @@ const els = {
   detailBody: document.querySelector("#detail-body"),
   detailBack: document.querySelector("#detail-back"),
   filters: document.querySelector("#filters"),
+  days: document.querySelector("#f-days"),
   subject: document.querySelector("#p-subject"),
   number: document.querySelector("#p-number"),
   subjectList: document.querySelector("#subject-list"),
@@ -45,11 +46,39 @@ let lastResult = null;
 let showHidden = false;
 let view = "list";
 
+function dayStates() {
+  const required = [];
+  const avoided = [];
+  for (const button of els.days.querySelectorAll(".f-day")) {
+    if (button.dataset.state === "require") required.push(button.dataset.day);
+    else if (button.dataset.state === "avoid") avoided.push(button.dataset.day);
+  }
+  return { required, avoided };
+}
+
+const DAY_LABELS = {
+  monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday",
+  thursday: "Thursday", friday: "Friday",
+};
+
+const NEXT_STATE = { any: "require", require: "avoid", avoid: "any" };
+
+/** Tri-state, so one control expresses both "must meet" and "must not meet". */
+function setDayState(button, state) {
+  button.dataset.state = state;
+  const day = DAY_LABELS[button.dataset.day] ?? button.dataset.day;
+  const said = state === "require" ? "required" : state === "avoid" ? "avoided" : "any";
+  button.setAttribute("aria-label", `${day}: ${said}`);
+  button.setAttribute("aria-pressed", String(state !== "any"));
+}
+
 function readFilters() {
   const data = new FormData(els.filters);
+  const { required, avoided } = dayStates();
   return {
     ...DEFAULTS,
-    days: data.getAll("day"),
+    days: required,
+    avoid: avoided,
     from: data.get("from") ?? "",
     to: data.get("to") ?? "",
     rating: data.get("rating") ?? "",
@@ -61,8 +90,11 @@ function readFilters() {
 }
 
 function writeFilters(params) {
-  for (const box of els.filters.querySelectorAll('input[name="day"]')) {
-    box.checked = params.getAll("day").includes(box.value);
+  const required = params.getAll("day");
+  const avoided = params.getAll("noday");
+  for (const button of els.days.querySelectorAll(".f-day")) {
+    const day = button.dataset.day;
+    setDayState(button, required.includes(day) ? "require" : avoided.includes(day) ? "avoid" : "any");
   }
   els.filters.from.value = params.get("from") ?? "";
   els.filters.to.value = params.get("to") ?? "";
@@ -218,7 +250,9 @@ function syncUrl(q, term) {
   // Filters live in the URL so a filtered view can be shared or reloaded.
   const f = readFilters();
   url.searchParams.delete("day");
+  url.searchParams.delete("noday");
   for (const day of f.days) url.searchParams.append("day", day);
+  for (const day of f.avoid) url.searchParams.append("noday", day);
   for (const [key, value] of [["from", f.from], ["to", f.to], ["rating", f.rating]]) {
     if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
   }
@@ -417,8 +451,18 @@ async function init() {
     paint();
   });
 
+  els.days.addEventListener("click", (event) => {
+    const button = event.target.closest(".f-day");
+    if (!button) return;
+    setDayState(button, NEXT_STATE[button.dataset.state] ?? "require");
+    showHidden = false;
+    syncUrl(els.query.value, els.term.value);
+    paint();
+  });
+
   els.clear.addEventListener("click", () => {
     els.filters.reset();
+    for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
     showHidden = false;
     syncUrl(els.query.value, els.term.value);
     paint();
