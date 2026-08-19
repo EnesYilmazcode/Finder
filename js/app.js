@@ -223,6 +223,21 @@ function paint(term = els.term.value) {
     }
   if (view === "calendar") {
     els.results.replaceChildren(renderCalendar(primary, term));
+    // Related courses are deliberately not plotted, since a grid of a hundred
+    // courses is unreadable. Deliberate is not the same as silent.
+    if (related.length) {
+      const note = document.createElement("p");
+      note.className = "hidden-note";
+      note.append(document.createTextNode(
+        `${related.length} related course${related.length === 1 ? "" : "s"} are not on the grid. `
+      ));
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "See them in list view";
+      button.addEventListener("click", () => setView("list"));
+      note.append(button);
+      els.results.append(note);
+    }
   } else {
     renderResults(els.results, { primary, related }, term);
   }
