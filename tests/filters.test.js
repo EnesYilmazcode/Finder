@@ -140,11 +140,34 @@ test("a minimum rating compares against the best rated instructor on the section
   assert.equal(applyFilters([cotaught], filters({ rating: "4.5" })).entries.length, 0);
 });
 
-test("a minimum rating does drop a section nobody has rated", () => {
-  // Worth stating plainly, because it is the one place where unknown data does
-  // fail a filter. An unrated instructor scores -1 against any minimum.
+test("regression #50: a minimum rating keeps sections nobody has rated", () => {
+  // Unrated is unknown, not bad. This used to seed the comparison at -1, so
+  // every unrated instructor failed every threshold. With only about a third
+  // of instructors rated, that silently removed most of the catalogue and made
+  // this control imply the rated-only checkbox.
   const { entries } = applyFilters([course()], filters({ rating: "1" }));
+  assert.deepEqual(
+    entries[0].sections.map((s) => s.classNumber),
+    [1001, 1002, 5003, 5004],
+    "unrated instructors survive a minimum rating"
+  );
+});
+
+test("regression #50: ratedOnly is what excludes the unrated", () => {
+  // The two controls have to stay independent: rating filters quality,
+  // ratedOnly filters presence.
+  const { entries } = applyFilters([course()], filters({ ratedOnly: true }));
   assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [1001]);
+});
+
+test("regression #50: a known rating below the threshold still fails", () => {
+  // The fix must not turn the control off. Kline is rated 4.2 in the fixture.
+  const { entries } = applyFilters([course()], filters({ rating: "4.5" }));
+  assert.deepEqual(
+    entries[0].sections.map((s) => s.classNumber),
+    [1002, 5003, 5004],
+    "the rated instructor below 4.5 is dropped, the unrated are not"
+  );
 });
 
 test("applyFilters counts what it removed", () => {
