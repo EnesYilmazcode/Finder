@@ -76,7 +76,7 @@ function selectSection(row) {
   // Selection is state, not just colour, so it is exposed rather than implied.
   row.setAttribute("aria-current", "true");
 
-  showDetail(renderDetail({ ...found, term: els.term.value, entries: currentEntries }));
+  showDetail(renderDetail({ ...found, term: els.term.value, entries: currentEntries, formatDate }));
 }
 
 function closeDetail() {

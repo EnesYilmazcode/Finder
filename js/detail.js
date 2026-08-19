@@ -4,6 +4,7 @@
 import { formatWhen, formatUnits, instructorsOf } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { seatsFor, seatsUpdated } from "./seats.js";
+import { isIndividualStudy } from "./rank.js";
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -59,6 +60,10 @@ function alsoTeaches(people, current, entries, term) {
   const names = new Set(people.map((p) => p.name));
   const found = [];
   for (const entry of entries) {
+    // Every professor is nominally attached to a dozen independent-study and
+    // thesis listings. #17 keeps them out of results; they do not belong here
+    // either, or they bury the actual teaching load.
+    if (isIndividualStudy(entry)) continue;
     for (const section of entry.sections) {
       if (String(section.classNumber) === String(current.classNumber)) continue;
       if (!instructorsOf(section).some((p) => names.has(p.name))) continue;
@@ -78,7 +83,7 @@ function alsoTeaches(people, current, entries, term) {
   return wrap;
 }
 
-export function renderDetail({ section, course, term, entries }) {
+export function renderDetail({ section, course, term, entries, formatDate }) {
   const wrap = document.createDocumentFragment();
   const people = instructorsOf(section);
 
@@ -118,7 +123,7 @@ export function renderDetail({ section, course, term, entries }) {
     seatBlock.append(row("Enrolled", `${seats.enrolled} / ${seats.limit}`, seats.full ? "is-full" : "is-open"));
     seatBlock.append(row("Waitlist", seats.waitlist > 0 ? `${seats.waitlist} waiting` : "none",
       seats.waitlist > 0 ? "is-full" : null));
-    if (seatsUpdated()) seatBlock.append(row("As of", seatsUpdated()));
+    if (seatsUpdated()) seatBlock.append(row("As of", formatDate ? formatDate(seatsUpdated()) : seatsUpdated()));
   } else {
     seatBlock.append(el("p", "d-note", "No seat data for this section."));
   }

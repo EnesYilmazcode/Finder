@@ -48,6 +48,12 @@ export function seatsFor(classNumber, term) {
   const [enrolled, limit, waitlist = 0] = row;
   if (typeof enrolled !== "number" || typeof limit !== "number") return null;
 
+  // A capacity of zero is not a section with no seats, it is a section whose
+  // capacity is not published. 8.1% of the snapshot looks like this, often as
+  // [0, 0, 1]: no stated limit but someone already waiting. Rendering it as
+  // 0/0 reads as open, which is the opposite of the truth.
+  if (limit <= 0) return null;
+
   return {
     enrolled,
     limit,
