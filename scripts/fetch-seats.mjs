@@ -8,7 +8,9 @@
 //
 // Usage:  node scripts/fetch-seats.mjs [term ...]
 //         node scripts/fetch-seats.mjs 1268
-// With no argument the term is derived from today's date.
+// With no argument every term the API reports as searchable is snapshotted,
+// which is what the workflow does. Naming terms is for local debugging: the
+// file is rewritten, so terms left out are dropped from it.
 //
 // Format notes and the verified column map live in docs/barrett-schedule.md.
 
@@ -17,6 +19,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const BASE = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
+// Only for the term list. Every seat number here comes from Barrett.
+const API = 'https://content.osu.edu/v2/classes';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = join(ROOT, 'data');
 
@@ -56,24 +60,15 @@ const TAIL_RE = /^\s*(?:(\S+)\s+)?(\d+)\/(\d+)(?:\s*\+(\d+))?\s*$/;
 const HEADER_RE = /^(\S+)\s+(\d{4}) \((.+?)\)\s+updated: (\S+)\s*$/;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// 4-digit term code: first three digits are year - 1900, last is the season
-// (2 spring, 4 summer, 8 autumn). Documented at BASE/SUBJECT/term.txt.
-function currentTerm(now = new Date()) {
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth() + 1;
-  const season = month <= 4 ? 2 : month <= 7 ? 4 : 8;
-  return String((year - 1900) * 10 + season);
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchText(url, { allow404 = false } = {}) {
+async function fetchText(url, { allow404 = false, accept = 'text/plain,text/html' } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
     if (attempt > 0) await sleep(500 * 2 ** (attempt - 1));
     try {
       const res = await fetch(url, {
-        headers: { 'user-agent': USER_AGENT, accept: 'text/plain,text/html' },
+        headers: { 'user-agent': USER_AGENT, accept },
         signal: AbortSignal.timeout(30000),
       });
       if (res.status === 404 && allow404) return null;
@@ -101,6 +96,19 @@ async function fetchSubjects() {
   const subjects = new Set();
   for (const m of html.matchAll(/<a href="([A-Z][A-Z0-9]*)">/g)) subjects.add(m[1]);
   return [...subjects].sort();
+}
+
+// The terms the site can actually search, oldest first. A 4-digit code is the
+// year minus 1900 then the season, 2 spring 4 summer 8 autumn, but a
+// well-formed code is not a searchable one, so it is read rather than derived.
+async function searchableTerms() {
+  const body = JSON.parse(await fetchText(`${API}/searchableTermsV2`, { accept: 'application/json' }));
+  const terms = body?.data?.data;
+  if (!Array.isArray(terms) || !terms.length) throw new Error('searchableTermsV2 returned nothing');
+  return terms
+    .filter((t) => t.classSearch === 'Y' && /^\d{4}$/.test(t.strm ?? ''))
+    .map((t) => t.strm)
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function slice(line, [start, end]) {
@@ -201,11 +209,8 @@ async function mapLimit(items, limit, worker) {
   return out;
 }
 
-async function snapshotTerm(term) {
+async function snapshotTerm(term, subjects) {
   const started = Date.now();
-  const subjects = await fetchSubjects();
-  console.log(`term ${term}: ${subjects.length} subjects listed`);
-
   const results = await mapLimit(subjects, CONCURRENCY, async (subject) => {
     const text = await fetchText(`${BASE}/${subject}/${term}.txt`, { allow404: true });
     if (text === null) return { subject, offered: false };
@@ -249,10 +254,7 @@ async function snapshotTerm(term) {
   const snapshot = {
     term,
     termName,
-    source: `${BASE}/`,
     sourceUpdated: toIsoDate(updated),
-    note: 'Barrett refreshes once a day around 06:50 Eastern. A missing class number means unknown, not zero.',
-    fields: ['enrolled', 'limit', 'waitlist'],
     sections,
   };
 
@@ -281,15 +283,22 @@ async function writeAtomic(path, contents) {
 }
 
 async function main() {
-  const terms = process.argv.slice(2).filter((a) => /^\d{4}$/.test(a));
-  if (!terms.length) terms.push(currentTerm());
+  const requested = process.argv.slice(2).filter((a) => /^\d{4}$/.test(a));
+  const searchable = await searchableTerms();
+  const terms = requested.length ? searchable.filter((t) => requested.includes(t)) : searchable;
+  if (!terms.length) throw new Error(`none of ${requested.join(', ')} is searchable`);
+
+  // One subject index covers every term. It lists every code Barrett knows, and
+  // a subject not offered in a term 404s, which is normal and not an error.
+  const subjects = await fetchSubjects();
+  console.log(`${terms.length} searchable terms (${terms.join(', ')}), ${subjects.length} subjects listed`);
 
   const out = {};
   let residueSeen = 0;
   let sectionsSeen = 0;
 
   for (const term of terms) {
-    const { snapshot, stats, failures } = await snapshotTerm(term);
+    const { snapshot, stats, failures } = await snapshotTerm(term, subjects);
     out[term] = snapshot;
     residueSeen += stats.residueFailures;
     sectionsSeen += stats.sectionsParsed;
@@ -315,9 +324,15 @@ async function main() {
     );
   }
 
-  // One term writes the plain shape the browser expects. Several terms nest
-  // under their code so a caller can pick.
-  const payload = terms.length === 1 ? out[terms[0]] : { terms: out };
+  // Always keyed by term, even when run for one, so the page reads one shape
+  // whatever this was run with. The term selector offers every searchable term,
+  // and seats for the wrong one are worse than none.
+  const payload = {
+    source: `${BASE}/`,
+    fields: ['enrolled', 'limit', 'waitlist'],
+    note: 'Barrett rebuilds a live term once a day around 06:50 Eastern and freezes a term once it is over, so sourceUpdated differs per term. A missing class number means unknown, not zero.',
+    terms: out,
+  };
   const json = `${JSON.stringify(payload, null, 0)}\n`;
   const path = join(OUT_DIR, 'seats.json');
   await writeAtomic(path, json);
@@ -327,7 +342,7 @@ async function main() {
 }
 
 // Exported so a checker can reuse the parser without refetching.
-export { currentTerm, parseSubjectFile };
+export { parseSubjectFile };
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((err) => {
