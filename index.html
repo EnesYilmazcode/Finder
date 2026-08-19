@@ -35,7 +35,63 @@
     </header>
 
     <aside class="rail" id="rail" aria-label="Filters">
-      <p class="rail-empty">Filters arrive with <a href="https://github.com/EnesYilmazcode/Finder/issues/27">#27</a>.</p>
+      <form id="filters">
+        <fieldset class="f-set">
+          <legend class="eyebrow">Meets on</legend>
+          <div class="f-days" role="group" aria-label="Days of the week">
+            <label class="f-day"><input type="checkbox" name="day" value="monday"><span>Mo</span></label>
+            <label class="f-day"><input type="checkbox" name="day" value="tuesday"><span>Tu</span></label>
+            <label class="f-day"><input type="checkbox" name="day" value="wednesday"><span>We</span></label>
+            <label class="f-day"><input type="checkbox" name="day" value="thursday"><span>Th</span></label>
+            <label class="f-day"><input type="checkbox" name="day" value="friday"><span>Fr</span></label>
+          </div>
+          <p class="f-hint">Sections must meet on every day you pick.</p>
+        </fieldset>
+
+        <fieldset class="f-set">
+          <legend class="eyebrow">Time of day</legend>
+          <label class="f-label" for="f-from">Starts no earlier than</label>
+          <select class="f-ctl" id="f-from" name="from">
+            <option value="">Any time</option>
+            <option value="480">8:00 am</option>
+            <option value="540">9:00 am</option>
+            <option value="600">10:00 am</option>
+            <option value="660">11:00 am</option>
+            <option value="720">12:00 pm</option>
+            <option value="780">1:00 pm</option>
+          </select>
+          <label class="f-label" for="f-to">Ends no later than</label>
+          <select class="f-ctl" id="f-to" name="to">
+            <option value="">Any time</option>
+            <option value="720">12:00 pm</option>
+            <option value="840">2:00 pm</option>
+            <option value="960">4:00 pm</option>
+            <option value="1080">6:00 pm</option>
+            <option value="1200">8:00 pm</option>
+          </select>
+        </fieldset>
+
+        <fieldset class="f-set">
+          <legend class="eyebrow">Instructor</legend>
+          <label class="f-label" for="f-rating">Minimum rating</label>
+          <select class="f-ctl" id="f-rating" name="rating">
+            <option value="">Any rating</option>
+            <option value="3">3.0 and up</option>
+            <option value="3.5">3.5 and up</option>
+            <option value="4">4.0 and up</option>
+            <option value="4.5">4.5 and up</option>
+          </select>
+          <label class="f-check"><input type="checkbox" id="f-rated" name="ratedOnly"><span>Only rated instructors</span></label>
+        </fieldset>
+
+        <fieldset class="f-set">
+          <legend class="eyebrow">Availability</legend>
+          <label class="f-check"><input type="checkbox" id="f-full" name="hideFull"><span>Hide full sections</span></label>
+          <label class="f-check"><input type="checkbox" id="f-online" name="hideOnline"><span>Hide online sections</span></label>
+        </fieldset>
+
+        <button class="f-clear" id="f-clear" type="button" hidden>Clear filters</button>
+      </form>
     </aside>
 
     <main class="centre" id="centre">
