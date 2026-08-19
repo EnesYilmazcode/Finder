@@ -167,11 +167,37 @@ test("searchAllPages merges the pages it fetched", async () => {
   assert.deepEqual(calls.map((u) => u.searchParams.get("p")).sort(), ["1", "2", "3"]);
 });
 
-test("searchAllPages stops at maxPages", async () => {
+test("a result too big for the budget falls back to relevance order", async () => {
+  // #53: the first request is always a sorted probe. When totalPages exceeds
+  // the budget, that sorted page is the wrong 200 sections, because catalog
+  // order front-loads the lowest numbers. So the pull restarts in relevance
+  // order and the probe is kept as extra coverage rather than discarded.
+  // The cost is one request above the budget, paid only by oversized queries.
   const calls = capture({ data: { totalItems: 100, totalPages: 7, courses: [] } });
   const result = await searchAllPages({ q: "CSE", term: "1268", maxPages: 2 });
-  assert.equal(result.pagesFetched, 2);
-  assert.equal(calls.length, 2);
+
+  assert.equal(calls.length, 3, "one sorted probe plus maxPages relevance pages");
+  assert.equal(result.pagesFetched, 3);
+  assert.equal(result.sorted, false, "the caller is told the order is not catalog order");
+
+  const sorted = calls.filter((u) => u.searchParams.has("sort"));
+  assert.equal(sorted.length, 1, "only the probe carries sort");
+  assert.equal(sorted[0].searchParams.get("p"), "1");
+  assert.deepEqual(
+    calls.filter((u) => !u.searchParams.has("sort")).map((u) => u.searchParams.get("p")).sort(),
+    ["1", "2"],
+    "the relevance pull starts again from page 1"
+  );
+});
+
+test("a result inside the budget stays in catalog order", async () => {
+  // The repeatable path: no fallback, every request sorted, no extra probe.
+  const calls = capture({ data: { totalItems: 40, totalPages: 3, courses: [] } });
+  const result = await searchAllPages({ q: "CSE 2221", term: "1268", maxPages: 5 });
+
+  assert.equal(calls.length, 3);
+  assert.equal(result.sorted, true);
+  assert.ok(calls.every((u) => u.searchParams.has("sort")), "every page sorted");
 });
 
 test("searchAllPages does not fetch again for a single page", async () => {
