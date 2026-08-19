@@ -54,9 +54,16 @@ function keepSection(section, filters) {
   if (filters.ratedOnly && !people.some((p) => ratingFor(p.name))) return false;
 
   if (filters.rating) {
-    const best = people.map((p) => ratingFor(p.name)).filter(Boolean)
-      .reduce((max, r) => Math.max(max, Number(r.avgRating) || 0), -1);
-    if (best < Number(filters.rating)) return false;
+    // Unrated is unknown, not bad. Seeding this at -1 made every unrated
+    // instructor fail every threshold, which silently removed most of the
+    // catalogue since only about a third are rated, and made this control
+    // imply the rated-only checkbox. Judge only instructors we have a rating
+    // for; use ratedOnly to exclude the rest.
+    const known = people.map((p) => ratingFor(p.name)).filter(Boolean);
+    if (known.length) {
+      const best = known.reduce((max, r) => Math.max(max, Number(r.avgRating) || 0), 0);
+      if (best < Number(filters.rating)) return false;
+    }
   }
 
   // A section with no meeting pattern has no days to judge, so neither rule
