@@ -61,3 +61,8 @@ export function seatsFor(classNumber, term) {
     full: limit > 0 && enrolled >= limit,
   };
 }
+
+/** How many sections the snapshot covers, for the landing screen. */
+export function seatsSectionCount() {
+  return Object.keys(snapshot?.sections ?? {}).length;
+}

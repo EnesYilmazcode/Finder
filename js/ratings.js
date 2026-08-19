@@ -117,3 +117,21 @@ export function searchUrl(name) {
 export function profileUrl(legacyId) {
   return `https://www.ratemyprofessors.com/professor/${legacyId}`;
 }
+
+/**
+ * Best rated instructors, restricted to those with enough ratings to mean
+ * anything. 332 people clear 50 ratings; a 5.0 from two students does not
+ * belong on a leaderboard.
+ */
+export function topRated({ minRatings = 50, limit = 8 } = {}) {
+  const people = index?.byKey ? [...index.byKey.values()].flat() : [];
+  return people
+    .filter((p) => p.numRatings >= minRatings && p.avgRating != null)
+    .sort((a, b) => b.avgRating - a.avgRating || b.numRatings - a.numRatings)
+    .slice(0, limit);
+}
+
+/** How many instructors carry at least one rating. */
+export function ratedCount() {
+  return index?.byKey ? [...index.byKey.values()].reduce((n, list) => n + list.length, 0) : 0;
+}

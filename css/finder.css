@@ -799,3 +799,76 @@ body {
 .picker .f-ctl { cursor: text; }
 .picker .f-ctl:disabled { opacity: 0.5; cursor: default; }
 .picker .f-ctl::placeholder { color: var(--mute); }
+
+/* Landing screen ---------------------------------------------------------- */
+
+.welcome { max-width: 34rem; }
+
+.w-stats {
+  margin: 0 0 1.4rem;
+  font-family: var(--data);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.w-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.25rem;
+}
+
+.w-sub { margin: 0 0 1rem; color: var(--mute); font-size: 0.85rem; }
+
+.w-list { list-style: none; margin: 0; padding: 0; }
+
+.w-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 0.75rem;
+  align-items: baseline;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.w-name {
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.w-name:hover { text-decoration: underline; text-decoration-color: var(--scarlet); }
+
+.w-score {
+  font-family: var(--data);
+  font-size: 0.95rem;
+  color: var(--scarlet);
+}
+
+.w-meta {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  color: var(--mute);
+}
+
+.w-foot { margin: 1.2rem 0 0; font-size: 0.85rem; color: var(--mute); }
+
+.w-example {
+  font: inherit;
+  font-family: var(--data);
+  font-size: 0.82rem;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--scarlet);
+  cursor: pointer;
+  text-decoration: underline;
+}
