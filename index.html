@@ -97,6 +97,13 @@
     <main class="centre" id="centre">
       <!-- Stays in the DOM at all times, empty or not. A live region that is
            added or unhidden at announce time is usually not announced. -->
+      <div class="view-bar">
+        <div class="view-toggle" role="group" aria-label="Result view">
+          <button type="button" id="view-list" class="is-on" aria-pressed="true">List</button>
+          <button type="button" id="view-cal" aria-pressed="false">Calendar</button>
+        </div>
+      </div>
+
       <p class="status" id="status" role="status" aria-live="polite" aria-atomic="true"></p>
 
       <div class="results" id="results" role="region" aria-label="Search results" tabindex="-1"></div>
