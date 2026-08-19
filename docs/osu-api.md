@@ -56,6 +56,13 @@ The main endpoint.
 | `campus` | `col` for Columbus |
 | `term` | A `strm` code, for example `1268` |
 | `p` | 1-based page number |
+| `sort` | `catalogNumber`, `subject`, or `-` prefixed for descending. Default is relevance, which is the source of the paging trouble below |
+| `subject` | Subject code, lowercase. Exact, unlike putting the code in `q` |
+
+Neither `sort` nor `subject` needs guessing. Every response carries `sort` and
+`filters` arrays, and each entry in them spells out the parameter and value that
+applies it. The other facets listed there work the same way. See Enumerating the
+catalog.
 
 `q` matching instructor names is worth calling out, because it means searching by
 professor needs no separate index. Verified: `q=Bucci` returns 17 results, all of
@@ -143,13 +150,122 @@ missing from run 1:      63
 ```
 
 Roughly 6% of sections differ per pull, so any single multi-page pull silently
-misses some. The practical rule: **keep queries narrow enough to fit on one page.**
+misses some. This is the default relevance ordering shuffling ties, and
+`sort=catalogNumber` pins it, which is measured under Enumerating the catalog
+below. Without that, the practical rule is **keep queries narrow enough to fit on
+one page.**
 A user searching `CSE 2221` is unaffected because the result fits on page 1. A
 feature that tries to enumerate an entire subject would be quietly lossy, and
 should not be built on this endpoint without reconciling several pulls.
 
 **Future terms appear late.** Querying `term=1272` (Spring 2027) returned zero
 results on 2026-08-18 while the term was already visible elsewhere on campus.
+
+## Enumerating the catalog
+
+Everything above describes searching. Building the subject and number pickers
+needs the opposite, a complete list of what exists, and that is a different
+problem. `scripts/fetch-courses.mjs` solves it and writes `data/courses.json`.
+
+### Search takes a subject filter
+
+Every response carries a `filters` array, and each item in it has a `term` value
+that is itself a query parameter. That is where `subject` comes from:
+
+```
+?q=&campus=col&term=1268&subject=cse
+```
+
+The code goes in lowercase. `subject=CSE` returns zero. This is much better than
+putting the code in `q`, because `q=CSE` also matches titles and instructor
+names: for Autumn 2026 it returned 1236 sections spread over nine subjects,
+while `subject=cse` returned exactly the 1064 that are actually CSE. Those 1064
+match the union of three pulls recorded in the paging note above, so the subject
+filter's `totalItems` is the honest count of a subject.
+
+The same trick gives `catalog-number` (buckets `1xxx` through `8xxx`),
+`academic-career`, `academic-program`, `component`, `class-session`,
+`instruction-mode` and `evening`.
+
+Two things worth knowing about the shape. `totalItems` counts sections, not
+courses, so a page of 200 sections collapses into anywhere from 20 to 110
+`courses` entries. And the course object carries `subjectDesc`, the subject's
+full name, which is what the picker shows next to the code. It is blank for 15
+subjects including CYBRSEC, TLED, MMT and NRO, and the subject facet's title is
+the same string, so there is no second source to fall back to.
+
+### There is no subject endpoint
+
+`/classes/subjects`, `/classes/subject`, `/classes/searchableSubjects` and
+`/classes/filters` all return 404. The `subject` facet is capped at ten entries,
+so it does not enumerate either: an empty query for Autumn 2026 lists ten
+subjects out of the 243 that exist.
+
+Barrett's index is the only ready made list, and it is incomplete. It names 337
+codes, but 18 subjects that Autumn 2026 actually offers are missing from it:
+
+```
+AMINSTS ASAMSTS CIVICLL CIVICTL COMPEDU CYBRSEC ETHNSTD MMT NRO
+RADONC TLCTE TLED TLIELP TLISTEM TLLLL TLTED UKRAIN UROLOGY
+```
+
+Sweeping the API instead, one pass over the eight `catalog-number` buckets, found
+238 subjects but missed five that Barrett has and the API does offer (EDUTL, HW,
+RADIOLG, SWAHILI, URDU). That sweep was in relevance order, so it was lossy for
+the reason below. So the script uses all three: Barrett as a seed, a sweep
+per term, and the subject codes already in the last `courses.json`. A candidate
+that is not offered costs one request and is dropped.
+
+### Sorting fixes the paging
+
+The non-determinism has a cause and a cure. It is a paging artifact, and the
+default sort is relevance, which shuffles ties between pulls. A course drifts
+across a page boundary and the walk misses it. Pass `sort=catalogNumber` and the
+pages stop moving. Eight identical pulls of each subject, Autumn 2026:
+
+| Subject | Pages | Courses, relevance order | Courses, catalog order | Union |
+|---|---|---|---|---|
+| PSYCH | 1 | 79 every time | 79 every time | 79 |
+| MATH | 3 | 89 every time | 89 every time | 89 |
+| CHEM | 4 | 57 to 58 | 58 every time | 58 |
+| ECE | 7 | 72 to 73 | 73 every time | 73 |
+| CSE | 6 | 102 to 104 | 104 every time | 104 |
+| HISTORY | 4 | 107 to 111 | 111 every time | 111 |
+| HTHRHSC | 3 | 61 to 65 | 65 every time | 65 |
+
+Sorted, all 36 multi-page subjects returned the identical set four times running.
+Subjects that fit on one page never varied either way, and there are 207 of those,
+so relevance order only ever hurt the other 36.
+
+Sorting does not change what comes back, only the order it comes back in. The
+sorted result equals the union of many unsorted pulls in every case measured.
+
+### Reconciliation, and how much it recovers
+
+Reconciling repeated passes is still worth doing, because a stable order is an
+observation and not a promise. It is just no longer load bearing. Three whole-term
+builds in relevance order, against a reconciled index of 6072 courses for Autumn
+2026:
+
+```
+single pass 1: 6068 courses, 4 missing   CHEM 6440, HISTORY 2350, 3002, 3351
+single pass 2: 6069 courses, 3 missing   CSE 6521, CSE 6891, ECE 3551
+single pass 3: 6064 courses, 8 missing   CHEM 6330, 6540, 6780, HISTORY 2025, ...
+```
+
+Not one of the three found a course the reconciled set lacked, so the union only
+grows toward the truth. At course level the loss is 0.05% to 0.13%, far below the
+roughly 6% seen at section level, because a course disappears only when a pull
+drops every one of its sections. That is why it lands on graduate courses with a
+single section, and why CSE 6521 vanishing is not something anyone would notice.
+
+One clean pass is too weak a stopping rule on its own. Unsorted, CHEM plateaued
+for a pass and then found more on the next, and a build that stopped there came
+out two courses short. The script sorts, then stops after two consecutive passes
+that add nothing, capped at eight, and says so if a subject is still growing at
+the cap. Sorted, the first pass has found everything every time: three
+consecutive full builds hashed identically and the reconciliation passes added
+nothing to any of them.
 
 ## Approaches that were considered and rejected
 
