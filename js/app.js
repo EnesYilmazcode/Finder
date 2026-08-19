@@ -2,6 +2,7 @@ import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
 import { filterCourses } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings } from "./ratings.js";
+import { loadSeats, seatsTerm, seatsUpdated } from "./seats.js";
 
 const els = {
   form: document.querySelector("#search"),
@@ -53,16 +54,20 @@ async function runSearch(q, term) {
     const [{ courses }] = await Promise.all([
       searchAllPages({ q, term }),
       loadRatings().catch(() => null),
+      loadSeats().catch(() => null),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
     const { primary, related } = filterCourses(courses, q);
-    renderResults(els.results, { primary, related });
+    renderResults(els.results, { primary, related }, term);
     if (!primary.length) {
       setStatus(`Nothing matched "${q}" in ${termName(term)}. Try a subject and number, like CSE 2221.`);
     } else {
       const sections = primary.reduce((n, e) => n + e.sections.length, 0);
       const noun = primary.length === 1 ? "course" : "courses";
-      setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.`);
+      // Barrett refreshes once a day, so the numbers are dated, and during a
+      // registration window that distinction matters.
+      const dated = seatsTerm() === term && seatsUpdated() ? ` Seats as of ${formatDate(seatsUpdated())}.` : "";
+      setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`);
     }
   } catch (error) {
     if (requestId !== latestRequest) return;
@@ -74,6 +79,13 @@ async function runSearch(q, term) {
   }
 }
 
+function formatDate(iso) {
+  const date = new Date(`${iso}T12:00:00`);
+  return Number.isNaN(date.getTime())
+    ? iso
+    : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function termName(code) {
   return terms.find((t) => t.code === code)?.name ?? code;
 }
@@ -81,6 +93,7 @@ function termName(code) {
 async function init() {
   // Start the ratings download early so the first search rarely waits on it.
   loadRatings().catch((error) => console.warn("ratings unavailable", error));
+  loadSeats().catch((error) => console.warn("seats unavailable", error));
 
   const params = new URLSearchParams(location.search);
   setBusy(false);

@@ -8,6 +8,7 @@
 
 import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
+import { seatsFor } from "./seats.js";
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
 const UNLISTED = "Instructor not listed";
@@ -100,7 +101,7 @@ function renderTeacher(group) {
   return nodes;
 }
 
-export function renderSection(section) {
+export function renderSection(section, term) {
   const li = el("li", "section");
   const meeting = section.meetings?.[0] ?? null;
 
@@ -113,10 +114,23 @@ export function renderSection(section) {
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
 
+  // Absent means unknown, never zero. A section with no snapshot row simply
+  // shows nothing rather than implying it is empty.
+  const seats = seatsFor(section.classNumber, term);
+  if (seats) {
+    const node = el("span", "seats", `${seats.enrolled}/${seats.limit}`);
+    node.dataset.state = seats.full ? "full" : "open";
+    if (seats.waitlist > 0) node.append(el("span", "waitlist", `+${seats.waitlist}`));
+    node.title = seats.full
+      ? `Full. ${seats.enrolled} enrolled of ${seats.limit}${seats.waitlist ? `, ${seats.waitlist} waiting` : ""}.`
+      : `${seats.enrolled} enrolled of ${seats.limit}.`;
+    li.append(node);
+  }
+
   return li;
 }
 
-export function renderCourse({ course, sections }) {
+export function renderCourse({ course, sections }, term) {
   const article = el("article", "course");
 
   const head = el("header", "course-head");
@@ -141,7 +155,7 @@ export function renderCourse({ course, sections }) {
     block.append(heading);
 
     const list = el("ul", "sections");
-    for (const section of sortSections(group.sections)) list.append(renderSection(section));
+    for (const section of sortSections(group.sections)) list.append(renderSection(section, term));
     block.append(list);
 
     article.append(block);
@@ -150,8 +164,8 @@ export function renderCourse({ course, sections }) {
   return article;
 }
 
-export function renderResults(container, { primary, related }) {
-  const nodes = primary.map(renderCourse);
+export function renderResults(container, { primary, related }, term) {
+  const nodes = primary.map((entry) => renderCourse(entry, term));
 
   if (related?.length) {
     const details = el("details", "related");
@@ -164,7 +178,7 @@ export function renderResults(container, { primary, related }) {
     details.addEventListener("toggle", () => {
       if (built || !details.open) return;
       built = true;
-      details.append(...related.map(renderCourse));
+      details.append(...related.map((entry) => renderCourse(entry, term)));
     });
 
     nodes.push(details);

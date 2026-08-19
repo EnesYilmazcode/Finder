@@ -391,3 +391,21 @@ body {
 .score-count { font-size: 0.7rem; color: var(--mute); }
 .score-count::before { content: "("; }
 .score-count::after { content: ")"; }
+
+/* Seat counts. Full is the state worth spotting while scanning ten sections. */
+
+.seats {
+  grid-column: 3;
+  font-family: var(--data);
+  font-size: 0.78rem;
+  color: var(--mute);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.seats[data-state="full"] { color: var(--scarlet); font-weight: 500; }
+.waitlist { margin-left: 0.25rem; opacity: 0.85; }
+
+@media (max-width: 34rem) {
+  .seats { grid-column: 1 / -1; text-align: left; }
+}
