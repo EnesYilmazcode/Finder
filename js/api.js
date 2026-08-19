@@ -2,6 +2,7 @@
 
 const BASE = "https://content.osu.edu/v2";
 const CAMPUS = "col";
+const TIMEOUT_MS = 12000;
 
 export class ApiError extends Error {
   constructor(message, { status = null, cause = null } = {}) {
@@ -15,14 +16,27 @@ export class ApiError extends Error {
 async function getJson(path, params) {
   const url = new URL(BASE + path);
   for (const [k, v] of Object.entries(params ?? {})) {
-    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
+    // Empty strings are kept. Omitting q entirely makes the upstream API 500,
+    // because it dereferences the parameter without checking it exists.
+    if (v !== undefined && v !== null) url.searchParams.set(k, v);
   }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   let response;
   try {
-    response = await fetch(url, { headers: { Accept: "application/json" } });
+    response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
   } catch (cause) {
+    if (cause?.name === "AbortError") {
+      throw new ApiError("Ohio State's course service is taking too long to answer. Try again.", { cause });
+    }
     throw new ApiError("Could not reach Ohio State's course service. Check your connection and try again.", { cause });
+  } finally {
+    clearTimeout(timer);
   }
 
   if (!response.ok) {
