@@ -1,0 +1,47 @@
+name: Seats snapshot
+
+# Barrett rebuilds the schedule files once a day around 06:50 Eastern, which is
+# 10:50 UTC in summer and 11:50 UTC in winter. 12:30 UTC lands after both.
+on:
+  schedule:
+    - cron: '30 12 * * *'
+  workflow_dispatch:
+    inputs:
+      term:
+        description: '4-digit term code, blank to derive from today'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: seats
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Fetch seat counts
+        env:
+          TERM_INPUT: ${{ inputs.term }}
+        run: node scripts/fetch-seats.mjs $TERM_INPUT
+
+      - name: Commit if changed
+        run: |
+          if [ -z "$(git status --porcelain -- data/seats.json)" ]; then
+            echo "no change"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/seats.json
+          git commit -m "Update seat counts"
+          git push
