@@ -8,7 +8,7 @@
   --ink: #16171a;
   --mute: #5f646c;
   --rule: #dee0e5;
-  --field: #8a9099;
+  --field: #80858c;
   --scarlet: #bb0000;
   --open: #0e7a50;
   --wait: #a65b00;
@@ -201,7 +201,7 @@ body {
 
 /* Course records ---------------------------------------------------------- */
 
-.results { display: grid; gap: 0.75rem; }
+.results { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
 
 .course {
   background: var(--paper);
@@ -310,7 +310,6 @@ body {
 
   .rail-toggle {
     display: inline-block;
-    order: 3;
     font: inherit;
     font-size: 0.85rem;
     padding: 0.45rem 0.7rem;
@@ -454,7 +453,6 @@ body {
 }
 
 .score::before { content: "★"; color: var(--scarlet); font-size: 0.75rem; }
-.score[data-thin="true"] { opacity: 0.65; }
 .score[data-thin="true"]::before { color: var(--mute); }
 /* Parenthesised, because "2.7 / 3" reads as a score out of three when 3 is
    actually how many people rated them. */
@@ -474,7 +472,7 @@ body {
 }
 
 .seats[data-state="full"] { color: var(--scarlet); font-weight: 500; }
-.waitlist { margin-left: 0.25rem; opacity: 0.85; }
+.waitlist { margin-left: 0.25rem; }
 
 @media (max-width: 34rem) {
   .seats { grid-column: 1 / -1; text-align: left; }
@@ -687,7 +685,9 @@ body {
 
 .view-bar { display: flex; margin-bottom: 0.8rem; }
 
-.view-toggle { display: inline-flex; border: 1px solid var(--field); border-radius: var(--radius); overflow: hidden; }
+/* No overflow:hidden here: it clipped the focus ring off both buttons, which
+   #38 measured at 0 visible pixels. The corners round on the buttons instead. */
+.view-toggle { display: inline-flex; border: 1px solid var(--field); border-radius: var(--radius); }
 
 .view-toggle button {
   font: inherit;
@@ -699,12 +699,22 @@ body {
   cursor: pointer;
 }
 
+.view-toggle button:first-child { border-radius: calc(var(--radius) - 1px) 0 0 calc(var(--radius) - 1px); }
+.view-toggle button:last-child { border-radius: 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0; }
 .view-toggle button + button { border-left: 1px solid var(--field); }
 .view-toggle button.is-on { background: var(--scarlet); color: var(--paper); font-weight: 600; }
 
+.cal-scroll { overflow-x: auto; }
+.cal-scroll:focus-visible { outline: 2px solid var(--scarlet); outline-offset: 2px; }
+
 .cal {
   display: grid;
-  grid-template-columns: 3rem repeat(var(--cal-days), minmax(0, 1fr));
+  grid-template-columns: 3rem repeat(var(--cal-days), minmax(9rem, 1fr));
+  /* fit-content, not auto: with a floor under the columns the grid is wider
+     than a phone, and it has to say so or overflow:hidden eats the difference
+     instead of handing it to .cal-scroll. */
+  width: fit-content;
+  min-width: 100%;
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   background: var(--paper);

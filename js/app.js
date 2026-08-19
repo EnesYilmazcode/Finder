@@ -72,8 +72,10 @@ function setDayState(button, state) {
   button.dataset.state = state;
   const day = DAY_LABELS[button.dataset.day] ?? button.dataset.day;
   const said = state === "require" ? "required" : state === "avoid" ? "avoided" : "any";
+  // Deliberately no aria-pressed. It is a boolean and this control has three
+  // states, so "required" and "avoided" both came out as pressed=true and the
+  // one that mattered was announced as the other. The state lives in the name.
   button.setAttribute("aria-label", `${day}: ${said}`);
-  button.setAttribute("aria-pressed", String(state !== "any"));
 }
 
 function readFilters() {
@@ -252,7 +254,10 @@ function selectSection(row) {
 
 function closeDetail() {
   els.app.dataset.view = "results";
-  els.results.focus();
+  // Back to the row that opened the pane where possible, so a keyboard user
+  // resumes where they left off instead of at the top of the results.
+  const selected = els.results.querySelector(".is-selected");
+  (selected ?? els.results).focus();
 }
 
 // The status element is never removed or hidden, only its text changes. A live
@@ -475,6 +480,11 @@ async function init() {
   setStatus("Loading terms...");
   els.term.disabled = true;
 
+  // Before the network, not after: a shared link's filters and the day chips'
+  // spoken state must not wait on the term service, which #38 measured
+  // leaving all five chips announcing as "Mo" when it failed.
+  writeFilters(params);
+
   try {
     terms = await fetchTerms();
   } catch (error) {
@@ -498,8 +508,6 @@ async function init() {
   const wanted = params.get("term");
   els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
   els.term.disabled = false;
-
-  writeFilters(params);
 
   for (const field of [els.subject, els.number]) {
     field.addEventListener("focus", ensureCourses);
