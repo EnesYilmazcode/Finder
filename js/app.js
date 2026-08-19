@@ -391,7 +391,7 @@ async function init() {
   writeFilters(params);
 
   for (const field of [els.subject, els.number]) {
-    field.addEventListener("focus", ensureCourses, { once: false });
+    field.addEventListener("focus", ensureCourses);
   }
 
   els.subject.addEventListener("input", async () => {
