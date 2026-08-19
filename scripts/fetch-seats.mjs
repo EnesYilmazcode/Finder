@@ -8,17 +8,28 @@
 //
 // Usage:  node scripts/fetch-seats.mjs [term ...]
 //         node scripts/fetch-seats.mjs 1268
-// With no argument the term is derived from today's date.
+// With no argument every term the API reports as searchable is snapshotted,
+// which is what the workflow does. Naming terms refreshes only those: the other
+// searchable terms keep the files and index entries they already have.
+//
+// Output is one file per term, data/seats-1268.json, plus data/seats.json
+// listing them. Seats load before anything renders, so a browser fetches the
+// index and the one term on screen rather than every term at once.
 //
 // Format notes and the verified column map live in docs/barrett-schedule.md.
 
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const BASE = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
+// Only for the term list. Every seat number here comes from Barrett.
+const API = 'https://content.osu.edu/v2/classes';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = join(ROOT, 'data');
+const INDEX_NAME = 'seats.json';
+const TERM_PREFIX = 'seats-';
+const TERM_FILE_RE = /^seats-\d{4}\.json$/;
 
 const CONCURRENCY = 5;
 const DELAY_MS = 120;
@@ -56,24 +67,15 @@ const TAIL_RE = /^\s*(?:(\S+)\s+)?(\d+)\/(\d+)(?:\s*\+(\d+))?\s*$/;
 const HEADER_RE = /^(\S+)\s+(\d{4}) \((.+?)\)\s+updated: (\S+)\s*$/;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// 4-digit term code: first three digits are year - 1900, last is the season
-// (2 spring, 4 summer, 8 autumn). Documented at BASE/SUBJECT/term.txt.
-function currentTerm(now = new Date()) {
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth() + 1;
-  const season = month <= 4 ? 2 : month <= 7 ? 4 : 8;
-  return String((year - 1900) * 10 + season);
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchText(url, { allow404 = false } = {}) {
+async function fetchText(url, { allow404 = false, accept = 'text/plain,text/html' } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
     if (attempt > 0) await sleep(500 * 2 ** (attempt - 1));
     try {
       const res = await fetch(url, {
-        headers: { 'user-agent': USER_AGENT, accept: 'text/plain,text/html' },
+        headers: { 'user-agent': USER_AGENT, accept },
         signal: AbortSignal.timeout(30000),
       });
       if (res.status === 404 && allow404) return null;
@@ -101,6 +103,19 @@ async function fetchSubjects() {
   const subjects = new Set();
   for (const m of html.matchAll(/<a href="([A-Z][A-Z0-9]*)">/g)) subjects.add(m[1]);
   return [...subjects].sort();
+}
+
+// The terms the site can actually search, oldest first. A 4-digit code is the
+// year minus 1900 then the season, 2 spring 4 summer 8 autumn, but a
+// well-formed code is not a searchable one, so it is read rather than derived.
+async function searchableTerms() {
+  const body = JSON.parse(await fetchText(`${API}/searchableTermsV2`, { accept: 'application/json' }));
+  const terms = body?.data?.data;
+  if (!Array.isArray(terms) || !terms.length) throw new Error('searchableTermsV2 returned nothing');
+  return terms
+    .filter((t) => t.classSearch === 'Y' && /^\d{4}$/.test(t.strm ?? ''))
+    .map((t) => t.strm)
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function slice(line, [start, end]) {
@@ -201,11 +216,8 @@ async function mapLimit(items, limit, worker) {
   return out;
 }
 
-async function snapshotTerm(term) {
+async function snapshotTerm(term, subjects) {
   const started = Date.now();
-  const subjects = await fetchSubjects();
-  console.log(`term ${term}: ${subjects.length} subjects listed`);
-
   const results = await mapLimit(subjects, CONCURRENCY, async (subject) => {
     const text = await fetchText(`${BASE}/${subject}/${term}.txt`, { allow404: true });
     if (text === null) return { subject, offered: false };
@@ -249,10 +261,7 @@ async function snapshotTerm(term) {
   const snapshot = {
     term,
     termName,
-    source: `${BASE}/`,
     sourceUpdated: toIsoDate(updated),
-    note: 'Barrett refreshes once a day around 06:50 Eastern. A missing class number means unknown, not zero.',
-    fields: ['enrolled', 'limit', 'waitlist'],
     sections,
   };
 
@@ -277,19 +286,51 @@ async function writeAtomic(path, contents) {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.tmp`;
   await writeFile(tmp, contents);
-  await rename(tmp, path);
+  await rename(tmp, path); // rename is atomic, so a crash cannot leave a partial file
+}
+
+// Key order comes from insertion, so identical input gives an identical file and
+// the workflow finds nothing to commit.
+async function writeJson(path, value) {
+  const json = `${JSON.stringify(value, null, 0)}\n`;
+  await writeAtomic(path, json);
+  return Buffer.byteLength(json);
+}
+
+async function readIndex() {
+  try {
+    return JSON.parse(await readFile(join(OUT_DIR, INDEX_NAME), 'utf8'));
+  } catch {
+    return null; // no index yet, or one this version cannot read
+  }
+}
+
+async function exists(path) {
+  try {
+    await readFile(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function main() {
-  const terms = process.argv.slice(2).filter((a) => /^\d{4}$/.test(a));
-  if (!terms.length) terms.push(currentTerm());
+  const requested = process.argv.slice(2).filter((a) => /^\d{4}$/.test(a));
+  const searchable = await searchableTerms();
+  const terms = requested.length ? searchable.filter((t) => requested.includes(t)) : searchable;
+  if (!terms.length) throw new Error(`none of ${requested.join(', ')} is searchable`);
+
+  // One subject index covers every term. It lists every code Barrett knows, and
+  // a subject not offered in a term 404s, which is normal and not an error.
+  const subjects = await fetchSubjects();
+  console.log(`${terms.length} searchable terms (${terms.join(', ')}), ${subjects.length} subjects listed`);
 
   const out = {};
   let residueSeen = 0;
   let sectionsSeen = 0;
 
   for (const term of terms) {
-    const { snapshot, stats, failures } = await snapshotTerm(term);
+    const { snapshot, stats, failures } = await snapshotTerm(term, subjects);
     out[term] = snapshot;
     residueSeen += stats.residueFailures;
     sectionsSeen += stats.sectionsParsed;
@@ -315,19 +356,58 @@ async function main() {
     );
   }
 
-  // One term writes the plain shape the browser expects. Several terms nest
-  // under their code so a caller can pick.
-  const payload = terms.length === 1 ? out[terms[0]] : { terms: out };
-  const json = `${JSON.stringify(payload, null, 0)}\n`;
-  const path = join(OUT_DIR, 'seats.json');
-  await writeAtomic(path, json);
+  // One file per term. Nothing is written until every term has cleared the
+  // checks above, so a bad run cannot leave one term fresh and another stale.
+  const entries = [];
+  for (const term of terms) {
+    const snapshot = out[term];
+    const file = `${TERM_PREFIX}${term}.json`;
+    const bytes = await writeJson(join(OUT_DIR, file), snapshot);
+    entries.push({
+      term,
+      termName: snapshot.termName,
+      sourceUpdated: snapshot.sourceUpdated,
+      sections: Object.keys(snapshot.sections).length,
+      file,
+    });
+    console.log(`wrote data/${file} (${bytes} bytes, ${(bytes / 1024).toFixed(1)} KiB)`);
+  }
 
-  const bytes = Buffer.byteLength(json);
-  console.log(`wrote ${path} (${bytes} bytes, ${(bytes / 1024).toFixed(1)} KiB)`);
+  // A run for named terms leaves the rest alone, so their index entries carry
+  // over. A term that is no longer searchable does not, which is what drops it
+  // from the index and then from disk.
+  const previous = await readIndex();
+  for (const entry of previous?.terms ?? []) {
+    const term = String(entry?.term ?? '');
+    if (!searchable.includes(term)) continue;
+    if (entries.some((e) => e.term === term)) continue;
+    if (entry.file !== `${TERM_PREFIX}${term}.json`) continue;
+    if (!(await exists(join(OUT_DIR, entry.file)))) continue;
+    entries.push(entry);
+  }
+  entries.sort((a, b) => a.term.localeCompare(b.term));
+
+  // The index is what the page reads first, so it stays tiny. It says which
+  // terms exist at all, which is what lets the page tell a term Barrett does
+  // not publish from one it has simply not fetched yet.
+  const indexBytes = await writeJson(join(OUT_DIR, INDEX_NAME), {
+    source: `${BASE}/`,
+    fields: ['enrolled', 'limit', 'waitlist'],
+    note: 'Barrett rebuilds a live term once a day around 06:50 Eastern and freezes a term once it is over, so sourceUpdated differs per term. A missing class number means unknown, not zero.',
+    terms: entries,
+  });
+  console.log(`wrote data/${INDEX_NAME} (${indexBytes} bytes)`);
+
+  for (const name of await readdir(OUT_DIR)) {
+    if (!TERM_FILE_RE.test(name)) continue;
+    if (entries.some((e) => e.file === name)) continue;
+    await rm(join(OUT_DIR, name));
+    console.log(`removed data/${name}, that term is no longer searchable`);
+  }
 }
 
 // Exported so a checker can reuse the parser without refetching.
-export { currentTerm, parseSubjectFile };
+export { parseSubjectFile };
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((err) => {

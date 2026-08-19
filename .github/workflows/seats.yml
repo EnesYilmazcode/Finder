@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       term:
-        description: '4-digit term code, blank to derive from today'
+        description: '4-digit term code for a one-off run, blank for every searchable term'
         required: false
         default: ''
 
@@ -29,6 +29,8 @@ jobs:
         with:
           node-version: '22'
 
+      # No term argument on a schedule: the script snapshots every searchable
+      # term, and naming one would drop the others from the file.
       - name: Fetch seat counts
         env:
           TERM_INPUT: ${{ inputs.term }}
@@ -36,12 +38,20 @@ jobs:
 
       - name: Commit if changed
         run: |
-          if [ -z "$(git status --porcelain -- data/seats.json)" ]; then
-            echo "no change"
+          # One file per term now, so stage by pathspec. -A picks up a term that
+          # is new and one that was dropped, and staging a file whose bytes did
+          # not move records nothing, so an unchanged term stays out of the diff.
+          git add -A -- data/seats.json 'data/seats-*.json'
+          if git diff --cached --quiet; then
+            echo "No seat file changed, nothing to commit."
             exit 0
           fi
+          git diff --cached --name-status
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/seats.json
           git commit -m "Update seat counts"
-          git push
+          # The scheduled run and a manual dispatch can overlap, and the branch may have
+          # moved on while the fetch was running. Ratings and the course index commit to
+          # the same branch on their own schedules.
+          git pull --rebase origin ${{ github.ref_name }}
+          git push origin HEAD:${{ github.ref_name }}
