@@ -11,13 +11,15 @@
   <link rel="stylesheet" href="css/finder.css">
 </head>
 <body>
-  <div class="shell">
-    <header class="masthead">
+  <div class="app">
+
+    <header class="topbar">
       <h1 class="wordmark">Finder</h1>
       <p class="tagline">Who teaches it, before everyone else finds out.</p>
-    </header>
 
-    <main>
+      <button class="rail-toggle" id="rail-toggle" type="button"
+              aria-expanded="false" aria-controls="rail">Filters</button>
+
       <form class="search" id="search" role="search" aria-label="Course search">
         <label class="visually-hidden" for="q">Course or professor</label>
         <input id="q" name="q" type="search" autocomplete="off" autocapitalize="none"
@@ -30,13 +32,27 @@
 
         <button id="go" type="submit">Search</button>
       </form>
+    </header>
 
+    <aside class="rail" id="rail" aria-label="Filters">
+      <p class="rail-empty">Filters arrive with <a href="https://github.com/EnesYilmazcode/Finder/issues/27">#27</a>.</p>
+    </aside>
+
+    <main class="centre" id="centre">
       <!-- Stays in the DOM at all times, empty or not. A live region that is
            added or unhidden at announce time is usually not announced. -->
       <p class="status" id="status" role="status" aria-live="polite" aria-atomic="true"></p>
 
       <div class="results" id="results" role="region" aria-label="Search results" tabindex="-1"></div>
     </main>
+
+    <aside class="detail" id="detail" aria-label="Section detail" tabindex="-1">
+      <button class="detail-back" id="detail-back" type="button" hidden>Back to results</button>
+      <div id="detail-body">
+        <p class="detail-idle">Pick a section to see the instructor, seats and room.</p>
+      </div>
+    </aside>
+
   </div>
 
   <script type="module" src="js/app.js"></script>
