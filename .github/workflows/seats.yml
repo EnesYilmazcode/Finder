@@ -38,15 +38,17 @@ jobs:
 
       - name: Commit if changed
         run: |
-          # --porcelain rather than git diff so a first run, where the file is not
-          # tracked yet, still counts as a change.
-          if [ -z "$(git status --porcelain -- data/seats.json)" ]; then
-            echo "No change in data/seats.json, nothing to commit."
+          # One file per term now, so stage by pathspec. -A picks up a term that
+          # is new and one that was dropped, and staging a file whose bytes did
+          # not move records nothing, so an unchanged term stays out of the diff.
+          git add -A -- data/seats.json 'data/seats-*.json'
+          if git diff --cached --quiet; then
+            echo "No seat file changed, nothing to commit."
             exit 0
           fi
+          git diff --cached --name-status
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/seats.json
           git commit -m "Update seat counts"
           # The scheduled run and a manual dispatch can overlap, and the branch may have
           # moved on while the fetch was running. Ratings and the course index commit to

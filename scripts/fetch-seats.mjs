@@ -9,12 +9,16 @@
 // Usage:  node scripts/fetch-seats.mjs [term ...]
 //         node scripts/fetch-seats.mjs 1268
 // With no argument every term the API reports as searchable is snapshotted,
-// which is what the workflow does. Naming terms is for local debugging: the
-// file is rewritten, so terms left out are dropped from it.
+// which is what the workflow does. Naming terms refreshes only those: the other
+// searchable terms keep the files and index entries they already have.
+//
+// Output is one file per term, data/seats-1268.json, plus data/seats.json
+// listing them. Seats load before anything renders, so a browser fetches the
+// index and the one term on screen rather than every term at once.
 //
 // Format notes and the verified column map live in docs/barrett-schedule.md.
 
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -23,6 +27,9 @@ const BASE = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
 const API = 'https://content.osu.edu/v2/classes';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = join(ROOT, 'data');
+const INDEX_NAME = 'seats.json';
+const TERM_PREFIX = 'seats-';
+const TERM_FILE_RE = /^seats-\d{4}\.json$/;
 
 const CONCURRENCY = 5;
 const DELAY_MS = 120;
@@ -279,7 +286,32 @@ async function writeAtomic(path, contents) {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.tmp`;
   await writeFile(tmp, contents);
-  await rename(tmp, path);
+  await rename(tmp, path); // rename is atomic, so a crash cannot leave a partial file
+}
+
+// Key order comes from insertion, so identical input gives an identical file and
+// the workflow finds nothing to commit.
+async function writeJson(path, value) {
+  const json = `${JSON.stringify(value, null, 0)}\n`;
+  await writeAtomic(path, json);
+  return Buffer.byteLength(json);
+}
+
+async function readIndex() {
+  try {
+    return JSON.parse(await readFile(join(OUT_DIR, INDEX_NAME), 'utf8'));
+  } catch {
+    return null; // no index yet, or one this version cannot read
+  }
+}
+
+async function exists(path) {
+  try {
+    await readFile(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function main() {
@@ -324,21 +356,54 @@ async function main() {
     );
   }
 
-  // Always keyed by term, even when run for one, so the page reads one shape
-  // whatever this was run with. The term selector offers every searchable term,
-  // and seats for the wrong one are worse than none.
-  const payload = {
+  // One file per term. Nothing is written until every term has cleared the
+  // checks above, so a bad run cannot leave one term fresh and another stale.
+  const entries = [];
+  for (const term of terms) {
+    const snapshot = out[term];
+    const file = `${TERM_PREFIX}${term}.json`;
+    const bytes = await writeJson(join(OUT_DIR, file), snapshot);
+    entries.push({
+      term,
+      termName: snapshot.termName,
+      sourceUpdated: snapshot.sourceUpdated,
+      sections: Object.keys(snapshot.sections).length,
+      file,
+    });
+    console.log(`wrote data/${file} (${bytes} bytes, ${(bytes / 1024).toFixed(1)} KiB)`);
+  }
+
+  // A run for named terms leaves the rest alone, so their index entries carry
+  // over. A term that is no longer searchable does not, which is what drops it
+  // from the index and then from disk.
+  const previous = await readIndex();
+  for (const entry of previous?.terms ?? []) {
+    const term = String(entry?.term ?? '');
+    if (!searchable.includes(term)) continue;
+    if (entries.some((e) => e.term === term)) continue;
+    if (entry.file !== `${TERM_PREFIX}${term}.json`) continue;
+    if (!(await exists(join(OUT_DIR, entry.file)))) continue;
+    entries.push(entry);
+  }
+  entries.sort((a, b) => a.term.localeCompare(b.term));
+
+  // The index is what the page reads first, so it stays tiny. It says which
+  // terms exist at all, which is what lets the page tell a term Barrett does
+  // not publish from one it has simply not fetched yet.
+  const indexBytes = await writeJson(join(OUT_DIR, INDEX_NAME), {
     source: `${BASE}/`,
     fields: ['enrolled', 'limit', 'waitlist'],
     note: 'Barrett rebuilds a live term once a day around 06:50 Eastern and freezes a term once it is over, so sourceUpdated differs per term. A missing class number means unknown, not zero.',
-    terms: out,
-  };
-  const json = `${JSON.stringify(payload, null, 0)}\n`;
-  const path = join(OUT_DIR, 'seats.json');
-  await writeAtomic(path, json);
+    terms: entries,
+  });
+  console.log(`wrote data/${INDEX_NAME} (${indexBytes} bytes)`);
 
-  const bytes = Buffer.byteLength(json);
-  console.log(`wrote ${path} (${bytes} bytes, ${(bytes / 1024).toFixed(1)} KiB)`);
+  for (const name of await readdir(OUT_DIR)) {
+    if (!TERM_FILE_RE.test(name)) continue;
+    if (entries.some((e) => e.file === name)) continue;
+    await rm(join(OUT_DIR, name));
+    console.log(`removed data/${name}, that term is no longer searchable`);
+  }
 }
 
 // Exported so a checker can reuse the parser without refetching.
