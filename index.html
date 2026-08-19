@@ -17,18 +17,26 @@
       <p class="tagline">Who teaches it, before everyone else finds out.</p>
     </header>
 
-    <form class="search" id="search" role="search">
-      <label class="visually-hidden" for="q">Course or professor</label>
-      <input id="q" name="q" type="search" autocomplete="off" placeholder="CSE 2221, or a professor's name">
+    <main>
+      <form class="search" id="search" role="search" aria-label="Course search">
+        <label class="visually-hidden" for="q">Course or professor</label>
+        <input id="q" name="q" type="search" autocomplete="off" autocapitalize="none"
+               autocorrect="off" spellcheck="false" enterkeyhint="search"
+               aria-controls="results" aria-describedby="status"
+               placeholder="CSE 2221, or a professor's name">
 
-      <label class="visually-hidden" for="term">Term</label>
-      <select id="term" name="term" disabled></select>
+        <label class="visually-hidden" for="term">Term</label>
+        <select id="term" name="term" disabled></select>
 
-      <button id="go" type="submit">Search</button>
-    </form>
+        <button id="go" type="submit">Search</button>
+      </form>
 
-    <p class="status" id="status" role="status" aria-live="polite"></p>
-    <div class="results" id="results"></div>
+      <!-- Stays in the DOM at all times, empty or not. A live region that is
+           added or unhidden at announce time is usually not announced. -->
+      <p class="status" id="status" role="status" aria-live="polite" aria-atomic="true"></p>
+
+      <div class="results" id="results" role="region" aria-label="Search results" tabindex="-1"></div>
+    </main>
   </div>
 
   <script type="module" src="js/app.js"></script>
