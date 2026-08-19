@@ -52,12 +52,12 @@ The main endpoint.
 
 | Parameter | Notes |
 |---|---|
-| `q` | Free text. Matches subject, catalog number, course title, and instructor name |
+| `q` | Free text. Matches subject, catalog number, course title, and instructor name. Multi-word queries are a union, not an intersection: `CSE 2331` matches anything with `CSE` or `2331` |
 | `campus` | `col` for Columbus |
 | `term` | A `strm` code, for example `1268` |
 | `p` | 1-based page number |
 | `sort` | `catalogNumber`, `subject`, or `-` prefixed for descending. Default is relevance, which is the source of the paging trouble below |
-| `subject` | Subject code, lowercase. Exact, unlike putting the code in `q` |
+| `subject` | Subject code, lowercase. Exact, unlike putting the code in `q`. Combines with `q` as an intersection |
 
 Neither `sort` nor `subject` needs guessing. Every response carries `sort` and
 `filters` arrays, and each entry in them spells out the parameter and value that
@@ -136,8 +136,8 @@ the section's own limit. `facilityCapacity` is the room's capacity and is not th
 same number. So Finder shows enrolled counts and `enrollmentStatus`, and does not
 draw a percent-full meter it cannot honestly compute.
 
-**Paged search is not deterministic.** Pulling the identical query three times
-back to back returns a different set of sections each time:
+**Paged search is not deterministic in its default order.** Pulling the identical
+query three times back to back returns a different set of sections each time:
 
 ```
 run 1: 1001 CSE sections    totalPages=7
@@ -150,16 +150,104 @@ missing from run 1:      63
 ```
 
 Roughly 6% of sections differ per pull, so any single multi-page pull silently
-misses some. This is the default relevance ordering shuffling ties, and
-`sort=catalogNumber` pins it, which is measured under Enumerating the catalog
-below. Without that, the practical rule is **keep queries narrow enough to fit on
-one page.**
-A user searching `CSE 2221` is unaffected because the result fits on page 1. A
-feature that tries to enumerate an entire subject would be quietly lossy, and
-should not be built on this endpoint without reconciling several pulls.
+misses some. The cause is the default relevance ordering reshuffling ties, and
+`sort=catalogNumber` pins it. Eight identical `q=Smith` pulls, Autumn 2026, a
+674 section result over four pages:
+
+| Order | Sections per pull | In every pull | Sections that moved |
+|---|---|---|---|
+| relevance | 635 to 674 | 565 | 109 |
+| `catalogNumber` | 673 or 674 | 672 | 2 |
+
+Sorting does not make paging perfect, it makes it about 98% better. Two sections
+still came and went across those eight pulls, so a stable order is an observation
+and not a promise. At course level the same eight pulls returned 93 courses
+taught by a Smith seven times and 92 once, against 86 to 93 unsorted.
 
 **Future terms appear late.** Querying `term=1272` (Spring 2027) returned zero
 results on 2026-08-18 while the term was already visible elsewhere on campus.
+
+## Searching from the client
+
+`js/api.js` serves one student typing one query, so it cannot walk the whole
+result the way the catalog build does. It reads at most five pages, and that
+budget is what makes the choice of order and parameters matter. Three findings
+shape it, all measured on Autumn 2026.
+
+### Five pages is still the right budget
+
+The multi-page fetch exists because relevance does not put a match on page 1.
+Sorting did not remove the need for it. Distinct courses found as the pull gets
+deeper, counting only courses the query should actually return:
+
+| Query | Pages | Page 1 | 2 | 3 | 4 | 5 | All |
+|---|---|---|---|---|---|---|---|
+| `Smith`, relevance | 4 | 0 | 0 | 57 | 93 | 93 | 93 |
+| `Smith`, `catalogNumber` | 4 | 4 | 14 | 62 | 92 | 92 | 93 |
+| `Chen`, relevance | 4 | 0 | 0 | 63 | 87 | 87 | 87 |
+| `Lee`, `catalogNumber` | 3 | 79 | 168 | 192 | 192 | 192 | 192 |
+| `organic chemistry`, relevance | 6 | 11 | 13 | 13 | 13 | 13 | 13 |
+| `CSE`, relevance | 7 | 44 | 65 | 83 | 95 | 102 | 104 |
+| `Bucci` | 1 | 9 | 9 | 9 | 9 | 9 | 9 |
+
+`Smith` and `Chen` are the case that #14 was filed for, and they are unchanged:
+the first two pages carry none of that professor's courses under relevance, and
+the answer is only complete on page 4. Sorting starts finding them earlier but
+still needs page 4. Nothing in the data supports cutting the budget below five,
+so it stays at five. Common surnames run to four pages and rare ones to one, so
+the budget is rarely spent in full.
+
+### Sorting has a price when the result is truncated
+
+A sorted page 1 is the lowest catalog numbers, not the best matches. That is what
+you want when you intend to read every page and the opposite of what you want
+when you stop early. Distinct courses found in five pages:
+
+| Query | Pages | Relevance | `catalogNumber` | All |
+|---|---|---|---|---|
+| `MATH` | 11 | 89 | 21 | 89 |
+| `creative writing` | 9 | 3 | 3 | 3 |
+| `CSE` | 7 | 102 | 101 | 104 |
+| `organic chemistry` | 6 | 13 | 13 | 13 |
+| `machine learning` | 4 | 5 | 5 | 5 |
+| `Smith` | 4 | 86 to 93 | 92 to 93 | 93 |
+
+`MATH` is the worst case and it explains the rule. MATH 1151 alone has 173
+sections, so a thousand sections in catalog order never reach the 2000s. So the
+client sorts, reads `totalPages` off the first response, and keeps the sorted
+order only when the whole result fits in the budget. When it does not fit it
+pulls the relevance pages as well and merges, since `mergeCourses` in
+`js/rank.js` dedupes by class number and the sorted page it already paid for is
+then extra coverage rather than waste.
+
+### `q` is a union, `subject` is a filter
+
+`q` matches on any token, not all of them. `q=CSE 2331` returns 1248 sections
+over seven pages spread across nine subjects, because a section matches on `CSE`
+or on `2331`. The two parameters do combine, so moving the subject out of `q`
+turns the same question into one page:
+
+| Request | Items | Pages |
+|---|---|---|
+| `q=CSE 2331` | 1248 | 7 |
+| `subject=cse&q=2331` | 50 | 1 |
+
+Checked over 18 course lookups, the narrow form returned the identical course
+records and the identical set of class numbers as the five page relevance pull,
+section for section, nothing missing. All 102 sections of PHYSICS 1250 and all
+107 of CHEM 1210 came back either way. What it drops is the thousand sections
+nobody asked for.
+
+The catch is telling a subject code from a surname. `CSE` and `Smith` are the
+same shape to a regular expression, and `subject=smith` returns zero rather than
+an error, so a wrong guess costs a wasted round trip on the commonest search
+there is. The client only reads a token as a subject when the query also carries
+a catalog number, which a bare surname never does, and it falls back to plain
+text if the subject turns out not to be offered. A bare `MATH` is therefore left
+as free text on purpose.
+
+Across a 37 query mix this cut requests by 26% and median wall time by 29%.
+`CSE 2331` went from five requests and 572 ms to one request and 101 ms.
 
 ## Enumerating the catalog
 
@@ -289,21 +377,32 @@ strictly worse as a primary source. Compared head to head for CSE, Autumn 2026:
 
 | | OSU API | Barrett |
 |---|---|---|
-| Sections returned | about 1000, varies per pull | 468, stable |
+| Sections returned | 1064, stable | 484, stable |
 | Instructor names | full, plus email address | initials only, `D.Kline` |
-| Sections it has that the other lacks | about 580 | about 80 |
+| Sections it has that the other lacks | 657 | 77 |
 
-The API counts are deliberately approximate. Paged search is non-deterministic,
-so repeated identical pulls disagree by a few percent. See the paging note above.
-Barrett is a static file and its count is exact.
+Both counts are now exact. The API side is a `subject=cse&sort=catalogNumber`
+walk, which returned the identical 1064 class numbers on three consecutive full
+pulls, so the older "about 1000, varies per pull" caveat no longer applies. See
+the paging note above.
+
+Of the 77 sections only Barrett lists, 16 carry a regional campus code and so
+cannot appear in a `campus=col` pull at all. The other 61 are Columbus rows the
+API genuinely does not return, spot checked by class number.
 
 Coverage is one question and instructor naming is a different one, so they are
-measured separately. Restricted to the 388 sections both sources actually list:
+measured separately. Restricted to the 407 sections both sources actually list:
 
 | | count |
 |---|---|
 | Barrett names an instructor where the API is blank | **0** |
 | API names an instructor where Barrett is blank | 0 |
+| Both name an instructor | 401 |
+| Neither names one | 6 |
+
+Two of those 407 have something in Barrett's instructor column where the API has
+nobody, but the content is `{7W2}`, a seven week session code rather than a
+person, so the count above is 0 and not 2.
 
 That first row is the decisive one. On shared sections the two sources agree
 completely, so Barrett does not surface a single instructor the API is missing.
@@ -317,6 +416,15 @@ The API is the live system of record.
 
 Barrett may still be worth revisiting for enrollment limits. It is not worth
 depending on for instructors.
+
+**Count Barrett sections with the real parser.** The numbers in this section were
+originally wrong because they came from a hand rolled fixed column slice at
+columns 20 to 30, which swallows the campus code on regional campus rows, so a
+line like `CSE 2111  NWK  4816 L` never parsed as a section at all. That dropped
+exactly the 16 regional rows and produced the old figure of 468. `parseSubjectFile`
+in `scripts/fetch-seats.mjs` carries the column map that #19 verified against
+every subject file, and it parses all 484 CSE rows with zero residue. Use it, or
+read `data/seats.json`, rather than slicing columns by hand.
 
 ## Courtesy
 
