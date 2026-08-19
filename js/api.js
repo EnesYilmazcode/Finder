@@ -113,3 +113,29 @@ export async function searchClasses({ q, term, page = 1 }) {
     courses: data?.courses ?? [],
   };
 }
+
+/**
+ * Search across several pages and merge.
+ *
+ * Relevance does not reliably put a match on page 1: "Smith" returns 674 items
+ * over 4 pages with zero of that professor's courses on the first. Upstream
+ * paging is also non-deterministic, so pulling more pages raises coverage
+ * rather than lowering it.
+ */
+export async function searchAllPages({ q, term, maxPages = 5 }) {
+  const first = await searchClasses({ q, term, page: 1 });
+  const pages = Math.min(first.totalPages ?? 1, maxPages);
+  if (pages <= 1) return { ...first, pagesFetched: 1 };
+
+  const rest = await Promise.all(
+    Array.from({ length: pages - 1 }, (_, i) =>
+      searchClasses({ q, term, page: i + 2 }).catch(() => ({ courses: [] }))
+    )
+  );
+
+  return {
+    ...first,
+    courses: [...first.courses, ...rest.flatMap((r) => r.courses)],
+    pagesFetched: pages,
+  };
+}

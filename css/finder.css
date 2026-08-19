@@ -1,0 +1,293 @@
+/* Finder. Scarlet is structural here, not decorative: it marks the course
+   record and nothing else, so the eye learns one meaning for it. */
+
+:root {
+  --paper: #ffffff;
+  --wash: #f0f1f4;
+  --sunk: #e7e9ee;
+  --ink: #16171a;
+  --mute: #656a72;
+  --rule: #dee0e5;
+  --scarlet: #bb0000;
+  --open: #0e7a50;
+  --wait: #a65b00;
+  --closed: #767c85;
+
+  --display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --data: "IBM Plex Mono", ui-monospace, monospace;
+
+  --gap: clamp(1rem, 2.5vw, 1.75rem);
+  --radius: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #131417;
+    --wash: #1a1c20;
+    --sunk: #232529;
+    --ink: #eceef2;
+    --mute: #9aa1ab;
+    --rule: #2c2f35;
+    --scarlet: #ff5c4d;
+    --open: #4cc38a;
+    --wait: #e0a44a;
+    --closed: #868d97;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--wash);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--scarlet);
+  outline-offset: 2px;
+}
+
+.shell {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: var(--gap);
+}
+
+/* Masthead ---------------------------------------------------------------- */
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-size: clamp(1.75rem, 5vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+  line-height: 1;
+}
+
+.tagline {
+  margin: 0;
+  color: var(--mute);
+  font-size: 0.95rem;
+}
+
+/* Search ------------------------------------------------------------------ */
+
+.search {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.5rem;
+  position: sticky;
+  top: 0.5rem;
+  z-index: 10;
+}
+
+.search input,
+.search select,
+.search button {
+  font: inherit;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  padding: 0.6rem 0.75rem;
+  background: transparent;
+  color: inherit;
+}
+
+.search input {
+  min-width: 0;
+  border-color: var(--rule);
+  background: var(--paper);
+}
+
+.search input::placeholder { color: var(--mute); }
+
+.search select {
+  border-color: var(--rule);
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.search button {
+  background: var(--scarlet);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  border-color: var(--scarlet);
+}
+
+.search button:hover { filter: brightness(1.08); }
+.search button:disabled { opacity: 0.5; cursor: default; }
+
+@media (prefers-color-scheme: dark) {
+  .search button { color: #16171a; }
+}
+
+/* Status ------------------------------------------------------------------ */
+
+.status {
+  margin: 1rem 0 0;
+  color: var(--mute);
+  font-size: 0.95rem;
+}
+
+.status:empty { margin: 0; }
+.status[data-kind="error"] { color: var(--scarlet); font-weight: 500; }
+
+/* Course records ---------------------------------------------------------- */
+
+.results { margin-top: 1.25rem; display: grid; gap: 0.75rem; }
+
+.course {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--scarlet);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.course-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.course-code {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.course-title { font-weight: 600; }
+
+.course-meta {
+  margin-left: auto;
+  color: var(--mute);
+  font-family: var(--data);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+/* Sections ---------------------------------------------------------------- */
+
+.sections { list-style: none; margin: 0; padding: 0; }
+
+.section {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr auto;
+  gap: 0.25rem 0.9rem;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid var(--rule);
+  align-items: baseline;
+}
+
+.sections > .section:first-child { border-top: 0; }
+
+.section-number {
+  font-family: var(--data);
+  font-size: 0.85rem;
+  color: var(--mute);
+}
+
+.section-when { font-size: 0.95rem; }
+
+.section-where,
+.section-who {
+  grid-column: 2;
+  color: var(--mute);
+  font-size: 0.85rem;
+}
+
+.section-who { color: var(--ink); }
+
+.chip {
+  font-family: var(--data);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chip::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.chip[data-kind="open"] { color: var(--open); }
+.chip[data-kind="wait"] { color: var(--wait); }
+.chip[data-kind="closed"] { color: var(--closed); }
+.chip[data-kind="unknown"] { color: var(--mute); }
+
+.seats {
+  grid-column: 3;
+  font-family: var(--data);
+  font-size: 0.78rem;
+  color: var(--mute);
+  text-align: right;
+}
+
+.component {
+  font-family: var(--data);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mute);
+  background: var(--sunk);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius);
+}
+
+/* Small screens ----------------------------------------------------------- */
+
+@media (max-width: 34rem) {
+  .search { grid-template-columns: 1fr; position: static; }
+  .section { grid-template-columns: 1fr auto; }
+  .section-number { grid-column: 1; }
+  .section-when,
+  .section-where,
+  .section-who { grid-column: 1 / -1; }
+  .seats { grid-column: 1 / -1; text-align: left; }
+  .course-meta { margin-left: 0; width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
