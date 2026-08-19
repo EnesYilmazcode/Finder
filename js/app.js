@@ -1,6 +1,7 @@
 import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
 import { filterCourses } from "./rank.js";
 import { renderResults } from "./render.js";
+import { loadRatings } from "./ratings.js";
 
 const els = {
   form: document.querySelector("#search"),
@@ -46,7 +47,13 @@ async function runSearch(q, term) {
   setBusy(true);
   setStatus("Searching...");
   try {
-    const { courses } = await searchAllPages({ q, term });
+    // Ratings must be in hand before rendering, or instructors draw unrated and
+    // never redraw. Awaited alongside the search rather than before it, so the
+    // cost is the slower of the two and only on the first search.
+    const [{ courses }] = await Promise.all([
+      searchAllPages({ q, term }),
+      loadRatings().catch(() => null),
+    ]);
     if (requestId !== latestRequest) return; // a newer search already answered
     const { primary, related } = filterCourses(courses, q);
     renderResults(els.results, { primary, related });
@@ -72,6 +79,9 @@ function termName(code) {
 }
 
 async function init() {
+  // Start the ratings download early so the first search rarely waits on it.
+  loadRatings().catch((error) => console.warn("ratings unavailable", error));
+
   const params = new URLSearchParams(location.search);
   setBusy(false);
   setStatus("Loading terms...");
