@@ -1,0 +1,124 @@
+<!doctype html><meta charset=utf-8><link rel=stylesheet href=shared.css>
+<style>
+.app{grid-template-columns:264px 1fr 320px;grid-template-rows:auto 1fr}
+.grid{display:grid;grid-template-columns:46px repeat(5,1fr);gap:0;position:relative}
+.hh{font-family:var(--data);font-size:10px;color:var(--dim);text-align:center;padding:6px 0;border-bottom:1px solid var(--rule2)}
+.hr{font-family:var(--data);font-size:9.5px;color:var(--dim);text-align:right;padding-right:6px;transform:translateY(-5px)}
+.col{border-left:1px solid var(--rule);position:relative}
+.row{border-bottom:1px solid #1e2127;height:44px}
+.ev{position:absolute;left:3px;right:3px;border-radius:3px;padding:4px 6px;font-size:11px;overflow:hidden;
+    border-left:3px solid var(--good);background:#1c2a24}
+.ev.mid{border-left-color:var(--warn);background:#2a2519}
+.ev.bad{border-left-color:var(--scarlet);background:#2a1c1a}
+.ev.mine{border-left-color:#4a4f58;background:#191c21;opacity:.55}
+.ev.sel{outline:1.5px solid var(--ink)}
+.ev b{display:block;font-family:var(--display);font-size:11.5px;font-weight:700}
+.ev span{color:var(--mute);font-family:var(--data);font-size:9.5px}
+.lg{display:flex;gap:12px;align-items:center;font-size:11px;color:var(--mute);padding:6px 0 8px}
+.dot{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:4px}
+.drow{display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--rule)}
+.drow span:first-child{color:var(--mute)}
+.big{font-family:var(--display);font-weight:800;font-size:30px;letter-spacing:-.03em;line-height:1}
+</style>
+<div class=app>
+  <div class=topbar>
+    <p class=wordmark>Finder</p>
+    <div style="flex:1"></div>
+    <div class=ctl style="width:210px"><span class=mono>CSE 2331</span><span class=car>&#9662;</span></div>
+    <div class=ctl style="width:150px"><span>Autumn 2026</span><span class=car>&#9662;</span></div>
+    <span class=count>8 sections plotted</span>
+  </div>
+
+  <aside class=rail>
+    <p class=eyebrow>Course</p>
+    <div class=field><label class=label>Subject</label><div class="ctl mono"><span>CSE</span><span class=car>&#9662;</span></div></div>
+    <div class=field><label class=label>Number</label><div class=ctl><span class=mono>2331</span><span class=car>&#9662;</span></div></div>
+    <div class=sep></div>
+    <p class=eyebrow>My schedule</p>
+    <p style="font-size:12px;color:var(--mute);margin:0 0 9px">Added so far, drawn behind results.</p>
+    <div style="border:1px solid var(--rule2);border-radius:3px;padding:7px 9px;margin-bottom:6px;font-size:12.5px">
+      <div style="font-weight:600">MATH 2568</div><div class=count>TuTh 9:35a &middot; 5461</div></div>
+    <div style="border:1px solid var(--rule2);border-radius:3px;padding:7px 9px;margin-bottom:6px;font-size:12.5px">
+      <div style="font-weight:600">ENGR 1182</div><div class=count>MoWe 1:50p &middot; 8812</div></div>
+    <div style="border:1px dashed var(--rule2);border-radius:3px;padding:7px 9px;color:var(--dim);font-size:12.5px">+ add a course</div>
+    <div class=sep></div>
+    <p class=eyebrow>Hide</p>
+    <div class=chk><span class="box on"></span>Conflicts with my schedule</div>
+    <div class=chk><span class="box on"></span>Full sections</div>
+    <div class=chk><span class=box></span>Before 10am</div>
+    <div class=sep></div>
+    <p class=eyebrow>Colour by</p>
+    <div class=chiprow><span class="chip on">Rating</span><span class=chip>Seats</span><span class=chip>Difficulty</span></div>
+  </aside>
+
+  <main class=main>
+    <div class=lg>
+      <span><span class=dot style="background:var(--good)"></span>4.0+</span>
+      <span><span class=dot style="background:var(--warn)"></span>3.0&ndash;3.9</span>
+      <span><span class=dot style="background:var(--scarlet)"></span>under 3.0 or full</span>
+      <span style="margin-left:auto" class=count>2 sections hidden: conflict with MATH 2568</span>
+    </div>
+    <div class=grid>
+      <div>
+        <div class=hh></div>
+        <div class=row><div class=hr>9a</div></div><div class=row><div class=hr>10a</div></div>
+        <div class=row><div class=hr>11a</div></div><div class=row><div class=hr>12p</div></div>
+        <div class=row><div class=hr>1p</div></div><div class=row><div class=hr>2p</div></div>
+        <div class=row><div class=hr>3p</div></div><div class=row><div class=hr>4p</div></div>
+      </div>
+      <div class=col><div class=hh>MON</div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class="ev bad" style="top:74px;height:40px"><b>Salih</b><span>10:20a &middot; 36/40 &middot; 2.7</span></div>
+        <div class="ev mine" style="top:250px;height:40px"><b>ENGR 1182</b><span>your schedule</span></div>
+        <div class="ev bad" style="top:338px;height:40px"><b>Painter</b><span>3:00p &middot; FULL 50/50 +3</span></div>
+      </div>
+      <div class=col><div class=hh>TUE</div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class="ev mine" style="top:30px;height:40px"><b>MATH 2568</b><span>your schedule</span></div>
+        <div class="ev mid" style="top:294px;height:52px"><b>Alilooee</b><span>2:20p &middot; 38/42 +1</span></div>
+      </div>
+      <div class=col><div class=hh>WED</div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class="ev bad" style="top:74px;height:40px"><b>Salih</b><span>10:20a &middot; 36/40</span></div>
+        <div class="ev mid sel" style="top:118px;height:40px"><b>Alilooee</b><span>11:30a &middot; 30/40 &middot; open</span></div>
+        <div class="ev mine" style="top:250px;height:40px"><b>ENGR 1182</b><span>your schedule</span></div>
+      </div>
+      <div class=col><div class=hh>THU</div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class="ev mine" style="top:30px;height:40px"><b>MATH 2568</b><span>your schedule</span></div>
+        <div class="ev mid" style="top:294px;height:52px"><b>Alilooee</b><span>2:20p &middot; 38/42 +1</span></div>
+      </div>
+      <div class=col><div class=hh>FRI</div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class=row></div><div class=row></div><div class=row></div><div class=row></div>
+        <div class="ev bad" style="top:74px;height:40px"><b>Salih</b><span>10:20a &middot; 36/40</span></div>
+        <div class="ev mid sel" style="top:118px;height:40px"><b>Alilooee</b><span>11:30a &middot; 30/40</span></div>
+        <div class="ev bad" style="top:338px;height:40px"><b>Painter</b><span>3:00p &middot; FULL</span></div>
+      </div>
+    </div>
+  </main>
+
+  <aside class=detail>
+    <p class=eyebrow>Section 9269</p>
+    <h2 class=h2>Ali Alilooee</h2>
+    <p class=sub>MoWeFr 11:30a&ndash;12:25p &middot; KN 190</p>
+    <div style="display:flex;gap:20px;align-items:flex-end;margin-bottom:14px">
+      <div><div class=big style="color:var(--dim)">&mdash;</div><div class=count>no ratings</div></div>
+      <div><div class="big ok">10</div><div class=count>seats left</div></div>
+    </div>
+    <div class=bar style="margin-bottom:14px"><i style="width:75%"></i></div>
+    <div class=drow><span>Enrolled</span><span class=mono>30 / 40</span></div>
+    <div class=drow><span>Waitlist</span><span class=mono>none</span></div>
+    <div class=drow><span>Conflicts</span><span class=ok>none</span></div>
+    <div class=drow><span>Mode</span><span>In person</span></div>
+    <div style="margin-top:16px;border:1px solid var(--good);color:var(--good);border-radius:3px;padding:9px;text-align:center;font-size:13px;font-weight:600">Add to my schedule</div>
+    <div style="margin-top:18px">
+      <p class=eyebrow>Why this one</p>
+      <p style="font-size:12.5px;color:var(--mute);margin:0">Only CSE 2331 section that has seats left and does not collide with MATH 2568 or ENGR 1182.</p>
+    </div>
+  </aside>
+</div>
