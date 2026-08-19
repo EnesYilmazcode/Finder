@@ -129,6 +129,25 @@ the section's own limit. `facilityCapacity` is the room's capacity and is not th
 same number. So Finder shows enrolled counts and `enrollmentStatus`, and does not
 draw a percent-full meter it cannot honestly compute.
 
+**Paged search is not deterministic.** Pulling the identical query three times
+back to back returns a different set of sections each time:
+
+```
+run 1: 1001 CSE sections    totalPages=7
+run 2: 1010 CSE sections    totalPages=7
+run 3: 1001 CSE sections    totalPages=7
+
+intersection of all 3:  947
+union of all 3:        1064
+missing from run 1:      63
+```
+
+Roughly 6% of sections differ per pull, so any single multi-page pull silently
+misses some. The practical rule: **keep queries narrow enough to fit on one page.**
+A user searching `CSE 2221` is unaffected because the result fits on page 1. A
+feature that tries to enumerate an entire subject would be quietly lossy, and
+should not be built on this endpoint without reconciling several pulls.
+
 **Future terms appear late.** Querying `term=1272` (Spring 2027) returned zero
 results on 2026-08-18 while the term was already visible elsewhere on campus.
 
@@ -154,14 +173,26 @@ strictly worse as a primary source. Compared head to head for CSE, Autumn 2026:
 
 | | OSU API | Barrett |
 |---|---|---|
-| Sections | 1046 | 468 |
-| Sections with no instructor | 0 | 11 |
-| Instructor names | full, plus email | initials only, `D.Kline` |
-| Sections it has that the other lacks | 649 | 71 |
-| **Sections where it names an instructor and the other does not** | 649 | **0** |
+| Sections returned | about 1000, varies per pull | 468, stable |
+| Instructor names | full, plus email address | initials only, `D.Kline` |
+| Sections it has that the other lacks | about 580 | about 80 |
 
-That last row is the decisive one. Barrett does not surface a single instructor
-the API is missing, which removes the entire reason the old tool depended on it.
+The API counts are deliberately approximate. Paged search is non-deterministic,
+so repeated identical pulls disagree by a few percent. See the paging note above.
+Barrett is a static file and its count is exact.
+
+Coverage is one question and instructor naming is a different one, so they are
+measured separately. Restricted to the 388 sections both sources actually list:
+
+| | count |
+|---|---|
+| Barrett names an instructor where the API is blank | **0** |
+| API names an instructor where Barrett is blank | 0 |
+
+That first row is the decisive one. On shared sections the two sources agree
+completely, so Barrett does not surface a single instructor the API is missing.
+That removes the entire reason the old tool depended on it. The API's real
+advantage is coverage, roughly twice as many sections, not better naming.
 
 Freshness also favors the API. Every one of Barrett's 337 subject files carries an
 identical `Last-Modified`, and across terms the timestamps land at 10:50 GMT in
