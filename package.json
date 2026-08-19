@@ -1,0 +1,10 @@
+{
+  "name": "finder",
+  "version": "0.0.0",
+  "private": true,
+  "description": "OSU course search that leads with the instructor",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
