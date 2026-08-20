@@ -102,6 +102,8 @@ body {
 
 main { display: grid; gap: var(--gap); }
 
+main[hidden]{ display: none; }
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
