@@ -20412,9 +20412,9 @@
       "lastName": "Klinker",
       "department": "Business",
       "avgRating": 2.8,
-      "numRatings": 228,
+      "numRatings": 229,
       "avgDifficulty": 3.5,
-      "wouldTakeAgainPercent": 28.9157
+      "wouldTakeAgainPercent": 28.7425
     },
     {
       "legacyId": 1187475,
@@ -41952,9 +41952,9 @@
       "lastName": "Ohl",
       "department": "Mathematics",
       "avgRating": 3.9,
-      "numRatings": 81,
+      "numRatings": 82,
       "avgDifficulty": 3.1,
-      "wouldTakeAgainPercent": 83.7838
+      "wouldTakeAgainPercent": 84
     },
     {
       "legacyId": 2079721,
@@ -68542,9 +68542,9 @@
       "lastName": "Gibbons",
       "department": "Economics",
       "avgRating": 2.3,
-      "numRatings": 57,
+      "numRatings": 59,
       "avgDifficulty": 3.7,
-      "wouldTakeAgainPercent": 27.1186
+      "wouldTakeAgainPercent": 26.6667
     },
     {
       "legacyId": 2967822,
