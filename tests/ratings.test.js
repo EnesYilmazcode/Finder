@@ -52,13 +52,29 @@ test("ratingFor matches through a generational suffix", () => {
 });
 
 test("ratingFor expands a nickname the query is a prefix of", () => {
-  // OSU says Timothy Long, RateMyProfessors says Tim Long.
+  // OSU says Timothy Long, RateMyProfessors says Tim Long. Tim is three
+  // letters, which is where the floor sits.
   assert.equal(ratingFor("Timothy Long").legacyId, 2);
 });
 
-test("ratingFor accepts a shared initial only when the surname is unique", () => {
-  // Steve against Stephen, and Gomori is the only one.
-  assert.equal(ratingFor("Steve Gomori").legacyId, 3);
+// Regression, #88. Anne Gregg was being shown Amy Gregg's 3.3 and Amy's
+// profile link, because Gregg was the only Gregg in the snapshot.
+test("regression #88: a shared initial is not a match even when the surname is unique", () => {
+  assert.equal(ratingFor("Steve Gomori"), null);
+});
+
+// Regression, #88. "jiangmeng".startsWith("ji") handed Jiangmeng Wang the real
+// Ji Wang's 4.5, which Ji still keeps.
+test("regression #88: a two letter name does not expand into a longer one", () => {
+  assert.equal(ratingFor("Jiangmeng Wang"), null);
+  assert.equal(ratingFor("Ji Wang").legacyId, 11);
+});
+
+// Regression, #88. Ji and Jin were both in the running for Jing, so refusing Ji
+// on length must not leave Jin standing there alone.
+test("regression #88: a name ruled out on length still blocks the guess", () => {
+  assert.equal(ratingFor("Jing Wang"), null);
+  assert.equal(ratingFor("Jin Wang").legacyId, 12);
 });
 
 test("ratingFor refuses to guess between two people with the same name", () => {

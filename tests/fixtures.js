@@ -82,14 +82,15 @@ export const SEATS_TERMS = {
 // Ratings snapshot. Every professor here exists to exercise one join case.
 export const RATINGS = {
   school: { id: "U2Nob29sLTcyNA==", legacyId: 724, name: "Ohio State University" },
-  count: 9,
+  count: 12,
   professors: [
     // Plain unique match, and the middle-name case: OSU says "Diana Ikenberry
     // Kline", RMP says "Diana Kline".
     prof(1, "Diana", "Kline", 4.2, 31),
     // Nickname the query is a prefix of: OSU "Timothy Long", RMP "Tim Long".
     prof(2, "Tim", "Long", 3.4, 12),
-    // Shared initial only, and the sole Gomori, so the weak rule is allowed.
+    // Shared initial only, and the sole Gomori. Being the only one is not
+    // evidence, so "Steve Gomori" must not land here.
     prof(3, "Stephen", "Gomori", 4.8, 60),
     // Two real people with the same name. Never guess between them.
     prof(4, "Alan", "Reed", 2.1, 40),
@@ -102,6 +103,10 @@ export const RATINGS = {
     prof(9, "Jonas", "Park", 4.0, 11),
     // Suffix case: the OSU name is "Ivan C. Smith III".
     prof(10, "Ivan", "Smith", 3.7, 8),
+    // A real two letter first name. A longer name must not claim it, and
+    // ruling it out must not hand the query to the other Wang either.
+    prof(11, "Ji", "Wang", 4.5, 9),
+    prof(12, "Jin", "Wang", 3.7, 7),
   ],
 };
 
