@@ -38,6 +38,8 @@ const els = {
 };
 
 let terms = [];
+let termsError = "";
+let queuedQuery = "";
 let latestRequest = 0;
 
 // Class number to its section and course, rebuilt on every render. The detail
@@ -343,6 +345,16 @@ function showWelcome(term) {
 }
 
 async function runSearch(q, term) {
+  if (!term) {
+    // Reachable since #80 moved the listeners above the term request. Hold the
+    // query for init to run rather than search without a term.
+    if (termsError) setStatus(termsError, "error");
+    else if (q.trim()) {
+      queuedQuery = q;
+      setStatus("Still loading terms. Your search will run when they arrive.");
+    }
+    return;
+  }
   if (!q.trim()) {
     els.results.replaceChildren();
     showWelcome(term);
@@ -485,30 +497,12 @@ async function init() {
   // leaving all five chips announcing as "Mo" when it failed.
   writeFilters(params);
 
-  try {
-    terms = await fetchTerms();
-  } catch (error) {
-    setStatus(error instanceof ApiError ? error.message : "Could not load terms.", "error");
-    return;
-  }
+  const initialQuery = params.get("q") ?? "";
+  els.query.value = initialQuery;
+  if (initialQuery.trim()) reflectQuery(initialQuery);
 
-  if (!terms.length) {
-    setStatus("Ohio State is not listing any searchable terms right now.", "error");
-    return;
-  }
-
-  els.term.replaceChildren(
-    ...terms.map((t) => {
-      const option = document.createElement("option");
-      option.value = t.code;
-      option.textContent = t.name;
-      return option;
-    })
-  );
-  const wanted = params.get("term");
-  els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
-  els.term.disabled = false;
-
+  // Also before the network: with no submit handler registered yet, Enter is a
+  // plain browser navigation that eats the query, which is what #80 measured.
   for (const field of [els.subject, els.number]) {
     field.addEventListener("focus", ensureCourses);
   }
@@ -606,12 +600,38 @@ async function init() {
     runSearch(button.dataset.q, els.term.value);
   });
 
-  const initialQuery = params.get("q") ?? "";
-  els.query.value = initialQuery;
-  if (initialQuery.trim()) {
-    reflectQuery(initialQuery);
-    runSearch(initialQuery, els.term.value);
+  try {
+    terms = await fetchTerms();
+  } catch (error) {
+    termsError = error instanceof ApiError ? error.message : "Could not load terms.";
+    setStatus(termsError, "error");
+    return;
   }
+
+  if (!terms.length) {
+    termsError = "Ohio State is not listing any searchable terms right now.";
+    setStatus(termsError, "error");
+    return;
+  }
+
+  els.term.replaceChildren(
+    ...terms.map((t) => {
+      const option = document.createElement("option");
+      option.value = t.code;
+      option.textContent = t.name;
+      return option;
+    })
+  );
+  const wanted = params.get("term");
+  els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
+  els.term.disabled = false;
+  // A picker opened before this point filled itself from an empty term, and
+  // setting the value in code fires no change event to refill it.
+  if (isLoaded()) { fillSubjects(); fillNumbers(); }
+
+  // A search asked for while the terms were loading was refused, not dropped.
+  const pending = queuedQuery || initialQuery;
+  if (pending.trim()) runSearch(pending, els.term.value);
   else {
     // Ratings and seats are already in flight; fill the landing screen once
     // they land rather than showing an empty frame in the meantime.
