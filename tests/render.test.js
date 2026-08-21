@@ -1,5 +1,5 @@
 // Only groupByInstructor is covered here. Everything else in render.js builds
-// DOM nodes and needs a document, which is out of scope for this suite.
+// DOM nodes, which app.test.js drives through the stub document in dom.js.
 
 import test from "node:test";
 import assert from "node:assert/strict";
