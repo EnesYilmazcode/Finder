@@ -26,6 +26,11 @@ const OUT_PATH = join(ROOT, 'data', 'courses.json');
 const CONCURRENCY = 5;
 const DELAY_MS = 120;
 const RETRIES = 3;
+// 408 and 425 ask for the request again and a 429 clears on its own. The rest
+// of 4xx will not fix itself. A 5xx or a timeout might.
+const RETRY_STATUS = new Set([408, 425, 429]);
+// Retry-After can name an hour, longer than the run will spend on one request.
+const MAX_RETRY_AFTER_MS = 30000;
 const USER_AGENT =
   'Finder-courses/1.0 (+https://github.com/EnesYilmazcode/Finder) weekly course index';
 
@@ -61,23 +66,46 @@ const MIN_COURSES = 1200;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Retry-After is either a count of seconds or an HTTP date. Anything else, or a
+// date already past, leaves the ordinary backoff in charge.
+function retryAfterMs(header) {
+  if (!header) return 0;
+  const seconds = /^\s*\d+\s*$/.test(header) ? Number(header) : NaN;
+  const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+  if (!(ms > 0)) return 0;
+  return Math.min(ms, MAX_RETRY_AFTER_MS);
+}
+
 async function fetchWith(url, parse, { allow404 = false } = {}) {
   let lastError;
+  let wait = 0;
+  let retriedForbidden = false;
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
-    if (attempt > 0) await sleep(500 * 2 ** (attempt - 1));
+    if (attempt > 0) await sleep(wait || 500 * 2 ** (attempt - 1));
+    wait = 0;
     try {
       const res = await fetch(url, {
         headers: { 'user-agent': USER_AGENT, accept: 'application/json,text/html' },
         signal: AbortSignal.timeout(30000),
       });
       if (res.status === 404 && allow404) return null;
-      // A 4xx will not fix itself, so stop. A 5xx or a timeout might.
       if (res.status >= 400 && res.status < 500) {
-        const err = new Error(`${res.status} ${res.statusText}`);
-        err.fatal = true;
-        throw err;
+        let retryable = RETRY_STATUS.has(res.status);
+        // A 403 is often a WAF being twitchy, so give it one more go.
+        if (res.status === 403 && !retriedForbidden) {
+          retriedForbidden = true;
+          retryable = true;
+        }
+        if (!retryable) {
+          const err = new Error(`${res.status} ${res.statusText}`);
+          err.fatal = true;
+          throw err;
+        }
       }
       if (!res.ok) {
+        // A response with no headers still has to be reported by status rather
+        // than throw over the Retry-After that is not there.
+        wait = retryAfterMs(res.headers?.get?.('retry-after'));
         lastError = new Error(`${res.status} ${res.statusText}`);
         continue;
       }
@@ -397,8 +425,9 @@ async function main() {
   console.log(`wrote ${OUT_PATH} (${bytes} bytes, ${(bytes / 1024).toFixed(1)} KiB)`);
 }
 
-// Exported so a checker can reuse the walk without rerunning the whole index.
-export { reconcileSubject, searchableTerms };
+// Exported so a checker can reuse the walk without rerunning the whole index,
+// and so the retry policy can be exercised without a network.
+export { fetchJson, reconcileSubject, searchableTerms };
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((err) => {
