@@ -79,6 +79,40 @@ export const SEATS_TERMS = {
   },
 };
 
+// Trend snapshot, in the shape scripts/fetch-seats.mjs writes since #60. Series
+// hold the per-day change in that field, aligned to `days`, and `from` is the
+// date the first entry was measured against.
+export const TREND = {
+  "1268": {
+    term: "1268",
+    from: "2026-08-14",
+    days: ["2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18"],
+    enrolled: {
+      "1001": [1, 2, 3, 0],   // three moving days, six enrolments, so six seats gone
+      "1003": [0, 0, 2, 3],   // two moving days, under the floor
+      "1004": [2, -1, -1, 0], // moved three times and went nowhere
+      "1005": [0, 1, 1, 1],   // starts moving mid-window, so the span starts there
+      "1006": [1, 1, 1],      // malformed, shorter than days
+    },
+    waitlist: {
+      "1002": [1, 1, 1, 0],
+    },
+    opened: ["1002"],
+  },
+  // A night the job missed, so three moving points span four days rather than
+  // three. The span has to come from the dates, not the point count.
+  "1262": {
+    term: "1262",
+    from: "2026-08-14",
+    days: ["2026-08-15", "2026-08-17", "2026-08-18"],
+    enrolled: {
+      "2001": [1, 1, 1],
+    },
+    waitlist: {},
+    opened: [],
+  },
+};
+
 // Ratings snapshot. Every professor here exists to exercise one join case.
 export const RATINGS = {
   school: { id: "U2Nob29sLTcyNA==", legacyId: 724, name: "Ohio State University" },

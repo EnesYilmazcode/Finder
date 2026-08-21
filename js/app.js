@@ -3,6 +3,7 @@ import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, topRated, ratedCount, profileUrl } from "./ratings.js";
 import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount } from "./seats.js";
+import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
 import { applyFilters, isActive, DEFAULTS } from "./filters.js";
 import { renderCalendar } from "./calendar.js";
@@ -362,6 +363,7 @@ async function runSearch(q, term) {
       searchAllPages({ q, term }),
       loadRatings().catch(() => null),
       loadSeats(term).catch(() => null),
+      loadTrend(term),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
     lastResult = filterCourses(courses, q);
@@ -474,6 +476,7 @@ async function init() {
   // Start the ratings download early so the first search rarely waits on it.
   loadRatings().catch((error) => console.warn("ratings unavailable", error));
   loadSeats(els.term.value).catch((error) => console.warn("seats unavailable", error));
+  loadTrend(els.term.value);
 
   const params = new URLSearchParams(location.search);
   setBusy(false);
@@ -592,7 +595,7 @@ async function init() {
     if (isLoaded()) { fillSubjects(); fillNumbers(); }
     // Seats are per term since #48, so the new term has to arrive before the
     // repaint, or the first view after a switch shows none.
-    loadSeats(els.term.value).then(() => paint()).catch(() => {});
+    Promise.all([loadSeats(els.term.value), loadTrend(els.term.value)]).then(() => paint()).catch(() => {});
     syncUrl(els.query.value, els.term.value);
     if (els.query.value.trim()) runSearch(els.query.value, els.term.value);
   });

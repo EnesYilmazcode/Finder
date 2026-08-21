@@ -16,6 +16,10 @@
 // listing them. Seats load before anything renders, so a browser fetches the
 // index and the one term on screen rather than every term at once.
 //
+// Each term also gets data/trend-1268.json, tonight's counts diffed against the
+// file already on disk. Without it the comparison is computed and thrown away
+// every night, and nothing on the page can say what moved.
+//
 // Format notes and the verified column map live in docs/barrett-schedule.md.
 
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -30,6 +34,12 @@ const OUT_DIR = join(ROOT, 'data');
 const INDEX_NAME = 'seats.json';
 const TERM_PREFIX = 'seats-';
 const TERM_FILE_RE = /^seats-\d{4}\.json$/;
+const TREND_PREFIX = 'trend-';
+const TREND_FILE_RE = /^trend-\d{4}\.json$/;
+
+// A week is as far back as a registration decision reaches, and the cap is the
+// only thing stopping the trend file growing for the whole term.
+const TREND_DAYS = 7;
 
 const CONCURRENCY = 5;
 const DELAY_MS = 120;
@@ -297,12 +307,74 @@ async function writeJson(path, value) {
   return Buffer.byteLength(json);
 }
 
-async function readIndex() {
+async function readJson(path) {
   try {
-    return JSON.parse(await readFile(join(OUT_DIR, INDEX_NAME), 'utf8'));
+    return JSON.parse(await readFile(path, 'utf8'));
   } catch {
-    return null; // no index yet, or one this version cannot read
+    return null; // absent, or written by a version this one cannot read
   }
+}
+
+async function readIndex() {
+  return readJson(join(OUT_DIR, INDEX_NAME));
+}
+
+function isFull(row) {
+  return Array.isArray(row) && row[1] > 0 && row[0] >= row[1];
+}
+
+function isOpen(row) {
+  return Array.isArray(row) && row[1] > 0 && row[0] < row[1];
+}
+
+/** One series, extended by a day and trimmed to the window. */
+function slide(series, recordedDays, delta, cap) {
+  const row = series?.length === recordedDays ? [...series, delta] : [...Array(recordedDays).fill(0), delta];
+  return row.slice(Math.max(0, row.length - cap));
+}
+
+/**
+ * Fold one night's movement into a term's rolling trend.
+ *
+ * Series hold the per-day change, not the count, so a section that has not moved
+ * is all zeros and gets dropped. Only 3331 of the 17692 sections in term 1268
+ * moved at all across the two nights on record, so that prune is most of it.
+ *
+ * An append needs sourceUpdated to have moved. Barrett freezes a term once it is
+ * over and data/seats-1262.json has read 2026-04-27 since April, so without that
+ * gate a dead term stacks a fake flat day every night.
+ */
+function appendTrend(trend, before, after, cap = TREND_DAYS) {
+  const day = after?.sourceUpdated ?? '';
+  const prior = before?.sourceUpdated ?? '';
+  const recorded = trend?.days ?? [];
+  const last = recorded[recorded.length - 1] ?? '';
+  if (!day || !prior || prior >= day || last >= day) {
+    // Seeded with today's date, which is what the next run's first delta gets
+    // measured against.
+    return trend ?? { term: after.term, from: day, days: [], enrolled: {}, waitlist: {}, opened: [] };
+  }
+
+  const all = [...recorded, day];
+  const days = all.slice(Math.max(0, all.length - cap));
+  const dropped = all.length - days.length;
+  const from = dropped ? all[dropped - 1] : (trend?.from ?? prior);
+
+  const enrolled = {};
+  const waitlist = {};
+  const opened = [];
+
+  for (const [key, now] of Object.entries(after.sections)) {
+    const then = before.sections?.[key];
+    const both = Array.isArray(then) && Array.isArray(now);
+    const seats = slide(trend?.enrolled?.[key], recorded.length, both ? now[0] - then[0] : 0, cap);
+    const waiting = slide(trend?.waitlist?.[key], recorded.length, both ? (now[2] ?? 0) - (then[2] ?? 0) : 0, cap);
+    if (seats.some(Boolean)) enrolled[key] = seats;
+    if (waiting.some(Boolean)) waitlist[key] = waiting;
+    if (isFull(then) && isOpen(now)) opened.push(key);
+  }
+
+  return { term: after.term, from, days, enrolled, waitlist, opened };
 }
 
 async function exists(path) {
@@ -362,7 +434,16 @@ async function main() {
   for (const term of terms) {
     const snapshot = out[term];
     const file = `${TERM_PREFIX}${term}.json`;
+    const trendFile = `${TREND_PREFIX}${term}.json`;
+    // Both reads have to land before the write: the file still on disk is the
+    // other half of tonight's diff.
+    const trend = appendTrend(
+      await readJson(join(OUT_DIR, trendFile)),
+      await readJson(join(OUT_DIR, file)),
+      snapshot
+    );
     const bytes = await writeJson(join(OUT_DIR, file), snapshot);
+    const trendBytes = await writeJson(join(OUT_DIR, trendFile), trend);
     entries.push({
       term,
       termName: snapshot.termName,
@@ -371,6 +452,10 @@ async function main() {
       file,
     });
     console.log(`wrote data/${file} (${bytes} bytes, ${(bytes / 1024).toFixed(1)} KiB)`);
+    console.log(
+      `wrote data/${trendFile} (${trendBytes} bytes, ${trend.days.length} days, ` +
+        `${Object.keys(trend.enrolled).length} sections moving, ${trend.opened.length} opened)`
+    );
   }
 
   // A run for named terms leaves the rest alone, so their index entries carry
@@ -398,16 +483,23 @@ async function main() {
   });
   console.log(`wrote data/${INDEX_NAME} (${indexBytes} bytes)`);
 
+  // A term keeps both of its files or neither, so a dropped term cannot leave a
+  // trend behind pointing at seats that are gone.
+  const keep = new Set();
+  for (const entry of entries) {
+    keep.add(entry.file);
+    keep.add(`${TREND_PREFIX}${entry.term}.json`);
+  }
   for (const name of await readdir(OUT_DIR)) {
-    if (!TERM_FILE_RE.test(name)) continue;
-    if (entries.some((e) => e.file === name)) continue;
+    if (!TERM_FILE_RE.test(name) && !TREND_FILE_RE.test(name)) continue;
+    if (keep.has(name)) continue;
     await rm(join(OUT_DIR, name));
     console.log(`removed data/${name}, that term is no longer searchable`);
   }
 }
 
 // Exported so a checker can reuse the parser without refetching.
-export { parseSubjectFile };
+export { appendTrend, parseSubjectFile };
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((err) => {
