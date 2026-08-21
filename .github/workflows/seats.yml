@@ -36,7 +36,11 @@ jobs:
           TERM_INPUT: ${{ inputs.term }}
         run: node scripts/fetch-seats.mjs $TERM_INPUT
 
+      # The fetch exits non-zero when it skipped a term, and the terms it did
+      # snapshot are already on disk by then, so commit before the job goes red.
+      # !cancelled() is success or failure, so this also commits after a crash.
       - name: Commit if changed
+        if: ${{ !cancelled() }}
         run: |
           # One file per term now, so stage by pathspec. -A picks up a term that
           # is new and one that was dropped, and staging a file whose bytes did

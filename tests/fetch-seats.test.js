@@ -1,10 +1,17 @@
-// The snapshotter's pure half. Nothing here fetches: the files are built to
-// Barrett's real column map, so the parser has to accept them.
+// The snapshotter without the writing half. The subject files are built to
+// Barrett's real column map, so the parser has to accept them, and the term
+// runs go through a Barrett served from memory rather than the network.
 
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseSubjectFile } from "../scripts/fetch-seats.mjs";
+import {
+  MAX_SUBJECT_FAILURES,
+  parseSubjectFile,
+  snapshotTerm,
+  termProblem,
+} from "../scripts/fetch-seats.mjs";
+import { install } from "./barrett-mock.mjs";
 import { BARRETT_COLUMNS, barrettFile, barrettLine } from "./fixtures.js";
 
 // Two sections and the continuation row that carries the second one's other
@@ -87,5 +94,91 @@ describe("where the column header is", () => {
     const out = parseSubjectFile("CSE", "1268", tight);
     assert.deepEqual(out.failures, []);
     assert.equal(out.sections.length, 2);
+  });
+});
+
+describe("what holds a term back", () => {
+  const SUBJECTS = Array.from({ length: 12 }, (_, i) => `SUBJ${String(i).padStart(2, "0")}`);
+
+  const termStats = (extra) => ({
+    subjectsOffered: 241,
+    subjectsFailed: 0,
+    subjectsUnparsed: 0,
+    sectionsParsed: 17680,
+    residueRate: 0,
+    ...extra,
+  });
+
+  // Regression, #93. mapLimit runs on Promise.all, so a subject that threw used
+  // to reject the whole term and take every other subject's sections with it.
+  // A 403 is fatal on the first attempt, so it reaches that catch without
+  // sitting through the retry ladder a 5xx earns.
+  test("regression #93: a subject that never loads does not sink the term", async () => {
+    const restore = install({ subjects: SUBJECTS, published: ["1268"], failing: ["SUBJ07"] });
+    try {
+      const { snapshot, stats, fetchErrors } = await snapshotTerm("1268", SUBJECTS);
+      assert.equal(stats.subjectsFailed, 1);
+      assert.equal(stats.subjectsOffered, 11);
+      assert.equal(stats.sectionsParsed, 44, "the other 11 subjects still parsed");
+      assert.match(fetchErrors[0], /SUBJ07/);
+      assert.match(fetchErrors[0], /403/);
+      assert.deepEqual(snapshot.sections["10000"], [26, 40, 0], "SUBJ00 is in the snapshot");
+      assert.equal(snapshot.sections["10700"], undefined, "SUBJ07 is not, its sections read as unknown");
+    } finally {
+      restore();
+    }
+  });
+
+  // A file that arrived and would not parse is Barrett changing shape, which is
+  // the one thing the new tolerance must not swallow.
+  test("regression #93: a subject file that will not parse holds the term back", async () => {
+    const restore = install({ subjects: SUBJECTS, published: ["1268"], mislabelled: ["SUBJ03"] });
+    try {
+      const { stats, parseErrors } = await snapshotTerm("1268", SUBJECTS);
+      assert.equal(stats.subjectsUnparsed, 1);
+      assert.equal(stats.subjectsFailed, 0, "a header mismatch is not a failed request");
+      assert.match(parseErrors[0], /SUBJ03: header term 1264 is not 1268/);
+      assert.match(termProblem(termStats({ subjectsUnparsed: 1 })), /did not parse/);
+    } finally {
+      restore();
+    }
+  });
+
+  // #91 made a missing column header throw so a Barrett rename is loud. That
+  // throw lands in the catch this branch added, so it has to reach the counter
+  // with no tolerance rather than the one that writes off five bad subjects.
+  test("a layout error counts as unparsed, not as a tolerated failed request", async () => {
+    const restore = install({ subjects: SUBJECTS, published: ["1268"], layoutBroken: ["SUBJ05"] });
+    try {
+      const { stats, parseErrors } = await snapshotTerm("1268", SUBJECTS);
+      assert.equal(stats.subjectsUnparsed, 1);
+      assert.equal(stats.subjectsFailed, 0);
+      assert.match(parseErrors[0], /SUBJ05: no column header/);
+      assert.match(
+        termProblem(termStats({ subjectsUnparsed: stats.subjectsUnparsed })),
+        /did not parse/,
+        "one renamed column is enough to hold the term"
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test("regression #93: a term that parsed nothing is reported, not thrown", () => {
+    assert.equal(termProblem(termStats({ subjectsOffered: 0, sectionsParsed: 0 })), "no sections parsed");
+    assert.equal(termProblem(termStats({})), null, "a healthy term has no problem to report");
+  });
+
+  test("regression #93: a few failed subjects pass, a lot do not", () => {
+    assert.equal(termProblem(termStats({ subjectsFailed: MAX_SUBJECT_FAILURES })), null);
+    assert.match(
+      termProblem(termStats({ subjectsFailed: MAX_SUBJECT_FAILURES + 1 })),
+      /subject requests failed/
+    );
+  });
+
+  test("the subject floor and the layout check still stop a term", () => {
+    assert.match(termProblem(termStats({ subjectsOffered: 49 })), /only 49 subjects/);
+    assert.match(termProblem(termStats({ residueRate: 0.01 })), /residue rate .* exceeds/);
   });
 });
