@@ -6,19 +6,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+import { cssRules } from "./helpers.js";
+
 const css = readFileSync(new URL("../css/finder.css", import.meta.url), "utf8");
-const collapsed = css.slice(css.search(/@media \(\s*max-width:\s*64rem\s*\)/));
-const rowList = collapsed.match(/grid-template-rows:([^;]+);/)[1].trim();
+// From inside the media query's own braces, or its prelude reads as a selector.
+const media = css.search(/@media \(\s*max-width:\s*64rem\s*\)/);
+const rule = cssRules(css.slice(css.indexOf("{", media) + 1), "the collapsed layout");
+
+const rowList = rule(".app")["grid-template-rows"];
 // The space inside minmax() is not a track boundary.
 const rows = rowList.replace(/\([^)]*\)/g, (fn) => fn.replace(/\s+/g, "")).split(/\s+/);
 
 /** The row a pane is placed in. */
 function rowOf(selector) {
-  const at = collapsed.indexOf(selector + " {");
-  assert.notEqual(at, -1, `no ${selector} rule in the collapsed layout`);
-  const row = collapsed.slice(at, collapsed.indexOf("}", at)).match(/grid-row:\s*(\d+)/);
+  const row = rule(selector)["grid-row"];
   assert.ok(row, `${selector} names no row in the collapsed layout`);
-  return Number(row[1]);
+  return Number(row);
 }
 
 test("the collapsed layout declares a row for every pane it stacks", () => {

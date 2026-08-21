@@ -6,19 +6,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const css = readFileSync(new URL("../css/stats.css", import.meta.url), "utf8")
-  .replace(/\/\*[\s\S]*?\*\//g, "");
+import { cssRules } from "./helpers.js";
 
-/** Declarations of the rule whose selector list has `selector`, keyed by property. */
-function rule(selector) {
-  const block = css.split("}").find((b) => b.slice(0, b.indexOf("{"))
-    .split(",").map((s) => s.trim()).includes(selector));
-  assert.ok(block, `no ${selector} rule in css/stats.css`);
-  return Object.fromEntries(block.slice(block.indexOf("{") + 1)
-    .split(";")
-    .map((d) => [d.slice(0, d.indexOf(":")).trim(), d.slice(d.indexOf(":") + 1).trim()])
-    .filter(([prop, value]) => prop && value));
-}
+const rule = cssRules(readFileSync(new URL("../css/stats.css", import.meta.url), "utf8"),
+  "css/stats.css");
 
 test("the chart scrolls its own bars instead of widening the card", () => {
   const chart = rule(".chart");

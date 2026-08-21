@@ -27,14 +27,14 @@ const LINE_H = 21;         // .cal-item
 const CHROME_H = 15;       // .cal-time
 const COUNT_H = 15;        // .cal-count, only when there is more than one section
 const PAD_H = 7;           // .cal-slot vertical padding
+// These are single-line heights, so .cal-time, .cal-count and .cal-more are
+// pinned to one line in the CSS: a wrapped label would eat an instructor line
+// out of the budget renderSlot works to without anything here knowing it had.
 
 // Past three, widening the track costs more sideways scrolling than the names
-// it saves, so a fourth column shares the room rather than adding to it.
+// it saves, so a fourth column shares the room rather than adding to it. The
+// CSS drops the rating and the seat count first, so the name keeps the room.
 const MAX_SPLIT = 3;
-
-// The heights above are single-line, so .cal-time, .cal-count and .cal-more are
-// pinned to one line in the CSS: a wrapped label would eat an instructor line
-// out of the budget below without anything here knowing it had.
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -116,6 +116,10 @@ export function layOutDay(slots) {
   return [...laid, ...pack(run)];
 }
 
+function overlaps(a, b) {
+  return a.start < paintedEnd(b) && b.start < paintedEnd(a);
+}
+
 /** Greedy leftmost free column, which is the usual week-view packing. */
 function pack(run) {
   const ends = []; // when each column is free again
@@ -123,9 +127,22 @@ function pack(run) {
     let column = ends.findIndex((end) => end <= slot.start);
     if (column < 0) column = ends.length;
     ends[column] = paintedEnd(slot);
-    return { slot, column };
+    return { slot, column, span: 1 };
   });
-  for (const block of blocks) block.columns = ends.length;
+
+  // A run is a whole stretch of the day with no gap in it, so its column count
+  // is its busiest single moment, and charging that to every block narrows
+  // classes that overlap nothing beside them. Each block widens rightwards
+  // until it meets something it does overlap: 15 of the 160 blocks on a bare
+  // CSE search in term 1268 take room that was being left empty.
+  for (const block of blocks) {
+    while (block.column + block.span < ends.length
+      && !blocks.some((other) => other.column === block.column + block.span
+        && overlaps(other.slot, block.slot))) {
+      block.span += 1;
+    }
+    block.columns = ends.length;
+  }
   return blocks;
 }
 
@@ -136,12 +153,12 @@ function pack(run) {
  * The 2px matches the inset the CSS uses; the extra 2px on the right is the
  * gutter between neighbours.
  */
-export function slotInsets(column, columns) {
+export function slotInsets(column, columns, span = 1) {
   if (columns < 2) return null;
   const share = `(100% - 4px) / ${columns}`;
   return {
     left: `calc(2px + ${column} * ${share})`,
-    right: `calc(4px + ${columns - 1 - column} * ${share})`,
+    right: `calc(4px + ${columns - column - span} * ${share})`,
   };
 }
 
@@ -151,6 +168,22 @@ function slotTone(items) {
   if (known.length && known.every((i) => i.seats.full)) return "is-full";
   if (known.some((i) => i.seats.full)) return "is-part";
   return "is-open";
+}
+
+/**
+ * Lay out every day that has something on it.
+ *
+ * Split is what the CSS floors the day's track at, so it is capped here rather
+ * than at the point of use: past MAX_SPLIT the blocks share the room instead.
+ */
+export function layOutWeek(slots) {
+  return DAYS
+    .filter(([key]) => slots.some((s) => s.days.includes(key)))
+    .map(([key, label, fullDay]) => {
+      const blocks = layOutDay(slots.filter((s) => s.days.includes(key)));
+      const widest = Math.max(1, ...blocks.map((b) => b.columns));
+      return { key, label, fullDay, blocks, split: Math.min(widest, MAX_SPLIT) };
+    });
 }
 
 export function renderCalendar(entries, term) {
@@ -167,17 +200,13 @@ export function renderCalendar(entries, term) {
   // open with four empty morning rows.
   const first = Math.floor(Math.min(...slots.map((s) => s.start)) / 60) * 60;
   const last = Math.ceil(Math.max(...slots.map((s) => s.end)) / 60) * 60;
-  const usedDays = DAYS.filter(([key]) => slots.some((s) => s.days.includes(key)));
 
   // Laid out before the grid is sized, since each column's floor depends on how
   // many columns that day needs.
-  const days = usedDays.map(([key, label, fullDay]) => {
-    const blocks = layOutDay(slots.filter((s) => s.days.includes(key)));
-    return { label, fullDay, blocks, split: Math.max(1, ...blocks.map((b) => b.columns)) };
-  });
+  const days = layOutWeek(slots);
 
   const grid = el("div", "cal");
-  grid.style.setProperty("--cal-days", usedDays.length);
+  grid.style.setProperty("--cal-days", days.length);
   grid.style.setProperty("--cal-height", `${(last - first) * PX_PER_MIN}px`);
 
   const gutter = el("div", "cal-gutter");
@@ -194,7 +223,7 @@ export function renderCalendar(entries, term) {
     const column = el("div", "cal-col");
     // Sizes this day's track and no other, so a Wednesday that splits three
     // ways does not widen a Monday holding one class into sideways scrolling.
-    column.style.setProperty("--cal-split", Math.min(split, MAX_SPLIT));
+    column.style.setProperty("--cal-split", split);
     column.append(el("div", "cal-head", label));
 
     const body = el("div", "cal-body");
@@ -225,13 +254,13 @@ export function renderCalendar(entries, term) {
   return wrap;
 }
 
-function renderSlot({ slot, column, columns }, first, fullDay) {
+function renderSlot({ slot, column, columns, span }, first, fullDay) {
   const box = el("div", `cal-slot ${slotTone(slot.items)}`);
   const height = Math.max((slot.end - slot.start) * PX_PER_MIN, MIN_SLOT);
   box.style.top = `${(slot.start - first) * PX_PER_MIN}px`;
   box.style.height = `${height}px`;
 
-  const insets = slotInsets(column, columns);
+  const insets = slotInsets(column, columns, span);
   if (insets) {
     box.style.left = insets.left;
     box.style.right = insets.right;

@@ -716,10 +716,7 @@ body {
 
 .cal {
   display: grid;
-  /* The floor comes from each column's own --cal-split, so one crowded
-     Wednesday does not widen Monday with it. A split that divides a column's
-     width is #38's squeezed name, so the floor rises with the split. */
-  grid-template-columns: 3rem repeat(var(--cal-days), minmax(auto, 1fr));
+  grid-template-columns: 3rem repeat(var(--cal-days), 1fr);
   /* fit-content, not auto: with a floor under the columns the grid is wider
      than a phone, and it has to say so or overflow:hidden eats the difference
      instead of handing it to .cal-scroll. */
@@ -742,6 +739,9 @@ body {
   border-bottom: 1px solid var(--rule);
 }
 
+/* The floor is per column, from that day's own --cal-split, so one crowded
+   Wednesday does not widen Monday with it. A split that divides a column's
+   width is #38's squeezed name, so the floor rises with the split. */
 .cal-col { border-left: 1px solid var(--rule); min-width: calc(9rem * var(--cal-split, 1)); }
 .cal-body { position: relative; }
 .cal-line { border-bottom: 1px solid var(--sunk); }
@@ -775,6 +775,22 @@ body {
 
 .cal-slot.is-full { border-left-color: var(--scarlet); }
 .cal-slot.is-part { border-left-color: var(--wait); }
+
+/* Past MAX_SPLIT columns the day shares the room out instead of widening, so
+   the block can end up too narrow for all three parts of a line. The name is
+   what the grid exists to compare, so the numbers beside it go first: both are
+   still in the block's aria-label, the detail pane and the list view, and the
+   left border still carries whether the sections are full. Measured on a bare
+   MATH search in term 1268, where 12 names rendered at 0px wide without it. */
+.cal-slot { container-type: inline-size; }
+
+@container (max-width: 120px) {
+  .cal-seats { display: none; }
+}
+
+@container (max-width: 68px) {
+  .cal-rate { display: none; }
+}
 
 /* One line each, at any block width: the heights renderSlot budgets for the
    chrome are single-line, so a wrap here silently clips an instructor. */

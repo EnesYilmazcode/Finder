@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildSlots, layOutDay, slotInsets } from "../js/calendar.js";
+import { buildSlots, layOutDay, layOutWeek, slotInsets } from "../js/calendar.js";
 import { entry, meeting, person, section, taught } from "./fixtures.js";
 import { withSeats } from "./helpers.js";
 
@@ -220,6 +220,67 @@ test("layOutDay handles a day with nothing on it", () => {
   assert.deepEqual(layOutDay([]), []);
 });
 
+// A run is the whole stretch of the day, so its column count is its busiest
+// moment. Charging that to every block in it divides classes that have nobody
+// beside them, and on a split track that is what takes the name to 0px.
+test("a block widens into a column its neighbours have left free", () => {
+  // 8:50 runs all morning and 9:00 and 9:10 pile up under it, so the run is
+  // three columns wide. By 10:00 the third column is empty, and the 10:00
+  // block takes the room rather than sitting in a third of the track.
+  const laid = layOutDay([at(530, 660), at(540, 580), at(550, 590), at(600, 640)]);
+  assert.deepEqual(laid.map((p) => [p.slot.start, p.column, p.span, p.columns]),
+    [[530, 0, 1, 3], [540, 1, 1, 3], [550, 2, 1, 3], [600, 1, 2, 3]]);
+});
+
+test("widening never reaches into a column something overlapping is in", () => {
+  const input = [at(540, 600), at(545, 700), at(570, 630), at(600, 660), at(800, 900), at(850, 870)];
+  const laid = layOutDay(input);
+  for (const a of laid) {
+    for (const b of laid) {
+      if (a === b) continue;
+      if (a.slot.end <= b.slot.start || b.slot.end <= a.slot.start) continue;
+      assert.ok(a.column + a.span <= b.column || b.column + b.span <= a.column,
+        `${a.slot.id} and ${b.slot.id} overlap in time and in columns`);
+    }
+  }
+});
+
+// What renderCalendar hands the CSS. Every day is laid out on its own, and the
+// split it reports is what floors that day's track.
+test("each day is laid out from its own slots", () => {
+  const entries = [
+    entry("CSE", "2321", "Foundations 1", [
+      taught(1001, ["wednesday"], "9:00 AM", "10:30 AM", ["A"]),
+      taught(1002, ["wednesday"], "9:10 AM", "10:30 AM", ["B"]),
+      taught(1003, ["wednesday"], "9:20 AM", "10:30 AM", ["C"]),
+      taught(1004, ["wednesday"], "9:30 AM", "10:30 AM", ["D"]),
+      taught(1005, ["monday", "wednesday"], "9:40 AM", "10:30 AM", ["E"]),
+      taught(1006, ["monday"], "1:00 PM", "1:55 PM", ["F"]),
+    ]),
+  ];
+  const { slots } = buildSlots(entries, TERM);
+  const week = layOutWeek(slots);
+
+  assert.deepEqual(week.map((d) => d.key), ["monday", "wednesday"]);
+  assert.deepEqual(week.map((d) => d.blocks.length), [2, 5]);
+  for (const day of week) {
+    for (const block of day.blocks) assert.ok(block.slot.days.includes(day.key));
+  }
+});
+
+test("the split a day's track is floored at is that day's own, and capped", () => {
+  const wide = [at(540, 600), at(545, 605), at(550, 610), at(555, 615), at(560, 620)]
+    .map((s) => ({ ...s, days: ["wednesday"] }));
+  const quiet = [{ ...at(540, 600), id: "q", days: ["monday"] }];
+  const week = layOutWeek([...wide, ...quiet]);
+
+  // Five overlapping classes still get five columns to sit in. It is only the
+  // floor under the track that stops, so past three they share the room.
+  assert.deepEqual(week.map((d) => [d.key, d.split]), [["monday", 1], ["wednesday", 3]]);
+  assert.deepEqual(week.find((d) => d.key === "wednesday").blocks.map((b) => b.columns),
+    [5, 5, 5, 5, 5]);
+});
+
 // The insets are what the reader actually sees, and they are easy to get
 // backwards: reversing the right-hand term still passes every test above.
 test("regression #83: a split block is inset to its own column", () => {
@@ -230,4 +291,7 @@ test("regression #83: a split block is inset to its own column", () => {
     { left: "calc(2px + 1 * (100% - 4px) / 2)", right: "calc(4px + 0 * (100% - 4px) / 2)" });
   assert.deepEqual(slotInsets(1, 3),
     { left: "calc(2px + 1 * (100% - 4px) / 3)", right: "calc(4px + 1 * (100% - 4px) / 3)" });
+  // A block that was widened covers its own column and the free ones after it.
+  assert.deepEqual(slotInsets(1, 3, 2),
+    { left: "calc(2px + 1 * (100% - 4px) / 3)", right: "calc(4px + 0 * (100% - 4px) / 3)" });
 });
