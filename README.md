@@ -192,7 +192,7 @@ js/
 scripts/              the three snapshot jobs
 data/                 the snapshots, committed
 docs/                 what OSU's API and Barrett's schedule get wrong
-tests/                226 tests, zero dependencies
+tests/                227 tests, zero dependencies
 wireframes/           three layouts considered first
 analytics/            the page-view counter, a Cloudflare Worker
 stats/                the page that reads the counter
