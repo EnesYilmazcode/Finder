@@ -2964,7 +2964,7 @@
       "avgRating": 4.5,
       "numRatings": 35,
       "avgDifficulty": 2.1,
-      "wouldTakeAgainPercent": 100
+      "wouldTakeAgainPercent": 88.8889
     },
     {
       "legacyId": 196237,
@@ -42371,10 +42371,10 @@
       "firstName": "Parker",
       "lastName": "Wiksell",
       "department": "Computer Science",
-      "avgRating": 3.9,
-      "numRatings": 15,
+      "avgRating": 3.8,
+      "numRatings": 16,
       "avgDifficulty": 2.6,
-      "wouldTakeAgainPercent": 69.2308
+      "wouldTakeAgainPercent": 71.4286
     },
     {
       "legacyId": 2089665,
@@ -45804,7 +45804,7 @@
       "avgRating": 4.3,
       "numRatings": 7,
       "avgDifficulty": 2.9,
-      "wouldTakeAgainPercent": 85.7143
+      "wouldTakeAgainPercent": 87.5
     },
     {
       "legacyId": 2195440,
@@ -49342,9 +49342,9 @@
       "lastName": "Wang",
       "department": "Biology",
       "avgRating": 1.9,
-      "numRatings": 40,
+      "numRatings": 41,
       "avgDifficulty": 4.1,
-      "wouldTakeAgainPercent": 17.0732
+      "wouldTakeAgainPercent": 16.6667
     },
     {
       "legacyId": 2301541,
@@ -64412,9 +64412,9 @@
       "lastName": "Vokata",
       "department": "Finance",
       "avgRating": 4.8,
-      "numRatings": 17,
+      "numRatings": 18,
       "avgDifficulty": 2.6,
-      "wouldTakeAgainPercent": 94.4444
+      "wouldTakeAgainPercent": 94.7368
     },
     {
       "legacyId": 2813353,
@@ -69151,10 +69151,10 @@
       "firstName": "Connor",
       "lastName": "Cassady",
       "department": "Mathematics",
-      "avgRating": 4.1,
-      "numRatings": 14,
+      "avgRating": 4.2,
+      "numRatings": 15,
       "avgDifficulty": 2.6,
-      "wouldTakeAgainPercent": 86.6667
+      "wouldTakeAgainPercent": 87.5
     },
     {
       "legacyId": 2982413,
@@ -73411,10 +73411,10 @@
       "firstName": "Rubao",
       "lastName": "Lee",
       "department": "Computer Science",
-      "avgRating": 3,
-      "numRatings": 14,
+      "avgRating": 3.1,
+      "numRatings": 15,
       "avgDifficulty": 3.1,
-      "wouldTakeAgainPercent": 60
+      "wouldTakeAgainPercent": 62.5
     },
     {
       "legacyId": 3154816,
