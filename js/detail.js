@@ -1,7 +1,7 @@
 // The right pane. Everything here already exists in memory by the time a
 // section is selected, so nothing fetches.
 
-import { formatWhen, formatUnits, instructorsOf } from "./format.js";
+import { formatWhen, formatUnits, instructorsOf, distinctMeetings } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { seatsFor, seatsUpdated } from "./seats.js";
 import { isIndividualStudy } from "./rank.js";
@@ -130,11 +130,15 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
   }
   wrap.append(seatBlock);
 
-  const meeting = section.meetings?.[0] ?? null;
   const meets = block("Meets");
-  meets.append(row("When", formatWhen(meeting)));
-  const room = meeting?.buildingDescription || meeting?.facilityDescription;
-  if (room) meets.append(row("Room", room));
+  // The [null] keeps a section with nothing scheduled printing Time to be
+  // announced. See #82.
+  const meetings = distinctMeetings(section);
+  for (const meeting of meetings.length ? meetings : [null]) {
+    meets.append(row("When", formatWhen(meeting)));
+    const room = meeting?.buildingDescription || meeting?.facilityDescription;
+    if (room) meets.append(row("Room", room));
+  }
   if (section.instructionMode) meets.append(row("Mode", section.instructionMode));
   if (section.startDate && section.endDate) meets.append(row("Runs", `${section.startDate} to ${section.endDate}`));
   wrap.append(meets);

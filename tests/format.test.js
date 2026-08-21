@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf } from "../js/format.js";
+import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf, distinctMeetings } from "../js/format.js";
 import { meeting, person, section } from "./fixtures.js";
 
 const DASH = "\u2013";
@@ -109,4 +109,50 @@ test("instructorsOf survives missing meetings and missing instructors", () => {
   assert.deepEqual(instructorsOf({ classNumber: 1005 }), []);
   assert.deepEqual(instructorsOf(null), []);
   assert.deepEqual(instructorsOf({ meetings: [{ startTime: "9:00 AM" }] }), []);
+});
+
+// Regression, #82. CSE 2112 class 8823 comes back with ten meetings for one
+// Tuesday class, alternating the room label between BE 120 and Baker Syst.
+// Printing a line per meeting turned that row into nine repeats.
+test("regression #82: a pattern repeated per room label counts once", () => {
+  const room = (short, full) => ({ buildingDescriptionShort: short, buildingDescription: full });
+  const s = section(8823, {
+    meetings: [
+      meeting(["tuesday"], "2:20 PM", "3:40 PM", [], room("BE 120", "Baker Systems 120")),
+      meeting(["tuesday"], "2:20 PM", "3:40 PM", [], room("Baker Syst", "Baker Systems 470")),
+      meeting(["tuesday"], "2:20 PM", "3:40 PM", [], room("BE 120", "Baker Systems 120")),
+      meeting(["tuesday"], "2:20 PM", "3:20 PM", [], room("Baker Syst", "Baker Systems 470")),
+    ],
+  });
+  assert.deepEqual(
+    distinctMeetings(s).map((m) => `${formatWhen(m)} ${m.buildingDescriptionShort}`),
+    [`Tu 2:20p${DASH}3:40p BE 120`, `Tu 2:20p${DASH}3:40p Baker Syst`, `Tu 2:20p${DASH}3:20p Baker Syst`]
+  );
+});
+
+// Regression, #82. Class 15671 really does meet twice, and MUSIC 2203.04
+// section 19215 really is booked into two Weigel rooms for the same hour.
+// Neither may be collapsed.
+test("regression #82: meetings that differ in time or room are all kept", () => {
+  const split = section(15671, {
+    meetings: [
+      meeting(["tuesday"], "8:00 AM", "10:55 AM", [], { buildingDescriptionShort: "CE 310" }),
+      meeting(["thursday"], "4:10 PM", "5:05 PM", [], { buildingDescriptionShort: "MP 1040" }),
+    ],
+  });
+  assert.equal(distinctMeetings(split).length, 2);
+
+  const twoRooms = section(19215, {
+    meetings: [
+      meeting(["monday", "wednesday", "friday"], "4:10 PM", "5:05 PM", [], { buildingDescriptionShort: "WG 174" }),
+      meeting(["monday", "wednesday", "friday"], "4:10 PM", "5:05 PM", [], { buildingDescriptionShort: "WG 100A" }),
+    ],
+  });
+  assert.equal(distinctMeetings(twoRooms).length, 2);
+});
+
+test("distinctMeetings survives missing meetings", () => {
+  assert.deepEqual(distinctMeetings(section(1001)), []);
+  assert.deepEqual(distinctMeetings({ classNumber: 1002 }), []);
+  assert.deepEqual(distinctMeetings(null), []);
 });

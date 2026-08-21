@@ -74,8 +74,9 @@ function keepSection(section, filters) {
     if (filters.avoid.length && filters.avoid.some((d) => meetsOn.has(d))) return false;
   }
 
-  const meeting = section.meetings?.find((m) => m.startTime) ?? null;
-  if (meeting) {
+  // A lab that meets Tuesday morning and again Thursday afternoon was surviving
+  // "ends no later than noon" on the strength of its Tuesday half. See #82.
+  for (const meeting of section.meetings ?? []) {
     const start = toMinutes(meeting.startTime);
     const end = toMinutes(meeting.endTime) ?? start;
     if (filters.from && start != null && start < Number(filters.from)) return false;

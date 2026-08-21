@@ -6,7 +6,7 @@
 // enrollment figure per course and repeats it onto every section, so rendering
 // it per section would tell students a full section is open. See #13.
 
-import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
+import { formatWhen, formatPlace, formatUnits, instructorsOf, distinctMeetings } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { seatsFor } from "./seats.js";
 
@@ -108,7 +108,8 @@ export function renderSection(section, term) {
   li.tabIndex = 0;
   li.setAttribute("role", "button");
   li.dataset.classNumber = String(section.classNumber ?? "");
-  const meeting = section.meetings?.[0] ?? null;
+  const meetings = distinctMeetings(section);
+  const meeting = meetings[0] ?? null;
 
   li.append(el("span", "section-number", section.classNumber ?? ""));
 
@@ -118,6 +119,11 @@ export function renderSection(section, term) {
   li.append(when);
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
+
+  // See #82.
+  for (const extra of meetings.slice(1)) {
+    li.append(el("span", "section-also", `${formatWhen(extra)} · ${formatPlace(extra, section)}`));
+  }
 
   // Absent means unknown, never zero. A section with no snapshot row simply
   // shows nothing rather than implying it is empty.

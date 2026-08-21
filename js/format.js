@@ -48,3 +48,24 @@ export function instructorsOf(section) {
   }
   return [...seen.values()];
 }
+
+/**
+ * A section's meetings with the API's repeats dropped.
+ *
+ * Upstream lists the same pattern once per room label it holds for the class.
+ * CSE 2112 class 8823 comes back with ten meetings that describe three, and
+ * CHEM 8893 class 24426 with eight that describe one.
+ */
+export function distinctMeetings(section) {
+  const seen = new Set();
+  return (section?.meetings ?? []).filter((meeting) => {
+    const key = [
+      formatWhen(meeting),
+      meeting?.buildingDescriptionShort, meeting?.facilityDescriptionShort,
+      meeting?.buildingDescription, meeting?.facilityDescription,
+    ].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
