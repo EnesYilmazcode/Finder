@@ -134,6 +134,7 @@ main[hidden]{ display: none; }
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   padding: 1rem;
+  min-width: 0;
 }
 
 .card h2 {
@@ -144,13 +145,16 @@ main[hidden]{ display: none; }
 }
 
 /* Chart. Bars are a flex row so the whole thing stays responsive without
-   measuring anything in JS. */
+   measuring anything in JS. #75 measured a year of them at 1458px against a
+   1088px page, so the row scrolls and .card takes min-width: 0 to let it,
+   instead of the whole document going sideways. */
 .chart {
   display: flex;
   align-items: flex-end;
   gap: 2px;
   height: 9rem;
   padding-top: 0.25rem;
+  overflow-x: auto;
 }
 
 .bar {
