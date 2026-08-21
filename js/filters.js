@@ -116,3 +116,19 @@ export function applyFilters(entries, filters) {
 
   return { entries: kept, hiddenSections, hiddenCourses };
 }
+
+/**
+ * What the filters removed from the piles a view actually draws.
+ *
+ * The calendar plots the primary pile only, so counting the related one there
+ * offers back sections the grid will never draw.
+ */
+export function hiddenFor(view, primary, related) {
+  if (view === "calendar") {
+    return { hiddenSections: primary.hiddenSections, hiddenCourses: primary.hiddenCourses };
+  }
+  return {
+    hiddenSections: primary.hiddenSections + related.hiddenSections,
+    hiddenCourses: primary.hiddenCourses + related.hiddenCourses,
+  };
+}
