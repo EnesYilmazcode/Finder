@@ -603,7 +603,8 @@ body {
   color: var(--mute);
 }
 
-.f-day[data-state="require"] span {
+.f-day[data-state="require"] span,
+.f-day[data-state="busy"] span {
   background: var(--scarlet);
   border-color: var(--scarlet);
   color: var(--paper);
@@ -649,7 +650,8 @@ body {
 
 .f-check input { accent-color: var(--scarlet); width: 0.95rem; height: 0.95rem; }
 
-.f-clear {
+.f-clear,
+.f-add {
   font: inherit;
   font-size: 0.8rem;
   width: 100%;
@@ -661,7 +663,32 @@ body {
   cursor: pointer;
 }
 
-.f-clear:hover { color: var(--ink); border-color: var(--ink); }
+.f-clear:hover,
+.f-add:hover { color: var(--ink); border-color: var(--ink); }
+
+.f-add { margin-top: 0.6rem; }
+
+.f-span { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+.f-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.6rem 0 0; padding: 0; }
+
+.f-chip {
+  font: inherit;
+  font-family: var(--data);
+  font-size: 0.72rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--wash);
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Decoration. The button already carries a label that says it removes. */
+.f-chip::after { content: " ×"; color: var(--mute); }
+
+.f-chip:hover { color: var(--scarlet); border-color: var(--scarlet); }
+.f-chip:focus-visible { outline: 2px solid var(--scarlet); outline-offset: 2px; }
 
 .hidden-note {
   border: 1px dashed var(--rule);

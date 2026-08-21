@@ -93,6 +93,35 @@
           </select>
         </fieldset>
 
+        <fieldset class="f-set" id="f-busy">
+          <legend class="eyebrow">Busy times</legend>
+          <div class="f-days" id="f-busy-days" role="group" aria-label="Days you are busy">
+            <button type="button" class="f-day" data-day="monday" data-state="any"
+                    aria-pressed="false" aria-label="Monday"><span>Mo</span></button>
+            <button type="button" class="f-day" data-day="tuesday" data-state="any"
+                    aria-pressed="false" aria-label="Tuesday"><span>Tu</span></button>
+            <button type="button" class="f-day" data-day="wednesday" data-state="any"
+                    aria-pressed="false" aria-label="Wednesday"><span>We</span></button>
+            <button type="button" class="f-day" data-day="thursday" data-state="any"
+                    aria-pressed="false" aria-label="Thursday"><span>Th</span></button>
+            <button type="button" class="f-day" data-day="friday" data-state="any"
+                    aria-pressed="false" aria-label="Friday"><span>Fr</span></button>
+          </div>
+          <div class="f-span">
+            <div>
+              <label class="f-label" for="f-busy-start">From</label>
+              <input class="f-ctl" id="f-busy-start" name="busyStart" type="time">
+            </div>
+            <div>
+              <label class="f-label" for="f-busy-end">To</label>
+              <input class="f-ctl" id="f-busy-end" name="busyEnd" type="time">
+            </div>
+          </div>
+          <button class="f-add" id="f-busy-add" type="button" aria-describedby="f-busy-hint">Add busy time</button>
+          <ul class="f-chips" id="f-busy-list"></ul>
+          <p class="f-hint" id="f-busy-hint" aria-live="polite">Block out a class you already have. Sections that overlap it drop out.</p>
+        </fieldset>
+
         <fieldset class="f-set">
           <legend class="eyebrow">Instructor</legend>
           <label class="f-label" for="f-rating">Minimum rating</label>

@@ -5,7 +5,12 @@ const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 export function formatDays(meeting) {
   if (!meeting) return "";
-  return DAY_KEYS.map((key, i) => (meeting[key] ? DAY_LABELS[i] : null)).filter(Boolean).join("");
+  return dayCodes(DAY_KEYS.filter((key) => meeting[key]));
+}
+
+/** The same abbreviation from plain day keys, for filters that have no meeting. */
+export function dayCodes(days) {
+  return DAY_KEYS.map((key, i) => (days.includes(key) ? DAY_LABELS[i] : null)).filter(Boolean).join("");
 }
 
 export function formatTime(meeting) {
@@ -13,6 +18,18 @@ export function formatTime(meeting) {
   const start = meeting.startTime.replace(/\s?([ap])m/i, "$1").toLowerCase();
   const end = meeting.endTime?.replace(/\s?([ap])m/i, "$1").toLowerCase();
   return end ? `${start}–${end}` : start;
+}
+
+/** Minutes past midnight on a clock face. The inverse of filters.js toMinutes. */
+function fromMinutes(minutes) {
+  const hour = Math.floor(minutes / 60) % 24;
+  const display = hour % 12 === 0 ? 12 : hour % 12;
+  return `${display}:${String(minutes % 60).padStart(2, "0")}${hour < 12 ? "a" : "p"}`;
+}
+
+/** A busy block, "TuTh 9:35a–10:55a", written the way the section rows write a meeting. */
+export function busyLabel(block) {
+  return `${dayCodes(block.days)} ${fromMinutes(block.start)}–${fromMinutes(block.end)}`;
 }
 
 export function formatWhen(meeting) {
