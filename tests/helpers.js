@@ -8,14 +8,22 @@
 
 import { RATINGS, SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
 
-/** Swap in a fetch that serves fixtures by URL. Returns a restore function. */
+/**
+ * Swap in a fetch that serves fixtures by URL. Returns a restore function.
+ *
+ * `routes` is a URL-keyed map of JSON bodies, or a function returning a whole
+ * Response-like object, which is what the seat snapshotter's tests need: text
+ * bodies and the 403s and 404s Barrett really answers with.
+ */
 export function stubFetch(routes) {
   const original = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    const key = String(url);
-    if (!(key in routes)) throw new Error(`unexpected fetch: ${key}`);
-    return { ok: true, status: 200, json: async () => routes[key] };
-  };
+  const serve = typeof routes === "function"
+    ? routes
+    : (key) => {
+        if (!(key in routes)) throw new Error(`unexpected fetch: ${key}`);
+        return { ok: true, status: 200, json: async () => routes[key] };
+      };
+  globalThis.fetch = async (url) => serve(String(url));
   return () => { globalThis.fetch = original; };
 }
 
