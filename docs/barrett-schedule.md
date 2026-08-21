@@ -35,8 +35,8 @@ time is about 06:50 Eastern. Treat the numbers as a daily figure.
 
 ## File shape
 
-Three header lines, then blank-line-separated groups of sections, then up to two
-trailer tables that use completely different layouts.
+Three header lines, five in a draft term, then blank-line-separated groups of
+sections, then up to two trailer tables that use completely different layouts.
 
 ```
 CSE         1268 (Autumn 2026)         updated: 18-Aug-2026
@@ -45,6 +45,25 @@ CSE         1268 (Autumn 2026)         updated: 18-Aug-2026
 <blank>
      CSE 1110             4817 L                                      ONLINE      26/40       M.Mallon
 ```
+
+A term Barrett has not published yet carries a DRAFT banner between the title
+and the column header, so its header is five lines rather than three. All 239
+subject files offered for 1272 on 2026-08-21 carried it, and none of the 241
+offered for 1268 did:
+
+```
+CSE         1272 (Spring 2027)         updated: 20-Aug-2026
+<blank>
+#####  DRAFT: pre-publication information; classes shown here are subject to change #####
+<blank>
+                       class#    (autoenrolls)                                enrld/limit/+wait
+<blank>
+     CSE 1110            35982 L                                      ONLINE       0/40
+```
+
+So the parser finds the body from the `class#` line instead of counting header
+lines, and a file with no `class#` line near the top is an error rather than a
+guess.
 
 The trailers start with `INDependent study classes` and `waitlist report:`.
 Parsing has to stop at whichever comes first, because rows in the independent
