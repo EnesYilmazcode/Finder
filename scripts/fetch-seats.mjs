@@ -65,6 +65,11 @@ const DAY_COLUMNS = { 49: 'M', 50: 'T', 51: 'W', 52: 'R', 53: 'F', 54: 'Sa', 55:
 const TAIL_RE = /^\s*(?:(\S+)\s+)?(\d+)\/(\d+)(?:\s*\+(\d+))?\s*$/;
 
 const HEADER_RE = /^(\S+)\s+(\d{4}) \((.+?)\)\s+updated: (\S+)\s*$/;
+// A pre-publication term carries a DRAFT banner above the column header, so its
+// header is five lines instead of three. Only the top of the file is searched,
+// so a trailer row cannot stand in for the header.
+const COLUMNS_RE = /class#.*enrld\/limit\/\+wait/;
+const COLUMNS_SEARCH_LINES = 10;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -141,18 +146,30 @@ function parseDays(line) {
   return out;
 }
 
+// A file whose shape is not the one the column map describes is a layout
+// change, not a stray line, so a caller that tolerates a few bad subjects has
+// to rethrow this rather than count it as one of them.
+function layoutError(message) {
+  const err = new Error(message);
+  err.layout = true;
+  return err;
+}
+
 function parseSubjectFile(subject, term, text) {
   const lines = text.split('\n');
   const header = HEADER_RE.exec(lines[0] ?? '');
-  if (!header) throw new Error(`${subject}: unrecognised header ${JSON.stringify(lines[0])}`);
-  if (header[2] !== term) throw new Error(`${subject}: header term ${header[2]} is not ${term}`);
+  if (!header) throw layoutError(`${subject}: unrecognised header ${JSON.stringify(lines[0])}`);
+  if (header[2] !== term) throw layoutError(`${subject}: header term ${header[2]} is not ${term}`);
+
+  const columnsAt = lines.slice(0, COLUMNS_SEARCH_LINES).findIndex((line) => COLUMNS_RE.test(line));
+  if (columnsAt < 0) throw layoutError(`${subject}: no column header near the top of the file`);
 
   const sections = [];
   const failures = [];
   let continuations = 0;
 
   // Two trailer tables follow the section list and use different layouts.
-  for (const line of lines.slice(3)) {
+  for (const line of lines.slice(columnsAt + 1)) {
     if (line.startsWith('INDependent study classes') || line.startsWith('waitlist report')) break;
     if (!line.trim()) continue;
 
