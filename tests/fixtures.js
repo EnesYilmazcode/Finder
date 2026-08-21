@@ -86,11 +86,11 @@ export const RATINGS = {
   professors: [
     // Plain unique match, and the middle-name case: OSU says "Diana Ikenberry
     // Kline", RMP says "Diana Kline".
-    prof(1, "Diana", "Kline", 4.2, 31),
+    prof(1, "Diana", "Kline", 4.2, 31, [1, 1, 4, 10, 15]),
     // Nickname the query is a prefix of: OSU "Timothy Long", RMP "Tim Long".
-    prof(2, "Tim", "Long", 3.4, 12),
+    prof(2, "Tim", "Long", 3.4, 12, [1, 2, 3, 3, 3]),
     // Shared initial only, and the sole Gomori, so the weak rule is allowed.
-    prof(3, "Stephen", "Gomori", 4.8, 60),
+    prof(3, "Stephen", "Gomori", 4.8, 60, [0, 0, 2, 8, 50]),
     // Two real people with the same name. Never guess between them.
     prof(4, "Alan", "Reed", 2.1, 40),
     prof(5, "Alan", "Reed", 4.6, 9),
@@ -102,10 +102,15 @@ export const RATINGS = {
     prof(9, "Jonas", "Park", 4.0, 11),
     // Suffix case: the OSU name is "Ivan C. Smith III".
     prof(10, "Ivan", "Smith", 3.7, 8),
+    // The real Paolo Bucci: a 3.0 that is 32 ones and 38 fives, not a pile of threes.
+    prof(11, "Paolo", "Bucci", 3, 147, [32, 29, 19, 30, 38]),
+    prof(12, "Rosemary", "Bartoszek-Loza", 3.3, 128),
+    prof(13, "Nora", "Whitfield", 3.8, 60),
   ],
 };
 
-function prof(legacyId, firstName, lastName, avgRating, numRatings) {
+// Null distribution is the shape upstream sends when it has no per-score counts.
+function prof(legacyId, firstName, lastName, avgRating, numRatings, distribution = null) {
   return {
     legacyId,
     firstName,
@@ -115,5 +120,27 @@ function prof(legacyId, firstName, lastName, avgRating, numRatings) {
     numRatings,
     avgDifficulty: 3,
     wouldTakeAgainPercent: null,
+    distribution,
   };
 }
+
+// Course codes, keyed by legacyId the way data/ratings-courses.json is. A professor
+// the file does not list is unknown, not a professor with no matching code.
+export const RATING_COURSES = {
+  count: 6,
+  professors: {
+    // The four ways raters write one course, plus a code with no number in it.
+    "1": { "CSE 2221": 10, "cse2221": 4, "CS2221": 3, "2221": 5, "CSE2231": 8, "PHYSICS": 1 },
+    // Rated, but never for the course on screen.
+    "2": { "MATH 1151": 13 },
+    // An honours number and a pre-semester code are their own courses.
+    "3": { "CSE2221H": 30, "CSE321": 30 },
+    // Codes adding to 148 against the 147 ratings upstream shows for the same man.
+    "11": { "CSE 2221": 52, "CSE321": 22, "CSE 2231": 74 },
+    // Losing "CHEMISTRY1210" would take the bare "1210" with it, by making the
+    // number look contested.
+    "12": { "CHEM1210": 117, "CHEMISTRY1210": 8, "1210": 3 },
+    // ENGLISH 1110.01 and 1110.02 are both just "1110" to a rater.
+    "13": { "ENGLISH 1110": 30, "ENGL1110": 8, "1110": 10, "ENGLISH 1110.02": 5, "HISTORY 1151": 7 },
+  },
+};

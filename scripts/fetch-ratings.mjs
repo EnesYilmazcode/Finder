@@ -38,7 +38,16 @@ const MAX_PAGES = 200; // stops a broken cursor from looping forever
 // the file the site reads.
 const MIN_EXPECTED = 5000;
 
-const OUT_PATH = join(dirname(dirname(fileURLToPath(import.meta.url))), "data", "ratings.json");
+// Practically every rated professor names at least one course, 7357 of 7367 on the
+// run this was written against, so a collapse means courseCodes changed shape.
+const MIN_TAUGHT = 5000;
+
+const DATA_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "data");
+const OUT_PATH = join(DATA_DIR, "ratings.json");
+
+// Course codes are 505 KB against the roster's 1.8 MB, and only the detail pane ever
+// reads them, so they ship as their own file the page fetches when one is opened.
+const COURSES_PATH = join(DATA_DIR, "ratings-courses.json");
 
 // This public credential is what the RateMyProfessors web client itself sends.
 const HEADERS = {
@@ -53,7 +62,9 @@ const QUERY = `query Roster($school: ID!, $first: Int!, $after: String) {
     teachers(query: {text: "", schoolID: $school}, first: $first, after: $after) {
       resultCount
       pageInfo { hasNextPage endCursor }
-      edges { node { legacyId firstName lastName department avgRating numRatings avgDifficulty wouldTakeAgainPercent } }
+      edges { node { legacyId firstName lastName department avgRating numRatings avgDifficulty wouldTakeAgainPercent
+        ratingsDistribution { r1 r2 r3 r4 r5 }
+        courseCodes { courseName courseCount } } }
     }
   }
 }`;
@@ -109,11 +120,35 @@ function normalize(node) {
     numRatings: node.numRatings ?? 0,
     avgDifficulty: score(node.avgDifficulty),
     wouldTakeAgainPercent: score(node.wouldTakeAgainPercent),
+    distribution: spread(node.ratingsDistribution),
   };
+}
+
+// The five per-score counts. Upstream also sends their sum as `total`, left out
+// because it is the sum, though it is not always `numRatings` (see js/ratings.js).
+function spread(dist) {
+  if (!dist) return null;
+  const counts = [dist.r1, dist.r2, dist.r3, dist.r4, dist.r5];
+  return counts.every((n) => typeof n === "number" && n >= 0) ? counts : null;
+}
+
+// What raters typed as the course, kept verbatim. "CSE 2221", "cse2221", "CS2221" and
+// a bare "2221" are all one course, and none of them is the catalog code, so the
+// folding happens in js/ratings.js against the course actually on screen.
+function courseCodes(node) {
+  const codes = {};
+  for (const code of node.courseCodes ?? []) {
+    const name = (code?.courseName ?? "").trim();
+    const count = code?.courseCount ?? 0;
+    if (!name || count <= 0) continue;
+    codes[name] = (codes[name] ?? 0) + count;
+  }
+  return codes;
 }
 
 async function main() {
   const professors = new Map(); // keyed by legacyId; paging can repeat an edge
+  const codes = new Map();
   let after;
   let resultCount = 0;
   let pages = 0;
@@ -127,6 +162,7 @@ async function main() {
       const node = edge?.node;
       if (node?.legacyId == null) continue;
       professors.set(node.legacyId, normalize(node));
+      codes.set(node.legacyId, courseCodes(node));
     }
 
     console.log(`page ${pages}: ${professors.size}/${resultCount}`);
@@ -170,6 +206,33 @@ async function main() {
   await rename(tmp, OUT_PATH); // rename is atomic, so a crash cannot leave a partial file
 
   console.log(`Wrote ${records.length} professors to ${OUT_PATH} (${json.length} bytes)`);
+
+  // Checked after ratings.json is safely written, so a change to courseCodes costs
+  // the new file and not the nightly refresh the whole site runs on.
+  const taught = records.filter((p) => Object.keys(codes.get(p.legacyId) ?? {}).length);
+  if (taught.length < MIN_TAUGHT) {
+    console.error(
+      `Only ${taught.length} of ${records.length} rated professors list a course code, ` +
+        `expected at least ${MIN_TAUGHT}. Leaving ${COURSES_PATH} untouched.`
+    );
+    process.exit(1);
+  }
+
+  const courses = {
+    source: ENDPOINT,
+    note: "Course names are free text typed by raters, not catalog codes.",
+    count: taught.length,
+    professors: Object.fromEntries(taught.map((p) => [p.legacyId, codes.get(p.legacyId)])),
+  };
+
+  // Compact rather than indented like ratings.json. Nothing but the detail pane reads
+  // this file, and at two-space indent the same codes come to 851 KB instead of 505.
+  const coursesJson = JSON.stringify(courses, null, 0) + "\n";
+  const coursesTmp = `${COURSES_PATH}.tmp`;
+  await writeFile(coursesTmp, coursesJson, "utf8");
+  await rename(coursesTmp, COURSES_PATH);
+
+  console.log(`Wrote course codes for ${taught.length} professors to ${COURSES_PATH} (${coursesJson.length} bytes)`);
 }
 
 main().catch((error) => {

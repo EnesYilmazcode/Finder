@@ -9,6 +9,11 @@ const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
 let index = null;
 let loading = null;
 
+// Course codes are their own file, 151 KB gzipped against the roster's 211 KB, and
+// only the detail pane ever reads them. Fetched when a section is opened.
+let courses = null;
+let coursesLoading = null;
+
 /**
  * OSU returns full legal names ("Diana Ikenberry Kline") while RMP holds the
  * everyday form ("Diana Kline"), so exact matching misses. Key on first and
@@ -83,6 +88,28 @@ export async function loadRatings(baseUrl = "data/ratings.json") {
 }
 
 /**
+ * The per-professor course codes, for courseShare.
+ *
+ * A failure is not cached, matching js/seats.js. Whether anything asks again is
+ * the caller's business.
+ */
+export async function loadRatingCourses(baseUrl = "data/ratings-courses.json") {
+  if (courses) return courses;
+
+  coursesLoading ??= (async () => {
+    const response = await fetch(baseUrl);
+    if (!response.ok) throw new Error(`ratings courses ${response.status}`);
+    return (await response.json()).professors ?? {};
+  })().catch((error) => {
+    coursesLoading = null;
+    throw error;
+  });
+
+  courses = await coursesLoading;
+  return courses;
+}
+
+/**
  * Look up one instructor.
  *
  * Returns null when the name is absent, and also when two different professors
@@ -108,6 +135,89 @@ export function ratingFor(name, idx = index) {
     return candidates.length === 1 && compatibleFirstNames(first, theirs);
   });
   return viable.length === 1 ? viable[0] : null;
+}
+
+/**
+ * The five per-score counts and their total, or null when there is nothing to draw.
+ *
+ * The total is summed here rather than read off numRatings, which upstream reports
+ * as a different number for 616 of the 7367 rated professors, so the segments have
+ * to divide by the counts or they will not fill the bar.
+ */
+export function ratingSpread(person) {
+  const counts = person?.distribution;
+  if (!Array.isArray(counts) || counts.length !== 5) return null;
+  if (!counts.every((n) => typeof n === "number" && n >= 0)) return null;
+
+  const total = counts.reduce((sum, n) => sum + n, 0);
+  return total > 0 ? { counts, total } : null;
+}
+
+/**
+ * Fold a rater's course text onto a subject and a number.
+ *
+ * Students type this field by hand, so one course arrives as "CSE 2221", "cse2221",
+ * "CS2221" and a bare "2221". Text carrying no number ("PHYSICS", "art", "N/A") names
+ * no course and gets null, which is 4.2% of the 33041 codes in the snapshot.
+ */
+export function courseCode(text) {
+  const clean = String(text ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const parts = /^([A-Z]*)(\d+[A-Z]*)$/.exec(clean);
+  return parts ? { subject: parts[1], number: parts[2] } : null;
+}
+
+/**
+ * How many of an instructor's ratings name the course on screen, and the code to
+ * print them against. Null when the file has not loaded or lists nobody by that id.
+ *
+ * The number decides the match and the subject only narrows it, because a bare "2221"
+ * on this professor's own page is this professor's 2221. A number that does not match
+ * is left alone, so the pre-semester CSE 321 never becomes a CSE 2221 rating.
+ */
+export function courseShare(person, course, table = courses) {
+  const codes = table?.[person?.legacyId];
+  if (!codes) return null;
+
+  const subject = String(course?.subject ?? "").toUpperCase();
+  const catalogNumber = String(course?.catalogNumber ?? "").toUpperCase();
+  const number = catalogNumber.replace(/[^A-Z0-9]/g, "");
+
+  // Nobody types the dot in "2001.01", so 23% of the catalog needs its stem to count
+  // too. Safe because only 9 of those 1136 numbers also exist plain, unlike the 259
+  // letter-suffixed ones, where 187 have a plain sibling whose ratings it would steal.
+  const stem = /^\d+\./.test(catalogNumber) ? catalogNumber.split(".")[0] : "";
+  const names = (code) => code.number === number || (stem !== "" && code.number === stem);
+
+  // Raters abbreviate ("CS2221") and spell out ("CHEMISTRY1250"), so either side
+  // can be the longer string.
+  const mine = (code) => subject.startsWith(code.subject) || code.subject.startsWith(subject);
+
+  const rows = Object.entries(codes).map(([text, count]) => [courseCode(text), count]);
+  const codeTotal = rows.reduce((sum, [, count]) => sum + count, 0);
+  if (codeTotal === 0) return null;
+
+  // A bare number is only ambiguous when this professor also carries it under a
+  // subject that is not this one, which is the case where their 2221 could be
+  // someone else's 2221 and counting it would be the confident wrong answer.
+  const contested = rows.some(([code]) => code?.subject && names(code) && !mine(code));
+
+  let matched = 0;
+  let exact = true;
+  for (const [code, count] of rows) {
+    if (!code || !names(code)) continue;
+    if (code.subject ? !mine(code) : contested) continue;
+    matched += count;
+    if (code.number !== number) exact = false;
+  }
+
+  // The figure above prints numRatings, so dividing by anything else puts two totals
+  // for one professor in the same block.
+  const total = person?.numRatings > 0 ? person.numRatings : codeTotal;
+  return {
+    matched: Math.min(matched, total),
+    total,
+    code: `${subject} ${exact ? catalogNumber : stem}`,
+  };
 }
 
 export function searchUrl(name) {
