@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf } from "../js/format.js";
-import { meeting, person, section } from "./fixtures.js";
+import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf, isOnlineMeeting } from "../js/format.js";
+import { meeting, onlineMeeting, person, section } from "./fixtures.js";
 
 const DASH = "\u2013";
 
@@ -50,9 +50,23 @@ test("formatWhen keeps whichever half it has", () => {
   assert.equal(formatWhen(meeting([], "9:00 AM")), "9:00a");
 });
 
-test("formatPlace prefers the instruction mode when online", () => {
+test("isOnlineMeeting reads the building fields, not the mode", () => {
+  assert.equal(isOnlineMeeting(onlineMeeting()), true);
+  assert.equal(isOnlineMeeting(meeting([], null, null, [], { facilityDescriptionShort: "ONLINE" })), true);
+  assert.equal(isOnlineMeeting(meeting([], null, null, [], { buildingDescriptionShort: "DL 266" })), false);
+  assert.equal(isOnlineMeeting(meeting([])), false);
+  assert.equal(isOnlineMeeting(null), false);
+});
+
+test("regression #84: formatPlace reads an online meeting as its mode", () => {
+  // The row used to print the raw ONLINE that OSU puts in the building field.
+  assert.equal(formatPlace(onlineMeeting(), { instructionMode: "Distance Learning" }), "Distance Learning");
+  assert.equal(formatPlace(onlineMeeting(), { instructionMode: "Distance Enhanced" }), "Distance Enhanced");
+  assert.equal(formatPlace(onlineMeeting(), null), "Online");
+});
+
+test("formatPlace shows the building for a section that meets in one", () => {
   const m = meeting(["monday"], "1:00 PM", "2:00 PM", [], { buildingDescriptionShort: "Dreese Labs" });
-  assert.equal(formatPlace(m, { instructionMode: "Distance Learning - Online" }), "Distance Learning - Online");
   assert.equal(formatPlace(m, { instructionMode: "In Person" }), "Dreese Labs");
 });
 

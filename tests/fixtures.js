@@ -12,6 +12,16 @@ export function meeting(days, startTime = null, endTime = null, instructors = []
   return m;
 }
 
+/** An online meeting in the shape OSU sends it, from PSYCH 1100 class 22988. */
+export function onlineMeeting(days = [], startTime = null, endTime = null, instructors = []) {
+  return meeting(days, startTime, endTime, instructors, {
+    buildingDescription: "Online",
+    buildingDescriptionShort: "ONLINE",
+    facilityDescription: "ONLINE",
+    facilityDescriptionShort: "ONLINE",
+  });
+}
+
 export function section(classNumber, opts = {}) {
   return {
     classNumber,

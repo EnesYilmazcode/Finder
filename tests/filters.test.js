@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { DEFAULTS, toMinutes, isActive, applyFilters } from "../js/filters.js";
-import { entry, section, taught } from "./fixtures.js";
+import { entry, meeting, onlineMeeting, section, taught } from "./fixtures.js";
 import { withRatings, withSeats } from "./helpers.js";
 
 // filters.js reads seats and ratings through the shared module state, so the
@@ -18,8 +18,8 @@ const filters = (over = {}) => ({ ...DEFAULTS, term: TERM, ...over });
 const morning = taught(1001, ["monday", "wednesday", "friday"], "9:10 AM", "10:05 AM", ["Diana Ikenberry Kline"]);
 const evening = taught(1002, ["tuesday", "thursday"], "6:30 PM", "7:50 PM", ["Nobody Here"]);
 const online = section(5003, {
-  instructionMode: "Distance Learning - Online",
-  meetings: [],
+  instructionMode: "Distance Learning",
+  meetings: [onlineMeeting()],
 });
 const arranged = section(5004, { meetings: [] });
 
@@ -107,10 +107,35 @@ test("a section with no end time is judged on its start", () => {
   assert.equal(applyFilters([open], filters({ to: "500" })).entries.length, 0);
 });
 
-test("hideOnline drops only what the instruction mode says is online", () => {
+test("regression #84: hideOnline drops a section OSU marks ONLINE", () => {
+  // The mode never carries the word "online". The old version of this test
+  // only passed because its fixture invented a mode that did.
   const { entries, hiddenSections } = applyFilters([course()], filters({ hideOnline: true }));
   assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [1001, 1002, 5004]);
   assert.equal(hiddenSections, 1);
+});
+
+test("hideOnline leaves an arranged section alone", () => {
+  // 5004 has no meetings, so there is nothing to judge it on.
+  const { entries } = applyFilters([course()], filters({ hideOnline: true }));
+  assert.ok(entries[0].sections.some((s) => s.classNumber === 5004));
+});
+
+test("hideOnline keeps a hybrid that still meets in a room", () => {
+  // Hybrid Delivery mixes online and in person meetings. You still have to
+  // show up for the in person half, so it is not an online section.
+  const hybrid = entry("CSE", "2231", "Software II", [
+    section(6001, {
+      instructionMode: "Hybrid Delivery",
+      meetings: [
+        onlineMeeting(["monday"]),
+        meeting(["wednesday"], "1:00 PM", "1:55 PM", [], { buildingDescriptionShort: "DL 266" }),
+      ],
+    }),
+  ]);
+  const { entries, hiddenSections } = applyFilters([hybrid], filters({ hideOnline: true }));
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [6001]);
+  assert.equal(hiddenSections, 0);
 });
 
 test("hideFull drops a full section and keeps one with no seat data", () => {

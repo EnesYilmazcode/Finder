@@ -22,9 +22,22 @@ export function formatWhen(meeting) {
   return [days, time].filter(Boolean).join(" ");
 }
 
+function buildingOf(meeting) {
+  return meeting?.buildingDescriptionShort || meeting?.facilityDescriptionShort || meeting?.facilityDescription || "";
+}
+
+/**
+ * OSU never writes "online" in the mode, which only ever reads "In Person",
+ * "Distance Learning", "Hybrid Delivery" or "Distance Enhanced". The literal
+ * ONLINE goes where the building name would be. See #84.
+ */
+export function isOnlineMeeting(meeting) {
+  return buildingOf(meeting).trim().toUpperCase() === "ONLINE";
+}
+
 export function formatPlace(meeting, section) {
-  if (section?.instructionMode && /online/i.test(section.instructionMode)) return section.instructionMode;
-  const building = meeting?.buildingDescriptionShort || meeting?.facilityDescriptionShort || meeting?.facilityDescription;
+  if (isOnlineMeeting(meeting)) return section?.instructionMode || "Online";
+  const building = buildingOf(meeting);
   if (!building) return "Location to be announced";
   return building;
 }
