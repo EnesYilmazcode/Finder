@@ -15,10 +15,10 @@
 const MAX_DROP = 0.1;
 
 // FORCE_WRITE=1 is there so a real upstream shrink can be shipped, not so a
-// collapse or a broken parse can be, so only the drop yields to it. `fatal` is
+// collapse or a broken parse can be, so only the drop yields to it. Both are
 // exported because a script has checks of its own that belong in the same
-// message and must not yield either.
-const forceable = (reason) => ({ reason, forceable: true });
+// message, and they fall on either side of that line.
+export const forceable = (reason) => ({ reason, forceable: true });
 export const fatal = (reason) => ({ reason, forceable: false });
 
 // A count against its floor and against the last committed run. `previous` is 0

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { BARRETT_SUBJECT } from "./fixtures.js";
 import { countRefusal, refusalMessage, residueRefusal, subjectResidueRefusal } from "../scripts/guards.mjs";
 import { previousCount, writeRefusals as ratingsRefusals } from "../scripts/fetch-ratings.mjs";
-import { previousCounts, previousIndex, writeRefusals as coursesRefusals } from "../scripts/fetch-courses.mjs";
+import { previousIndex, subjectsByTerm, writeRefusals as coursesRefusals } from "../scripts/fetch-courses.mjs";
 import { parseSubjectFile, previousSections, subjectRefusals, termProblem } from "../scripts/fetch-seats.mjs";
 
 const DATA = join(dirname(dirname(fileURLToPath(import.meta.url))), "data");
@@ -209,19 +209,22 @@ test("regression #59: the ratings gate reads the committed roster", async () => 
 
 test("regression #59: the courses gate reads the committed index", async () => {
   const committed = await read("courses.json");
-  const counts = previousCounts(await previousIndex());
+  const previous = subjectsByTerm(await previousIndex());
   for (const [strm, term] of Object.entries(committed.terms)) {
-    assert.deepEqual(counts[strm], {
-      subjects: term.subjects.length,
-      courses: term.subjects.reduce((n, s) => n + s.courses.length, 0),
-    });
+    const before = previous.get(strm);
+    assert.deepEqual([...before.codes].sort(), term.subjects.map((s) => s.code).sort());
+    assert.equal(before.subjects, term.subjects.length);
+    assert.equal(before.courses, term.subjects.reduce((n, s) => n + s.courses.length, 0));
   }
-  assert.deepEqual(previousCounts(await previousIndex(MISSING)), {});
+  assert.equal(subjectsByTerm(await previousIndex(MISSING)).size, 0);
 
-  const [strm, before] = Object.entries(counts)[0];
-  const refusal = say(coursesRefusals(strm, before.subjects, Math.floor(before.courses * 0.5), before));
+  // Handed the term's own subjects back, so only the counts are on trial and the
+  // lost-subject rule folded in beside them has nothing to report.
+  const [strm, before] = [...previous][0];
+  const still = committed.terms[strm].subjects;
+  const refusal = say(coursesRefusals(strm, before.subjects, Math.floor(before.courses * 0.5), before, still));
   assert.match(refusal, new RegExp(String(before.courses)));
-  assert.equal(say(coursesRefusals(strm, before.subjects, before.courses, before)), null);
+  assert.equal(say(coursesRefusals(strm, before.subjects, before.courses, before, still)), null);
 });
 
 test("regression #59: the seats gate reads the committed term file", async () => {

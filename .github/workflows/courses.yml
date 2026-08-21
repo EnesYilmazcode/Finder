@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: 'Write even when the run comes back far short of what is committed'
+        description: 'Write even when the run comes back far short of what is committed, or a subject has gone'
         type: boolean
         required: false
         default: false
@@ -35,8 +35,9 @@ jobs:
 
       # No term argument: the script indexes every searchable term, and naming
       # one would drop the others from the file. A run that comes back far short
-      # of the committed index refuses and leaves it alone, so shipping a real
-      # shrink means re-running this workflow by hand with force set.
+      # of the committed index, or that finds nothing for a subject the index has
+      # courses for, refuses and leaves it alone. So shipping a real shrink or a
+      # retired subject means re-running this workflow by hand with force set.
       - name: Build course index
         env:
           FORCE_WRITE: ${{ inputs.force && '1' || '' }}
