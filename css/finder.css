@@ -275,7 +275,8 @@ body {
 
 .section-who { color: var(--ink); }
 
-.component {
+.component,
+.attr {
   font-family: var(--data);
   font-size: 0.72rem;
   text-transform: uppercase;
@@ -285,6 +286,14 @@ body {
   padding: 0.1rem 0.4rem;
   border-radius: var(--radius);
 }
+
+.attr { white-space: nowrap; }
+
+/* The credit a student is hunting for and the money they will owe, stepped up
+   from the dim chip to full ink. --wait is the obvious colour for the fee but
+   it measures 4.20:1 on --sunk in light, under AA at 0.72rem. */
+.attr[data-attr="GE2"],
+.attr[data-attr="ALX"] { color: var(--ink); }
 
 /* Small screens ----------------------------------------------------------- */
 
@@ -556,6 +565,16 @@ body {
 .d-val.is-full { color: var(--scarlet); font-weight: 500; }
 .d-val.is-open { color: var(--open); }
 .d-val.is-none { color: var(--mute); }
+
+.d-attr {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.32rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.d-attr-desc { font-size: 0.8rem; color: var(--mute); }
 
 .d-note { margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--mute); }
 .d-prose { margin: 0; font-size: 0.84rem; color: var(--mute); }

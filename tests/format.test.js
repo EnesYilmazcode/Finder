@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf } from "../js/format.js";
-import { meeting, person, section } from "./fixtures.js";
+import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf, attributesOf, courseBadges, sectionBadges, attributeLabel } from "../js/format.js";
+import { attr, entry, meeting, person, section } from "./fixtures.js";
 
 const DASH = "\u2013";
 
@@ -109,4 +109,132 @@ test("instructorsOf survives missing meetings and missing instructors", () => {
   assert.deepEqual(instructorsOf({ classNumber: 1005 }), []);
   assert.deepEqual(instructorsOf(null), []);
   assert.deepEqual(instructorsOf({ meetings: [{ startTime: "9:00 AM" }] }), []);
+});
+
+// Attributes, #65. Every case below is a shape pulled from the live API on
+// 2026-08-20, term 1268.
+
+// MATH 1116, which carries both GE generations at once. Its section 24462 adds
+// an Ohio Transfer 36 mapping the course object never lists.
+const M1116 = {
+  courseAttributes: [
+    attr("CCP", "LEVEL 1", "Level 1 CCP course"),
+    attr("GE", "QL2", "GEL Quantitative Reasoning: Math and Logical Anly"),
+    attr("GE2", "F2", "GEN Foundation: Math & Quant Reason (or Data Anyl)"),
+  ],
+};
+
+const M1116_SECTION = section(24462, {
+  attributes: [
+    attr("CCP", "LEVEL 1", "Level 1 CCP course"),
+    attr("GE", "QL2", "GEL Quantitative Reasoning: Math and Logical Anly"),
+    attr("GE2", "F2", "GEN Foundation: Math & Quant Reason (or Data Anyl)"),
+    attr("OTM", "TMMSL", "Ohio Transfer 36 - Math, Statistics, and Logic"),
+  ],
+});
+
+// ART 3009, which declares nothing at the course level and puts the same GE on
+// all three of its sections.
+const A3009 = entry("ART", "3009", "Film/Video I", [
+  section(23898, { attributes: [attr("GE2", "F3", "GEN Foundation: Literary, Visual & Performing Arts")] }),
+  section(27699, { attributes: [attr("GE2", "F3", "GEN Foundation: Literary, Visual & Performing Arts")] }),
+  section(38529, { attributes: [attr("GE2", "F3", "GEN Foundation: Literary, Visual & Performing Arts")] }),
+], { courseAttributes: [attr("", "", "")] });
+
+test("attributesOf keeps what only the section knows", () => {
+  const merged = attributesOf(M1116, M1116_SECTION);
+  assert.deepEqual(merged.map((a) => `${a.name} ${a.value}`),
+    ["GE2 F2", "GE QL2", "CCP LEVEL 1", "OTM TMMSL"]);
+  assert.equal(merged.find((a) => a.name === "OTM").description, "Ohio Transfer 36 - Math, Statistics, and Logic");
+});
+
+test("attributesOf puts the current GE ahead of the legacy one", () => {
+  // The API sends GE before GE2 and the rest in its own order, which is kept.
+  assert.deepEqual(attributesOf(M1116).map((a) => a.name), ["GE2", "GE", "CCP"]);
+});
+
+test("attributesOf dedupes what both copies carry", () => {
+  // The section repeats all three of the course's attributes verbatim.
+  assert.equal(attributesOf(M1116, M1116_SECTION).length, 4);
+  assert.equal(attributesOf(M1116).length, 3);
+  assert.equal(attributesOf(null, M1116_SECTION).length, 4);
+});
+
+test("attributesOf keeps two values of the same name", () => {
+  // ENGLISH 3264 counts for two themes at once. Deduping on the name alone
+  // would silently drop one of them.
+  const course = {
+    courseAttributes: [
+      attr("GE2", "T1", "GEN Theme: Citizenship for a Diverse & Just World"),
+      attr("GE2", "T3", "GEN Theme: Health and Well-being"),
+    ],
+  };
+  assert.deepEqual(attributesOf(course).map((a) => a.value), ["T1", "T3"]);
+});
+
+test("attributesOf drops the blank placeholder", () => {
+  // A course with nothing to declare sends one all-empty entry rather than an
+  // empty array. CSE 5911 is one, and 212 of 316 courses sampled did the same.
+  const course = { courseAttributes: [attr("", "", "")] };
+  assert.deepEqual(attributesOf(course), []);
+  assert.deepEqual(attributesOf(course, section(5622)), []);
+});
+
+test("attributesOf survives missing courses, sections and arrays", () => {
+  assert.deepEqual(attributesOf(null, null), []);
+  assert.deepEqual(attributesOf(undefined), []);
+  assert.deepEqual(attributesOf({}, {}), []);
+  assert.deepEqual(attributesOf({ courseAttributes: null }, { attributes: null }), []);
+});
+
+test("courseBadges reads the course record when it has one", () => {
+  assert.deepEqual(courseBadges(M1116, [M1116_SECTION]).map((a) => `${a.name} ${a.value}`),
+    ["GE2 F2", "GE QL2"]);
+});
+
+test("courseBadges falls back to what every section agrees on", () => {
+  // Without this ART 3009 shows no GE at all, which is the bug #65 reports.
+  assert.deepEqual(courseBadges(A3009.course, A3009.sections).map((a) => `${a.name} ${a.value}`), ["GE2 F3"]);
+});
+
+test("courseBadges will not claim a GE only one section carries", () => {
+  const sections = [...A3009.sections, section(40000, { attributes: [] })];
+  assert.deepEqual(courseBadges(A3009.course, sections), []);
+  assert.deepEqual(courseBadges(A3009.course), []);
+});
+
+test("sectionBadges keeps the fee and the honors marking and nothing else", () => {
+  // CSE 5351 section 37829 next to the codes that belong to the course.
+  const s = section(37829, {
+    attributes: [
+      attr("CRSF", "CF225", "COL Course Fee $225"),
+      attr("ALX", "72", "Digital Txtbook Fee(s): $72"),
+      attr("HON", "CHON", "Honors Course"),
+      attr("EXAM", "MID", "Midterm"),
+    ],
+  });
+  assert.deepEqual(sectionBadges(s).map((a) => `${a.name} ${a.value}`), ["ALX 72", "HON CHON"]);
+  assert.deepEqual(sectionBadges(null), []);
+});
+
+test("attributeLabel tells the current GE from the legacy one", () => {
+  assert.equal(attributeLabel(attr("GE2", "F2", "GEN Foundation: Math & Quant Reason (or Data Anyl)")), "GE F2");
+  assert.equal(attributeLabel(attr("GE", "QL2", "GEL Quantitative Reasoning: Math and Logical Anly")), "Legacy GE QL2");
+});
+
+test("attributeLabel prices a textbook fee", () => {
+  // CSE 5351 section 37829.
+  assert.equal(attributeLabel(attr("ALX", "72", "Digital Txtbook Fee(s): $72")), "$72");
+  assert.equal(attributeLabel(attr("ALX", "90.91", "Digital Txtbook Fee(s): $90.91")), "$90.91");
+});
+
+test("attributeLabel separates the two kinds of honors", () => {
+  assert.equal(attributeLabel(attr("HON", "CHON", "Honors Course")), "Honors");
+  assert.equal(attributeLabel(attr("HON", "EHON", "Embedded Honors")), "Embedded honors");
+});
+
+test("attributeLabel falls back to the raw code", () => {
+  assert.equal(attributeLabel(attr("OTM", "TMMSL", "Ohio Transfer 36 - Math, Statistics, and Logic")), "OTM TMMSL");
+  assert.equal(attributeLabel(attr("CIV", "CIV", "Civic Literacy")), "CIV CIV");
+  assert.equal(attributeLabel(null), "");
 });

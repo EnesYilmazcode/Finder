@@ -12,12 +12,18 @@ export function meeting(days, startTime = null, endTime = null, instructors = []
   return m;
 }
 
+/** One course or section attribute, in the API's shape. */
+export function attr(name, value, description = "") {
+  return { name, value, description };
+}
+
 export function section(classNumber, opts = {}) {
   return {
     classNumber,
     component: opts.component ?? "Lecture",
     instructionMode: opts.instructionMode ?? "In Person",
     meetings: opts.meetings ?? [],
+    attributes: opts.attributes ?? [],
   };
 }
 
@@ -29,6 +35,7 @@ export function entry(subject, catalogNumber, title, sections = [], opts = {}) {
       title,
       minUnits: opts.minUnits ?? 3,
       maxUnits: opts.maxUnits ?? 3,
+      courseAttributes: opts.courseAttributes ?? [],
     },
     sections,
   };
