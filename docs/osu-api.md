@@ -243,8 +243,9 @@ same shape to a regular expression, and `subject=smith` returns zero rather than
 an error, so a wrong guess costs a wasted round trip on the commonest search
 there is. The client only reads a token as a subject when the query also carries
 a catalog number, which a bare surname never does, and it falls back to plain
-text if the subject turns out not to be offered. A bare `MATH` is therefore left
-as free text on purpose.
+text if the subject turns out not to be offered. A bare `MATH` typed into the
+box is therefore left as free text on purpose, but a code picked out of the
+subject dropdown is known to be real and is scoped.
 
 Across a 37 query mix this cut requests by 26% and median wall time by 29%.
 `CSE 2331` went from five requests and 572 ms to one request and 101 ms.
