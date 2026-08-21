@@ -162,7 +162,7 @@ async function main() {
 
   // No fetch timestamp on purpose: it would change every night and defeat the
   // commit-only-when-changed check. The commit date already records when it ran.
-  const json = JSON.stringify(snapshot, null, 2) + "\n";
+  const json = JSON.stringify(snapshot, null, 0) + "\n";
 
   await mkdir(dirname(OUT_PATH), { recursive: true });
   const tmp = `${OUT_PATH}.tmp`;
