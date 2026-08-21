@@ -9,6 +9,7 @@
 import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { seatsFor } from "./seats.js";
+import { orderBy } from "./sort.js";
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
 const UNLISTED = "Instructor not listed";
@@ -20,15 +21,25 @@ function el(tag, className, text) {
   return node;
 }
 
-function sortSections(sections) {
-  return [...sections].sort((a, b) => {
-    const ai = COMPONENT_ORDER.indexOf(a.component);
-    const bi = COMPONENT_ORDER.indexOf(b.component);
-    const aRank = ai === -1 ? COMPONENT_ORDER.length : ai;
-    const bRank = bi === -1 ? COMPONENT_ORDER.length : bi;
-    if (aRank !== bRank) return aRank - bRank;
-    return String(a.classNumber).localeCompare(String(b.classNumber));
-  });
+function byComponent(a, b) {
+  const ai = COMPONENT_ORDER.indexOf(a.component);
+  const bi = COMPONENT_ORDER.indexOf(b.component);
+  const aRank = ai === -1 ? COMPONENT_ORDER.length : ai;
+  const bRank = bi === -1 ? COMPONENT_ORDER.length : bi;
+  return aRank - bRank;
+}
+
+function byClassNumber(a, b) {
+  return String(a.classNumber).localeCompare(String(b.classNumber));
+}
+
+/**
+ * A lecture and the recitations under it are one enrolment, so a sort orders
+ * sections within a component rather than interleaving them. Sort is stable, so
+ * the key goes on first and the component order over the top.
+ */
+export function sortSections(sections, sort = "", term = "") {
+  return orderBy(sections, (section) => [section], sort, term, byClassNumber).sort(byComponent);
 }
 
 /**
@@ -38,7 +49,7 @@ function sortSections(sections) {
  * co-taught section lands in exactly one block. Filing it under every teacher
  * would double-count sections and make a course look bigger than it is.
  */
-export function groupByInstructor(sections) {
+export function groupByInstructor(sections, sort = "", term = "") {
   const groups = new Map();
   for (const section of sections ?? []) {
     const people = instructorsOf(section);
@@ -47,11 +58,13 @@ export function groupByInstructor(sections) {
     groups.get(key).sections.push(section);
   }
 
-  return [...groups.values()].sort((a, b) => {
-    if (a.key === UNLISTED) return 1;
-    if (b.key === UNLISTED) return -1;
-    return surname(a.key).localeCompare(surname(b.key));
-  });
+  return orderBy([...groups.values()], (group) => group.sections, sort, term, bySurname);
+}
+
+function bySurname(a, b) {
+  if (a.key === UNLISTED) return 1;
+  if (b.key === UNLISTED) return -1;
+  return surname(a.key).localeCompare(surname(b.key));
 }
 
 const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
@@ -135,7 +148,7 @@ export function renderSection(section, term) {
   return li;
 }
 
-export function renderCourse({ course, sections }, term) {
+export function renderCourse({ course, sections }, term, sort = "") {
   const article = el("article", "course");
 
   const head = el("header", "course-head");
@@ -147,7 +160,7 @@ export function renderCourse({ course, sections }, term) {
   head.append(el("span", "course-meta", units ? `${units} · ${count}` : count));
   article.append(head);
 
-  for (const group of groupByInstructor(sections)) {
+  for (const group of groupByInstructor(sections, sort, term)) {
     const block = el("section", "teacher");
 
     const heading = el("h3", "teacher-name");
@@ -160,7 +173,7 @@ export function renderCourse({ course, sections }, term) {
     block.append(heading);
 
     const list = el("ul", "sections");
-    for (const section of sortSections(group.sections)) list.append(renderSection(section, term));
+    for (const section of sortSections(group.sections, sort, term)) list.append(renderSection(section, term));
     block.append(list);
 
     article.append(block);
@@ -169,8 +182,8 @@ export function renderCourse({ course, sections }, term) {
   return article;
 }
 
-export function renderResults(container, { primary, related }, term) {
-  const nodes = primary.map((entry) => renderCourse(entry, term));
+export function renderResults(container, { primary, related }, term, sort = "") {
+  const nodes = primary.map((entry) => renderCourse(entry, term, sort));
 
   if (related?.length) {
     const details = el("details", "related");
@@ -183,7 +196,7 @@ export function renderResults(container, { primary, related }, term) {
     details.addEventListener("toggle", () => {
       if (built || !details.open) return;
       built = true;
-      details.append(...related.map((entry) => renderCourse(entry, term)));
+      details.append(...related.map((entry) => renderCourse(entry, term, sort)));
     });
 
     nodes.push(details);
