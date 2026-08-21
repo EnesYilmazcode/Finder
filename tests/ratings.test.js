@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { nameKey, surnameKey, searchUrl, profileUrl } from "../js/ratings.js";
-import { withRatings } from "./helpers.js";
+import { withRatings, stubFetchFailingOnce } from "./helpers.js";
+import { RATINGS } from "./fixtures.js";
 
 const ratings = await withRatings();
 const { ratingFor } = ratings;
@@ -91,6 +92,20 @@ test("loadRatings caches, so a second call does not fetch again", async () => {
   const again = await ratings.loadRatings("never-fetched.json");
   assert.equal(again.byKey.get("diana kline").length, 1);
   assert.equal(again.bySurname.get("reed").length, 2);
+});
+
+test("regression #79: a failed loadRatings is not cached, so the next call retries", async () => {
+  const fresh = await import("../js/ratings.js?blip");
+  const restore = stubFetchFailingOnce({ "ratings.json": RATINGS });
+  try {
+    await assert.rejects(() => fresh.loadRatings("ratings.json"), TypeError);
+    const again = await fresh.loadRatings("ratings.json");
+    assert.equal(again.byKey.get("diana kline").length, 1);
+    // Recovering must not cost the caching: the stub throws on any other route.
+    await fresh.loadRatings("never-fetched.json");
+  } finally {
+    restore();
+  }
 });
 
 test("the RateMyProfessors links point at Ohio State", () => {

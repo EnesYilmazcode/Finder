@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { stubFetch } from "./helpers.js";
+import { stubFetch, stubFetchFailingOnce } from "./helpers.js";
 
 const INDEX = {
   built: "2026-08-18",
@@ -34,6 +34,21 @@ test("isLoaded flips once the index is in", async () => {
   const fresh = await import("../js/courses.js?unloaded");
   assert.equal(fresh.isLoaded(), false);
   assert.equal(courses.isLoaded(), true);
+});
+
+test("regression #79: a failed loadCourses is not cached, so the next call retries", async () => {
+  const fresh = await import("../js/courses.js?blip");
+  const restore = stubFetchFailingOnce({ "courses.json": INDEX });
+  try {
+    await assert.rejects(() => fresh.loadCourses("courses.json"), TypeError);
+    assert.equal(fresh.isLoaded(), false);
+    await fresh.loadCourses("courses.json");
+    assert.equal(fresh.isLoaded(), true);
+    // Recovering must not cost the caching: the stub throws on any other route.
+    await fresh.loadCourses("never-fetched.json");
+  } finally {
+    restore();
+  }
 });
 
 test("subjectsFor sorts by code and is scoped to one term", () => {
