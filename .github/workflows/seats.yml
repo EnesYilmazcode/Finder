@@ -11,6 +11,11 @@ on:
         description: '4-digit term code for a one-off run, blank for every searchable term'
         required: false
         default: ''
+      force:
+        description: 'Write even when the run comes back far short of what is committed'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -34,6 +39,7 @@ jobs:
       - name: Fetch seat counts
         env:
           TERM_INPUT: ${{ inputs.term }}
+          FORCE_WRITE: ${{ inputs.force && '1' || '' }}
         run: node scripts/fetch-seats.mjs $TERM_INPUT
 
       # The fetch exits non-zero when it skipped a term, and the terms it did

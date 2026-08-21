@@ -133,9 +133,17 @@ There were 1080 of them in term 1268. They are counted, not parsed.
 
 After slicing out every known field the parser blanks those columns and asserts
 that nothing but whitespace is left. A line that fails goes into a failure count
-rather than being dropped quietly, and the job exits non-zero if more than 0.5%
-of lines fail. That is what catches a layout change instead of shipping wrong
-seat numbers.
+rather than being dropped quietly. The term is then held back, and the job exits
+non-zero, when those failures are more than 0.5% of the term, when a subject file
+failed every row it had, or when more than one line in one file failed and those
+are over the same 0.5%. That is what catches a layout change instead of shipping
+wrong seat numbers.
+
+The per-file half is there because a small subject can fail every row it has and
+still sit far under 0.5% of a whole term, and its sections then render as no seat
+data at all. It takes two bad lines rather than one because most subject files
+are short: 633 of the 680 offered across the three searchable terms on
+2026-08-21 hold under 200 rows, so one odd line is already over the rate.
 
 Measured on 2026-08-18: 17680 section lines, 0 residue failures.
 

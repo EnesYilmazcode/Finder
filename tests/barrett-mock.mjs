@@ -34,14 +34,17 @@ const bad = (status, statusText) => ({ ok: false, status, statusText, headers, t
  * Stub globalThis.fetch for one scenario and return a restore function.
  *
  * `published` names the terms Barrett actually serves; the rest 404 the way an
- * unpublished term does. A subject in `failing` 403s, which fetchText treats as
- * fatal, one in `mislabelled` returns a file stamped with the wrong term, and
- * one in `layoutBroken` returns a file with no column header.
+ * unpublished term does, and one in `draft` is served with the pre-publication
+ * banner every subject file of an unpublished term carries. A subject in
+ * `failing` 403s, which fetchText treats as fatal, one in `mislabelled` returns
+ * a file stamped with the wrong term, and one in `layoutBroken` returns a file
+ * with no column header.
  */
 export function install({
   subjects = [],
   searchable = [],
   published = [],
+  draft = [],
   failing = [],
   mislabelled = [],
   layoutBroken = [],
@@ -61,7 +64,7 @@ export function install({
       subject,
       mislabelled.includes(subject) ? "1264" : term,
       rows(subject, sections),
-      layoutBroken.includes(subject) ? { columns: null } : {}
+      { draft: draft.includes(term), ...(layoutBroken.includes(subject) ? { columns: null } : {}) }
     ));
   });
 }
