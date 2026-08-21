@@ -6,6 +6,8 @@ const TIMEOUT_MS = 12000;
 // Relevance is the upstream default and it reshuffles between identical
 // requests. Catalog order does not. See docs/osu-api.md.
 const SORT = "catalogNumber";
+// Broad queries saturate totalItems here instead of counting it. See docs/osu-api.md.
+export const RESULT_CAP = 10000;
 
 export class ApiError extends Error {
   constructor(message, { status = null, cause = null } = {}) {

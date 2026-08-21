@@ -1,5 +1,7 @@
 // Turning API shapes into things a student reads at a glance.
 
+import { RESULT_CAP } from "./api.js";
+
 const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
@@ -35,6 +37,18 @@ export function formatUnits(course) {
   if (min == null && max == null) return "";
   if (min === max || max == null) return `${min} credit${min === 1 ? "" : "s"}`;
   return `${min}–${max} credits`;
+}
+
+/**
+ * Owns up to a search that only read part of what matched. Gating on the counts
+ * rather than on `sorted` also catches a page that failed and got swallowed.
+ */
+export function formatCoverage({ primary, related, totalItems }) {
+  const read = [...primary, ...related].reduce((n, e) => n + e.sections.length, 0);
+  if (read >= totalItems) return "";
+  // At the cap totalItems stopped counting, so "more than" is the only honest word for it.
+  const size = totalItems >= RESULT_CAP ? `more than ${RESULT_CAP.toLocaleString()}` : `about ${totalItems.toLocaleString()}`;
+  return `This search read ${read.toLocaleString()} of ${size} matching sections. Narrow the search to see the rest.`;
 }
 
 /** Instructors for a section, deduped, since they hang off each meeting. */

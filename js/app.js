@@ -6,6 +6,7 @@ import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount } from "./seats.j
 import { renderDetail } from "./detail.js";
 import { applyFilters, isActive, DEFAULTS } from "./filters.js";
 import { renderCalendar } from "./calendar.js";
+import { formatCoverage } from "./format.js";
 import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
 
 const els = {
@@ -358,13 +359,13 @@ async function runSearch(q, term) {
     // Ratings must be in hand before rendering, or instructors draw unrated and
     // never redraw. Awaited alongside the search rather than before it, so the
     // cost is the slower of the two and only on the first search.
-    const [{ courses }] = await Promise.all([
+    const [{ courses, totalItems }] = await Promise.all([
       searchAllPages({ q, term }),
       loadRatings().catch(() => null),
       loadSeats(term).catch(() => null),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
-    lastResult = filterCourses(courses, q);
+    lastResult = { ...filterCourses(courses, q), totalItems };
     showHidden = false;
     paint(term);
   } catch (error) {
@@ -456,7 +457,11 @@ function paint(term = els.term.value) {
   // Barrett refreshes once a day, so the numbers are dated, and during a
   // registration window that distinction matters.
   const dated = seatsTerm(term) && seatsUpdated(term) ? ` Seats as of ${formatDate(seatsUpdated(term))}.` : "";
-  setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`);
+  const counts = `${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`;
+  // The counts describe the fetch, not the filters, so this stays put when
+  // filters hide rows: the search really did read only part of the answer.
+  const coverage = formatCoverage(lastResult);
+  setStatus(coverage ? `${counts} ${coverage}` : counts);
 }
 
 function formatDate(iso) {

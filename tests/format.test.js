@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf } from "../js/format.js";
-import { meeting, person, section } from "./fixtures.js";
+import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, formatCoverage, instructorsOf } from "../js/format.js";
+import { entry, meeting, person, section } from "./fixtures.js";
 
 const DASH = "\u2013";
 
@@ -73,6 +73,52 @@ test("formatUnits is empty when the course carries no units", () => {
   assert.equal(formatUnits({}), "");
   assert.equal(formatUnits(null), "");
   assert.equal(formatUnits({ minUnits: 3, maxUnits: null }), "3 credits");
+});
+
+/** A result carrying `p` primary and `r` related sections against `totalItems`. */
+function result(p, r, totalItems) {
+  const bag = (n, number, from) =>
+    n ? [entry("CSE", number, `Course ${number}`, Array.from({ length: n }, (_, i) => section(from + i)))] : [];
+  return { primary: bag(p, "2221", 0), related: bag(r, "5032", 10000), totalItems };
+}
+
+// #71. A whole-subject browse runs past the five page budget, so the answer on
+// screen is a fraction of what matched and looks no different from a complete
+// one. Two CSE pulls read 1023 and 1040 of the 1236 sections upstream.
+test("formatCoverage counts related sections alongside primary ones", () => {
+  assert.equal(
+    formatCoverage(result(25, 998, 1236)),
+    `This search read ${(1023).toLocaleString()} of about ${(1236).toLocaleString()} matching sections. Narrow the search to see the rest.`
+  );
+  assert.equal(
+    formatCoverage(result(900, 0, 980)),
+    "This search read 900 of about 980 matching sections. Narrow the search to see the rest."
+  );
+});
+
+// The gate is the counts, not searchAllPages's `sorted`. A page that 429s is
+// swallowed by api.js and leaves `sorted` true on a result missing 200 sections.
+test("formatCoverage speaks up for a lost page, not just a truncated search", () => {
+  assert.equal(
+    formatCoverage(result(600, 0, 800)),
+    "This search read 600 of about 800 matching sections. Narrow the search to see the rest."
+  );
+});
+
+// docs/osu-api.md: totalItems stops at 10000 on a broad query, so it is a floor
+// there rather than a count, and stating it as one would be its own small lie.
+test("formatCoverage treats the 10,000 ceiling as a floor", () => {
+  assert.equal(
+    formatCoverage(result(969, 0, 10000)),
+    `This search read 969 of more than ${(10000).toLocaleString()} matching sections. Narrow the search to see the rest.`
+  );
+});
+
+test("formatCoverage says nothing when the whole result came back", () => {
+  assert.equal(formatCoverage(result(1236, 0, 1236)), "");
+  assert.equal(formatCoverage(result(30, 20, 50)), "");
+  assert.equal(formatCoverage(result(40, 0, 30)), "", "a count above the total is not a shortfall");
+  assert.equal(formatCoverage(result(0, 0, 0)), "");
 });
 
 test("instructorsOf dedupes a name repeated across meetings", () => {
