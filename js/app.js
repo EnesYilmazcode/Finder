@@ -7,6 +7,7 @@ import { renderDetail } from "./detail.js";
 import { applyFilters, isActive, DEFAULTS } from "./filters.js";
 import { renderCalendar } from "./calendar.js";
 import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
+import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } from "./deeplink.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -49,6 +50,9 @@ let currentEntries = [];
 let lastResult = null;
 let showHidden = false;
 let view = "list";
+// A section named by the URL. Applied on the next paint and then forgotten, so
+// changing a filter later does not drag the pane back to it.
+let pendingClass = "";
 
 function dayStates() {
   const required = [];
@@ -237,23 +241,57 @@ function setView(next) {
   paint();
 }
 
-function selectSection(row) {
-  const found = sectionIndex.get(row.dataset.classNumber);
-  if (!found) return;
+function sectionLink(classNumber) {
+  return setClassParam(new URL(location.href), classNumber).href;
+}
 
-  for (const other of els.results.querySelectorAll(".is-selected")) {
-    other.classList.remove("is-selected");
-    other.removeAttribute("aria-current");
+function deselectRows() {
+  for (const row of els.results.querySelectorAll(".is-selected")) {
+    row.classList.remove("is-selected");
+    row.removeAttribute("aria-current");
   }
+}
+
+/** Show a row's section and name it in the URL. */
+function applySelection(row) {
+  const found = sectionIndex.get(row.dataset.classNumber);
+  if (!found) return false;
+
+  deselectRows();
+  // Any note about a link that missed was about some other section.
+  els.results.querySelector(".link-note")?.remove();
   row.classList.add("is-selected");
   // Selection is state, not just colour, so it is exposed rather than implied.
   row.setAttribute("aria-current", "true");
 
-  showDetail(renderDetail({ ...found, term: els.term.value, entries: currentEntries, formatDate }));
+  const link = sectionLink(row.dataset.classNumber);
+  showDetail(renderDetail({
+    ...found, term: els.term.value, entries: currentEntries, formatDate, shareUrl: link,
+  }));
+  history.replaceState(null, "", link);
+  return true;
+}
+
+function clearSelection() {
+  deselectRows();
+  resetDetail();
+  if (collapsed.matches) els.app.dataset.view = "results";
+}
+
+function selectSection(row) {
+  if (!sectionIndex.has(row.dataset.classNumber)) return;
+  // One history entry for the pane rather than one per section looked at: push
+  // as it opens, replace while it is open, so Back closes it instead of walking
+  // back through the whole visit. Either way applySelection writes the URL.
+  if (!els.results.querySelector(".is-selected")) history.pushState(null, "", location.href);
+  applySelection(row);
 }
 
 function closeDetail() {
   els.app.dataset.view = "results";
+  // The pane is shut, so the link stops naming a section. The row keeps its
+  // selection because focus is about to go back to it.
+  history.replaceState(null, "", setClassParam(new URL(location.href), ""));
   // Back to the row that opened the pane where possible, so a keyboard user
   // resumes where they left off instead of at the top of the results.
   const selected = els.results.querySelector(".is-selected");
@@ -276,6 +314,9 @@ function setBusy(busy) {
 
 function syncUrl(q, term) {
   const url = new URL(location.href);
+  // A link's section belongs to the search it arrived with, so retrying that
+  // search after a 429 keeps it and searching for anything else drops it.
+  if (!sameSearch(url, q, term)) pendingClass = "";
   if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
   if (term) url.searchParams.set("term", term);
 
@@ -291,6 +332,9 @@ function syncUrl(q, term) {
   for (const key of ["hideFull", "hideOnline", "ratedOnly"]) {
     if (f[key]) url.searchParams.set(key, "1"); else url.searchParams.delete(key);
   }
+  // Every caller of this has just changed the result set, and the repaint that
+  // follows clears the pane, so whichever section was named is gone.
+  setClassParam(url, "");
   history.replaceState(null, "", url);
 }
 
@@ -394,6 +438,8 @@ function paint(term = els.term.value) {
   // the primary results, or the note understates its own effect.
   const hiddenSections = p.hiddenSections + r.hiddenSections;
   const hiddenCourses = p.hiddenCourses + r.hiddenCourses;
+  const wanted = pendingClass;
+  pendingClass = "";
 
     currentEntries = [...primary, ...related];
     sectionIndex = new Map();
@@ -420,9 +466,14 @@ function paint(term = els.term.value) {
       els.results.append(note);
     }
   } else {
-    renderResults(els.results, { primary, related }, term);
+    // A related course stays folded away until it is asked for, so a link into
+    // one has to ask for it here rather than after the render.
+    const openRelated = Boolean(wanted) && hasSection(related, wanted);
+    renderResults(els.results, { primary, related, openRelated }, term);
   }
   resetDetail();
+
+  const missed = wanted ? openLinked(wanted, term) : "";
 
   if (hiddenSections || hiddenCourses) {
     // Never hide silently. Say what was removed and offer it back.
@@ -443,11 +494,10 @@ function paint(term = els.term.value) {
   if (!primary.length) {
     // Careful not to claim everything went when related courses may still be
     // on screen underneath this message.
-    setStatus(
-      isActive(filters)
-        ? `No sections match your filters in ${termName(term)}. Loosen one, or clear them.`
-        : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`
-    );
+    const nothing = isActive(filters)
+      ? `No sections match your filters in ${termName(term)}. Loosen one, or clear them.`
+      : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`;
+    setStatus(`${nothing}${missed ? ` ${missed}` : ""}`);
     return;
   }
 
@@ -456,7 +506,41 @@ function paint(term = els.term.value) {
   // Barrett refreshes once a day, so the numbers are dated, and during a
   // registration window that distinction matters.
   const dated = seatsTerm(term) && seatsUpdated(term) ? ` Seats as of ${formatDate(seatsUpdated(term))}.` : "";
-  setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`);
+  setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}${missed ? ` ${missed}` : ""}`);
+}
+
+/**
+ * Land a shared link on its section, or say why it is not on screen and give
+ * that back to paint, since the note is not in a live region and the status is.
+ * Returns "" when the link landed.
+ */
+function openLinked(classNumber, term) {
+  const row = els.results.querySelector(`[data-class-number="${classNumber}"]`);
+  if (row) { applySelection(row); return ""; }
+
+  // The results, not the DOM. A section can be in them and still have no row:
+  // the calendar plots primary courses only.
+  const { message, offer } = missOutcome(classNumber, {
+    inResults: sectionIndex.has(classNumber),
+    inSearch: hasSection([...lastResult.primary, ...lastResult.related], classNumber),
+  });
+
+  const note = document.createElement("p");
+  note.className = "hidden-note link-note";
+  note.append(document.createTextNode(`${message} `));
+  if (offer) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = offer === "list" ? "See it in list view" : "Show it anyway";
+    button.addEventListener("click", () => {
+      pendingClass = classNumber;
+      if (offer === "list") setView("list");
+      else { showHidden = true; paint(term); }
+    });
+    note.append(button);
+  }
+  els.results.append(note);
+  return message;
 }
 
 function formatDate(iso) {
@@ -579,6 +663,19 @@ async function init() {
     selectSection(row);
   });
 
+  // An entry is the whole URL, so the filters it was written with come back
+  // with the section rather than leaving the address bar describing a page that
+  // is no longer on screen. The query and the term are not: nothing pushes a
+  // search.
+  window.addEventListener("popstate", () => {
+    const params = new URLSearchParams(location.search);
+    writeFilters(params);
+    showHidden = false;
+    clearSelection();
+    pendingClass = classFromParams(params);
+    paint();
+  });
+
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (els.submit.getAttribute("aria-disabled") === "true") return;
@@ -609,6 +706,7 @@ async function init() {
   const initialQuery = params.get("q") ?? "";
   els.query.value = initialQuery;
   if (initialQuery.trim()) {
+    pendingClass = classFromParams(params);
     reflectQuery(initialQuery);
     runSearch(initialQuery, els.term.value);
   }

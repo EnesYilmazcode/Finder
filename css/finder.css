@@ -507,6 +507,25 @@ body {
   margin: 0 0 0.4rem;
 }
 
+/* The buttons sit on the eyebrow's baseline, so they carry its bottom margin
+   as well, or the instructor name rides up under them. */
+.d-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+
+.d-act {
+  font: inherit;
+  font-family: var(--data);
+  font-size: 0.72rem;
+  padding: 0.25rem 0.5rem;
+  margin-bottom: 0.4rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.d-act:hover { color: var(--ink); border-color: var(--ink); }
+
 .d-name {
   font-family: var(--display);
   font-weight: 700;

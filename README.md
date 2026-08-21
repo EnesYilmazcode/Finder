@@ -63,6 +63,11 @@ the page says how many sections it removed and offers a button that shows
 them anyway. There is no saved schedule and no conflict detection. Finder
 searches, it does not plan.
 
+Every search is in the address bar, and so is the section you picked, so a
+link opens on the section you meant rather than on the search. The right
+pane copies the class number BuckeyeLink asks for, and offers Share on the
+browsers that have it.
+
 ## Where the data comes from
 
 ```
@@ -164,7 +169,7 @@ The snapshot scripts are Node 22:
 node scripts/fetch-seats.mjs 1268
 ```
 
-`npm test` runs 138 tests through `node --test`, with nothing installed.
+`npm test` runs 149 tests through `node --test`, with nothing installed.
 
 ## Repo layout
 
@@ -179,6 +184,7 @@ js/
   calendar.js         week grid
   detail.js           right pane
   filters.js          client-side filtering
+  deeplink.js         the section a link points at
   ratings.js          RMP snapshot and name matching
   seats.js            Barrett snapshot and the term guard
   courses.js          lazily loaded course index
@@ -187,7 +193,7 @@ js/
 scripts/              the three snapshot jobs
 data/                 the snapshots, committed
 docs/                 what OSU's API and Barrett's schedule get wrong
-tests/                138 tests, zero dependencies
+tests/                149 tests, zero dependencies
 wireframes/           three layouts considered first
 analytics/            the page-view counter, a Cloudflare Worker
 stats/                the page that reads the counter
@@ -197,7 +203,9 @@ stats/                the page that reads the counter
 
 - Seats are a morning snapshot, so a section can fill before you search.
 - Barrett covers fewer sections than the API, so some rows never show seats.
-- The Back button does nothing, and a shared calendar link opens as a list.
+- Back closes the section pane and puts back the filters it opened with, but
+  it does not undo a search.
+- A shared calendar link opens as a list.
 - Changing a filter clears whichever section you had selected.
 - Columbus only, and only the three terms OSU's API exposes at a time.
 - A section with several meeting patterns shows the first one.
