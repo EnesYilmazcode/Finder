@@ -1,4 +1,4 @@
-import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
+import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } from "./api.js";
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, topRated, ratedCount, profileUrl } from "./ratings.js";
@@ -20,6 +20,7 @@ const els = {
   days: document.querySelector("#f-days"),
   subject: document.querySelector("#p-subject"),
   number: document.querySelector("#p-number"),
+  gen: document.querySelector("#p-gen"),
   subjectList: document.querySelector("#subject-list"),
   numberList: document.querySelector("#number-list"),
   hint: document.querySelector("#p-hint"),
@@ -45,10 +46,14 @@ let latestRequest = 0;
 let sectionIndex = new Map();
 let currentEntries = [];
 // The unfiltered result of the last search, so changing a filter re-renders
-// rather than refetching.
+// rather than refetching, plus the query it ran with, since a repaint has to
+// quote that and not whatever is sitting in the box by then.
 let lastResult = null;
+let lastQuery = "";
 let showHidden = false;
 let view = "list";
+// A `gen` link built before Ohio State reworded the category it names.
+let staleGen = null;
 
 function dayStates() {
   const required = [];
@@ -217,6 +222,10 @@ function reflectQuery(q) {
   els.number.disabled = false;
 }
 
+function genCategory() {
+  return els.gen.value || null;
+}
+
 /** A picked subject and number becomes an ordinary search. */
 function searchFromPickers() {
   const code = codeFromInput(els.subject.value);
@@ -278,6 +287,8 @@ function syncUrl(q, term) {
   const url = new URL(location.href);
   if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
   if (term) url.searchParams.set("term", term);
+  const gen = genCategory();
+  if (gen) url.searchParams.set("gen", gen); else url.searchParams.delete("gen");
 
   // Filters live in the URL so a filtered view can be shared or reloaded.
   const f = readFilters();
@@ -343,7 +354,9 @@ function showWelcome(term) {
 }
 
 async function runSearch(q, term) {
-  if (!q.trim()) {
+  const gen = genCategory();
+  // A requirement on its own is a search.
+  if (!q.trim() && !gen) {
     els.results.replaceChildren();
     showWelcome(term);
     setStatus("");
@@ -359,12 +372,13 @@ async function runSearch(q, term) {
     // never redraw. Awaited alongside the search rather than before it, so the
     // cost is the slower of the two and only on the first search.
     const [{ courses }] = await Promise.all([
-      searchAllPages({ q, term }),
+      searchAllPages({ q, term, genCategory: gen }),
       loadRatings().catch(() => null),
       loadSeats(term).catch(() => null),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
     lastResult = filterCourses(courses, q);
+    lastQuery = q.trim();
     showHidden = false;
     paint(term);
   } catch (error) {
@@ -441,12 +455,17 @@ function paint(term = els.term.value) {
   }
 
   if (!primary.length) {
+    const gen = genCategory();
+    // Name the requirement, or an empty GE browse reads as a broken page.
+    const empty = gen
+      ? `Nothing in ${termName(term)} is listed under ${gen}${lastQuery ? ` for "${lastQuery}"` : ""}.`
+      : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`;
     // Careful not to claim everything went when related courses may still be
     // on screen underneath this message.
     setStatus(
       isActive(filters)
         ? `No sections match your filters in ${termName(term)}. Loosen one, or clear them.`
-        : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`
+        : empty
     );
     return;
   }
@@ -484,6 +503,25 @@ async function init() {
   // spoken state must not wait on the term service, which #38 measured
   // leaving all five chips announcing as "Mo" when it failed.
   writeFilters(params);
+
+  els.gen.append(
+    ...GEN_CATEGORIES.map((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      return option;
+    })
+  );
+  // An unknown value searches for nothing, so drop it and say so rather than
+  // serving the front page to someone who followed a link to a requirement.
+  const gen = params.get("gen");
+  if (GEN_CATEGORIES.includes(gen)) els.gen.value = gen;
+  else if (gen) {
+    staleGen = gen;
+    const url = new URL(location.href);
+    url.searchParams.delete("gen");
+    history.replaceState(null, "", url);
+  }
 
   try {
     terms = await fetchTerms();
@@ -525,6 +563,11 @@ async function init() {
     const code = codeFromInput(els.subject.value);
     const wanted = els.number.value.trim();
     if (coursesFor(els.term.value, code).some((c) => c.number === wanted)) searchFromPickers();
+  });
+
+  els.gen.addEventListener("change", () => {
+    syncUrl(els.query.value, els.term.value);
+    runSearch(els.query.value, els.term.value);
   });
 
   els.viewList.addEventListener("click", () => setView("list"));
@@ -594,7 +637,7 @@ async function init() {
     // repaint, or the first view after a switch shows none.
     loadSeats(els.term.value).then(() => paint()).catch(() => {});
     syncUrl(els.query.value, els.term.value);
-    if (els.query.value.trim()) runSearch(els.query.value, els.term.value);
+    if (els.query.value.trim() || genCategory()) runSearch(els.query.value, els.term.value);
   });
 
   els.welcome.addEventListener("click", (event) => {
@@ -608,14 +651,14 @@ async function init() {
 
   const initialQuery = params.get("q") ?? "";
   els.query.value = initialQuery;
-  if (initialQuery.trim()) {
+  if (initialQuery.trim() || genCategory()) {
     reflectQuery(initialQuery);
     runSearch(initialQuery, els.term.value);
   }
   else {
     // Ratings and seats are already in flight; fill the landing screen once
     // they land rather than showing an empty frame in the meantime.
-    setStatus("");
+    setStatus(staleGen ? `Finder has no requirement called ${staleGen}. Pick one under Fulfills.` : "");
     Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => showWelcome(els.term.value));
   }
 }

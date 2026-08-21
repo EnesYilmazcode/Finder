@@ -50,6 +50,12 @@
                placeholder="2331, or foundations" disabled>
         <datalist id="number-list"></datalist>
         <p class="f-hint" id="p-hint">Pick a subject to browse its courses. You can still type a course or a professor in the search box.</p>
+
+        <label class="f-label" for="p-gen">Fulfills</label>
+        <select class="f-ctl" id="p-gen" aria-describedby="p-gen-hint">
+          <option value="">Any requirement</option>
+        </select>
+        <p class="f-hint" id="p-gen-hint">Every course that counts for a GE requirement, across all subjects.</p>
       </form>
 
       <form id="filters">

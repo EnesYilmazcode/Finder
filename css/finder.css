@@ -806,7 +806,7 @@ body {
 /* Course pickers ---------------------------------------------------------- */
 
 .picker { margin-bottom: 1.25rem; padding-bottom: 1.1rem; border-bottom: 1px solid var(--rule); }
-.picker .f-ctl { cursor: text; }
+.picker input.f-ctl { cursor: text; }
 .picker .f-ctl:disabled { opacity: 0.5; cursor: default; }
 .picker .f-ctl::placeholder { color: var(--mute); }
 

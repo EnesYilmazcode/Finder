@@ -101,12 +101,47 @@ export function defaultTerm(terms, date = new Date()) {
 }
 
 /**
+ * The GEN categories `gen-categories` accepts, verbatim.
+ *
+ * Committed rather than read off the response facet, because that facet drops
+ * its own small entries: `subject=psych` lists one category where querying all
+ * of these directly finds four. Matching is exact, so a reword upstream turns
+ * one of these into an empty result rather than an error. See docs/osu-api.md,
+ * and tests/gen-categories.live.test.js, which is what notices.
+ */
+export const GEN_CATEGORIES = [
+  "GEN Foundation: Writing and Information Literacy",
+  "GEN Foundation: Literary, Visual & Performing Arts",
+  "GEN Foundation: Historical and Cultural Studies",
+  "GEN Foundation: Natural Sciences",
+  "GEN Foundation: Social and Behavioral Sciences",
+  "GEN Foundation: Race, Ethnicity & Gender Diversity",
+  "GEN Foundation: Math & Quant Reason (or Data Anyl)",
+  "GEN Theme: Citizenship for a Diverse & Just World",
+  "GEN Theme: Health and Well-being",
+  "GEN Theme: Lived Environments",
+  "GEN Theme: Migration, Mobility, and Immobility",
+  "GEN Theme: Number, Nature, Mind",
+  "GEN Theme: Origins and Evolution",
+  "GEN Theme: Sustainability",
+  "GEN Theme: Traditions, Cultures, & Transformations",
+  "GEN Bookend: Launch Seminar",
+  "GEN Bookend: Reflection Seminar",
+  "GEN HIP: Global and Intercultural Learning: Abroad",
+  "GEN HIP: Interdisciplinary and Integrated Coll Tch",
+  "GEN HIP: Research and Creative Inquiry",
+  "GEN HIP: Service Learning",
+  "GEN: World Languages",
+];
+
+/**
  * Search classes. Returns { totalItems, totalPages, page, courses }.
  *
- * `sort` and `subject` are both real upstream parameters, documented in
- * docs/osu-api.md. `subject` has to be lowercase: `subject=CSE` returns zero.
+ * `sort`, `subject` and `gen-categories` are all real upstream parameters,
+ * documented in docs/osu-api.md. `subject` has to be lowercase: `subject=CSE`
+ * returns zero.
  */
-export async function searchClasses({ q, term, page = 1, sort, subject }) {
+export async function searchClasses({ q, term, page = 1, sort, subject, genCategory }) {
   if (!term) throw new ApiError("Pick a term before searching.");
   const data = await getJson("/classes/search", {
     q: q ?? "",
@@ -115,6 +150,9 @@ export async function searchClasses({ q, term, page = 1, sort, subject }) {
     p: page,
     sort,
     subject,
+    // Sending it empty is not the same as leaving it off: `gen-categories=`
+    // returns zero.
+    "gen-categories": genCategory || undefined,
   });
   return {
     totalItems: data?.totalItems ?? 0,
@@ -162,16 +200,16 @@ export function subjectScope(raw) {
  * when the answer does not fit, the relevance pass runs as well and both are
  * merged. rank.js dedupes by class number, so the extra page is free coverage.
  */
-export async function searchAllPages({ q, term, maxPages = 5 }) {
+export async function searchAllPages({ q, term, maxPages = 5, genCategory }) {
   const scope = subjectScope(q);
-  let params = scope ? { q: scope.q, subject: scope.subject } : { q };
+  let params = scope ? { q: scope.q, subject: scope.subject, genCategory } : { q, genCategory };
 
   let first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
 
   // The subject guess was wrong, so that word was a name or a title, not a
   // subject code. Nothing matches a subject that is not offered.
   if (scope && first.totalItems === 0) {
-    params = { q };
+    params = { q, genCategory };
     first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
   }
 

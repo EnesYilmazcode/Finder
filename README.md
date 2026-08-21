@@ -31,7 +31,7 @@ equivalent piece to fail. It is a folder of files on GitHub Pages.
 | FIND A COURSE |                                           | Paolo Bucci     |
 |  Subject      | 1 course, 22 sections in Autumn 2026.     | CSE 2221        |
 |  Number       | Seats as of Aug 19.                       | Lecture, 4 cr   |
-|               |                                           |                 |
+|  Fulfills     |                                           |                 |
 | MEETS ON      | CSE 2221  Software I: Software Components | 3.0  from 147   |
 | Mo Tu We Th Fr| 4 credits, 22 sections                    | 4.1  difficulty |
 |               |                                           | 40%  take again |
