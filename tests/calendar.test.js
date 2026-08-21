@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildSlots } from "../js/calendar.js";
+import { buildSlots, layOutDay, slotInsets } from "../js/calendar.js";
 import { entry, meeting, person, section, taught } from "./fixtures.js";
 import { withSeats } from "./helpers.js";
 
@@ -135,4 +135,99 @@ test("seats stay absent when the term does not match the snapshot", () => {
 test("buildSlots handles an empty result set", () => {
   assert.deepEqual(buildSlots([], TERM), { slots: [], unscheduled: [] });
   assert.deepEqual(buildSlots([entry("CSE", "2321", "Foundations 1", [])], TERM), { slots: [], unscheduled: [] });
+});
+
+// layOutDay reads nothing but the times, so a bare slot stands in for one out
+// of buildSlots.
+const at = (start, end) => ({ id: `${start}|${end}`, days: ["wednesday"], start, end, items: [] });
+
+// Regression, #83. Both blocks were drawn full width, so the later one covered
+// the earlier one and took its clicks.
+test("regression #83: overlapping slots go into separate columns", () => {
+  const laid = layOutDay([at(760, 815), at(765, 845)]);
+  assert.deepEqual(laid.map((p) => [p.slot.start, p.column, p.columns]), [[760, 0, 2], [765, 1, 2]]);
+});
+
+test("regression #83: the ENGLISH 1110.01 overlap splits only on the days it happens", () => {
+  const WF = ["wednesday", "friday"];
+  const entries = [
+    entry("ENGLISH", "1110.01", "Writing and Information Literacy", [
+      taught(17458, WF, "12:40 PM", "1:35 PM", ["Cathy Lynne Ryan"]),
+      taught(17463, WF, "12:45 PM", "2:05 PM", ["Scott L DeWitt"]),
+      taught(17480, ["monday"], "12:40 PM", "1:35 PM", ["Nan Johnson"]),
+    ]),
+  ];
+  const { slots } = buildSlots(entries, TERM);
+
+  const wednesday = layOutDay(slots.filter((s) => s.days.includes("wednesday")));
+  assert.deepEqual(wednesday.map((p) => [p.column, p.columns]), [[0, 2], [1, 2]]);
+
+  // Monday holds one class, so nothing there gets narrowed.
+  const monday = layOutDay(slots.filter((s) => s.days.includes("monday")));
+  assert.deepEqual(monday.map((p) => [p.column, p.columns]), [[0, 1]]);
+});
+
+test("a day with no overlap keeps every block full width", () => {
+  const laid = layOutDay([at(540, 595), at(600, 655), at(700, 755)]);
+  assert.deepEqual(laid.map((p) => [p.column, p.columns]), [[0, 1], [0, 1], [0, 1]]);
+});
+
+test("a block ending exactly when the next starts does not split the column", () => {
+  const laid = layOutDay([at(540, 600), at(600, 660)]);
+  assert.deepEqual(laid.map((p) => p.columns), [1, 1]);
+});
+
+test("a column is free again once its block has ended", () => {
+  // The middle block overlaps both of its neighbours, but the outer two never
+  // touch each other, so they share the first column.
+  const laid = layOutDay([at(540, 600), at(570, 630), at(600, 660)]);
+  assert.deepEqual(laid.map((p) => [p.column, p.columns]), [[0, 2], [1, 2], [0, 2]]);
+});
+
+// MIN_SLOT holds a very short block at 44px, which is 23 minutes of grid, so
+// the times alone would put a block on top of it.
+test("a block painted taller than its end time still holds its column", () => {
+  assert.deepEqual(layOutDay([at(700, 710), at(715, 775)]).map((p) => [p.column, p.columns]),
+    [[0, 2], [1, 2]]);
+  assert.deepEqual(layOutDay([at(700, 710), at(730, 790)]).map((p) => [p.column, p.columns]),
+    [[0, 1], [0, 1]]);
+});
+
+// Two slots can share a time and still be two slots, since the id keys on the
+// day list too, and a paged search does not return sections in a stable order.
+test("the order buildSlots happened to emit slots in does not change the layout", () => {
+  const early = { ...at(760, 815), id: "a" };
+  const late = { ...at(760, 815), id: "b" };
+  const shape = (laid) => laid.map((p) => [p.slot.id, p.column, p.columns]);
+  assert.deepEqual(shape(layOutDay([early, late])), [["a", 0, 2], ["b", 1, 2]]);
+  assert.deepEqual(shape(layOutDay([late, early])), [["a", 0, 2], ["b", 1, 2]]);
+});
+
+test("no two blocks ever share a column and a moment", () => {
+  const input = [at(540, 600), at(545, 700), at(570, 630), at(600, 660), at(800, 900), at(850, 870)];
+  const laid = layOutDay(input);
+  assert.equal(laid.length, input.length);
+  for (const a of laid) {
+    for (const b of laid) {
+      if (a === b || a.column !== b.column) continue;
+      assert.ok(a.slot.end <= b.slot.start || b.slot.end <= a.slot.start,
+        `${a.slot.id} and ${b.slot.id} both sit in column ${a.column}`);
+    }
+  }
+});
+
+test("layOutDay handles a day with nothing on it", () => {
+  assert.deepEqual(layOutDay([]), []);
+});
+
+// The insets are what the reader actually sees, and they are easy to get
+// backwards: reversing the right-hand term still passes every test above.
+test("regression #83: a split block is inset to its own column", () => {
+  assert.equal(slotInsets(0, 1), null);
+  assert.deepEqual(slotInsets(0, 2),
+    { left: "calc(2px + 0 * (100% - 4px) / 2)", right: "calc(4px + 1 * (100% - 4px) / 2)" });
+  assert.deepEqual(slotInsets(1, 2),
+    { left: "calc(2px + 1 * (100% - 4px) / 2)", right: "calc(4px + 0 * (100% - 4px) / 2)" });
+  assert.deepEqual(slotInsets(1, 3),
+    { left: "calc(2px + 1 * (100% - 4px) / 3)", right: "calc(4px + 1 * (100% - 4px) / 3)" });
 });
