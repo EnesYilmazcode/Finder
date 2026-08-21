@@ -169,7 +169,7 @@ export function renderCourse({ course, sections }, term) {
   return article;
 }
 
-export function renderResults(container, { primary, related }, term) {
+export function renderResults(container, { primary, related, openRelated }, term) {
   const nodes = primary.map((entry) => renderCourse(entry, term));
 
   if (related?.length) {
@@ -180,11 +180,15 @@ export function renderResults(container, { primary, related }, term) {
     // these up front costs thousands of nodes to display none of them, so they
     // are built on first open instead.
     let built = false;
-    details.addEventListener("toggle", () => {
-      if (built || !details.open) return;
+    const build = () => {
+      if (built) return;
       built = true;
       details.append(...related.map((entry) => renderCourse(entry, term)));
-    });
+    };
+    details.addEventListener("toggle", () => { if (details.open) build(); });
+    // A link into a related course has to land on a row that exists. The toggle
+    // event is queued rather than fired, so opening alone is not enough.
+    if (openRelated) { details.open = true; build(); }
 
     nodes.push(details);
   }

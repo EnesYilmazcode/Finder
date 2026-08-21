@@ -35,6 +35,48 @@ function figure(value, label, tone) {
   return wrap;
 }
 
+/**
+ * The class number and the two things students do with it: type it into
+ * BuckeyeLink, and send the section to a friend.
+ */
+function sectionHead(section, course, shareUrl) {
+  const head = el("div", "d-head");
+  head.append(el("p", "eyebrow", `Section ${section.classNumber}`));
+
+  // navigator.clipboard is undefined on plain http, so the button is only
+  // drawn where it can do something.
+  if (navigator.clipboard) {
+    const label = "Copy number";
+    const copy = el("button", "d-act", label);
+    copy.type = "button";
+    // The label is the only feedback there is, so it has to be spoken too.
+    copy.setAttribute("aria-live", "polite");
+    let timer = 0;
+    copy.addEventListener("click", async () => {
+      const done = await navigator.clipboard.writeText(String(section.classNumber)).then(() => true, () => false);
+      copy.textContent = done ? "Copied" : "Copy failed";
+      // Restart the flash rather than let the last click's timer cut it short.
+      clearTimeout(timer);
+      timer = setTimeout(() => { copy.textContent = label; }, 1200);
+    });
+    head.append(copy);
+  }
+
+  if (shareUrl && navigator.share) {
+    const share = el("button", "d-act", "Share");
+    share.type = "button";
+    share.addEventListener("click", () => {
+      // Dismissing the sheet rejects, and that is not a failure.
+      navigator.share({
+        title: `${course.subject} ${course.catalogNumber} section ${section.classNumber}`,
+        url: shareUrl,
+      }).catch(() => {});
+    });
+    head.append(share);
+  }
+  return head;
+}
+
 function instructorHeading(people) {
   const heading = el("h2", "d-name");
   people.forEach((person, i) => {
@@ -83,11 +125,11 @@ function alsoTeaches(people, current, entries, term) {
   return wrap;
 }
 
-export function renderDetail({ section, course, term, entries, formatDate }) {
+export function renderDetail({ section, course, term, entries, formatDate, shareUrl }) {
   const wrap = document.createDocumentFragment();
   const people = instructorsOf(section);
 
-  wrap.append(el("p", "eyebrow", `Section ${section.classNumber}`));
+  wrap.append(sectionHead(section, course, shareUrl));
   wrap.append(people.length ? instructorHeading(people) : el("h2", "d-name is-none", "Instructor not listed"));
 
   const units = formatUnits(course);
