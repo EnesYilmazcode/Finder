@@ -28,6 +28,14 @@ const CHROME_H = 15;       // .cal-time
 const COUNT_H = 15;        // .cal-count, only when there is more than one section
 const PAD_H = 7;           // .cal-slot vertical padding
 
+// Past three, widening the track costs more sideways scrolling than the names
+// it saves, so a fourth column shares the room rather than adding to it.
+const MAX_SPLIT = 3;
+
+// The heights above are single-line, so .cal-time, .cal-count and .cal-more are
+// pinned to one line in the CSS: a wrapped label would eat an instructor line
+// out of the budget below without anything here knowing it had.
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -74,6 +82,69 @@ export function buildSlots(entries, term) {
   return { slots: [...slots.values()], unscheduled };
 }
 
+// A block is never painted shorter than MIN_SLOT, so a very short class covers
+// more of its column than its end time claims.
+function paintedEnd(slot) {
+  return slot.start + Math.max(slot.end - slot.start, MIN_SLOT / PX_PER_MIN);
+}
+
+/**
+ * Split a day's slots into side-by-side columns.
+ *
+ * Blocks are placed absolutely, so two classes at overlapping times want the
+ * same pixels and whichever draws last takes them, along with the clicks: on
+ * ENGLISH 1110.01 six instructor buttons could not be reached at all, and one
+ * button's own centre opened a different section.
+ */
+export function layOutDay(slots) {
+  // The id breaks ties, since two slots can share a time and paged search does
+  // not return sections in a stable order. See docs/osu-api.md.
+  const order = [...slots].sort((a, b) =>
+    a.start - b.start || a.end - b.end || String(a.id).localeCompare(String(b.id)));
+
+  const laid = [];
+  let run = [];
+  let runEnd = -Infinity;
+
+  // A run is a stretch of the day with no gap in it. Nothing in one run can
+  // touch anything in the next, so each is packed on its own.
+  for (const slot of order) {
+    if (slot.start >= runEnd) { laid.push(...pack(run)); run = []; }
+    run.push(slot);
+    runEnd = Math.max(runEnd, paintedEnd(slot));
+  }
+  return [...laid, ...pack(run)];
+}
+
+/** Greedy leftmost free column, which is the usual week-view packing. */
+function pack(run) {
+  const ends = []; // when each column is free again
+  const blocks = run.map((slot) => {
+    let column = ends.findIndex((end) => end <= slot.start);
+    if (column < 0) column = ends.length;
+    ends[column] = paintedEnd(slot);
+    return { slot, column };
+  });
+  for (const block of blocks) block.columns = ends.length;
+  return blocks;
+}
+
+/**
+ * Left and right insets for one block of a split run, or null when the block
+ * has its run to itself and the CSS inset already has it right.
+ *
+ * The 2px matches the inset the CSS uses; the extra 2px on the right is the
+ * gutter between neighbours.
+ */
+export function slotInsets(column, columns) {
+  if (columns < 2) return null;
+  const share = `(100% - 4px) / ${columns}`;
+  return {
+    left: `calc(2px + ${column} * ${share})`,
+    right: `calc(4px + ${columns - 1 - column} * ${share})`,
+  };
+}
+
 /** Worst-case tone for a slot: red if every section in it is full. */
 function slotTone(items) {
   const known = items.filter((i) => i.seats);
@@ -98,6 +169,13 @@ export function renderCalendar(entries, term) {
   const last = Math.ceil(Math.max(...slots.map((s) => s.end)) / 60) * 60;
   const usedDays = DAYS.filter(([key]) => slots.some((s) => s.days.includes(key)));
 
+  // Laid out before the grid is sized, since each column's floor depends on how
+  // many columns that day needs.
+  const days = usedDays.map(([key, label, fullDay]) => {
+    const blocks = layOutDay(slots.filter((s) => s.days.includes(key)));
+    return { label, fullDay, blocks, split: Math.max(1, ...blocks.map((b) => b.columns)) };
+  });
+
   const grid = el("div", "cal");
   grid.style.setProperty("--cal-days", usedDays.length);
   grid.style.setProperty("--cal-height", `${(last - first) * PX_PER_MIN}px`);
@@ -112,8 +190,11 @@ export function renderCalendar(entries, term) {
   }
   grid.append(gutter);
 
-  for (const [key, label, fullDay] of usedDays) {
+  for (const { label, fullDay, blocks, split } of days) {
     const column = el("div", "cal-col");
+    // Sizes this day's track and no other, so a Wednesday that splits three
+    // ways does not widen a Monday holding one class into sideways scrolling.
+    column.style.setProperty("--cal-split", Math.min(split, MAX_SPLIT));
     column.append(el("div", "cal-head", label));
 
     const body = el("div", "cal-body");
@@ -124,8 +205,8 @@ export function renderCalendar(entries, term) {
       body.append(line);
     }
 
-    for (const slot of slots.filter((s) => s.days.includes(key))) {
-      body.append(renderSlot(slot, first, fullDay));
+    for (const block of blocks) {
+      body.append(renderSlot(block, first, fullDay));
     }
     column.append(body);
     grid.append(column);
@@ -144,11 +225,17 @@ export function renderCalendar(entries, term) {
   return wrap;
 }
 
-function renderSlot(slot, first, fullDay) {
+function renderSlot({ slot, column, columns }, first, fullDay) {
   const box = el("div", `cal-slot ${slotTone(slot.items)}`);
   const height = Math.max((slot.end - slot.start) * PX_PER_MIN, MIN_SLOT);
   box.style.top = `${(slot.start - first) * PX_PER_MIN}px`;
   box.style.height = `${height}px`;
+
+  const insets = slotInsets(column, columns);
+  if (insets) {
+    box.style.left = insets.left;
+    box.style.right = insets.right;
+  }
 
   box.append(el("p", "cal-time", `${clock(slot.start)}–${clock(slot.end)}`));
 
