@@ -343,6 +343,9 @@ function showWelcome(term) {
 }
 
 async function runSearch(q, term) {
+  // Collapsed, the detail pane hides the results and the status line, and the
+  // empty-query and error paths below never reach paint().
+  els.app.dataset.view = "results";
   if (!q.trim()) {
     els.results.replaceChildren();
     showWelcome(term);
@@ -423,6 +426,7 @@ function paint(term = els.term.value) {
     renderResults(els.results, { primary, related }, term);
   }
   resetDetail();
+  els.app.dataset.view = "results";
 
   if (hiddenSections || hiddenCourses) {
     // Never hide silently. Say what was removed and offer it back.
