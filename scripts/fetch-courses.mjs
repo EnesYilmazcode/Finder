@@ -7,17 +7,19 @@
 // and a broad query stops at 10000 results. So the index is built here, in CI,
 // by walking one subject at a time and reconciling several passes per subject.
 //
-// Usage:  node scripts/fetch-courses.mjs [term ...]
+// Usage:  node scripts/fetch-courses.mjs [term ...] [--allow-drop]
 //         node scripts/fetch-courses.mjs 1268
 // With no argument every term the API reports as searchable is indexed, which is
 // what the workflow does. Naming terms is for local debugging: the file is
-// rewritten, so terms left out are dropped from it.
+// rewritten, so terms left out are dropped from it. --allow-drop is FORCE_WRITE=1
+// under another name, for accepting a subject the last index had courses for and
+// this run found none of.
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { countRefusal, refusalMessage } from './guards.mjs';
+import { countRefusal, forceable, refusalMessage } from './guards.mjs';
 
 const API = 'https://content.osu.edu/v2/classes';
 const BARRETT = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
@@ -59,6 +61,13 @@ const STABLE_PASSES = 2;
 // single-page results never varied, sorted or not. Those get one confirming pass
 // rather than the full stable-pass treatment.
 const SINGLE_PAGE_STABLE_PASSES = 1;
+
+// A subject that is not offered this term and a pass the API dropped come back
+// as the same response: HTTP 200, totalPages 0, no courses. Believing the first
+// one deletes the whole subject until the next weekly run, so look again, spaced
+// by DELAY_MS like every other repeated request here. The cost is one extra
+// request per candidate code the term does not offer.
+const EMPTY_PASSES = 2;
 
 // Autumn 2026 measured 243 subjects and 6072 courses, Summer 2026 the smallest
 // at 197 and 1984. The floors sit well under the smallest term because they only
@@ -199,7 +208,7 @@ async function discoverSubjects(term) {
 }
 
 // The index the last run wrote. Missing or unreadable means a first run, which
-// is not an error. Read once, since both readers below want a projection of it.
+// is not an error. Read once, since everything below wants a projection of it.
 async function previousIndex(path = OUT_PATH) {
   try {
     return JSON.parse(await readFile(path, 'utf8'));
@@ -208,34 +217,45 @@ async function previousIndex(path = OUT_PATH) {
   }
 }
 
-// Subject list, part three: every code the last run knew about.
-function previousSubjects(previous) {
-  const codes = new Set();
-  for (const term of Object.values(previous?.terms ?? {})) {
-    for (const subject of term.subjects ?? []) if (subject.code) codes.add(subject.code);
+// Subject list, part three: what the last run wrote, keyed by strm so a subject
+// one term dropped is not confused with one another term never had, and carrying
+// the counts the collapse check compares against. A subject with no courses is
+// left out because this also decides what was lost, and lost means it had
+// courses and now has none.
+function subjectsByTerm(previous) {
+  const byTerm = new Map();
+  for (const [strm, term] of Object.entries(previous?.terms ?? {})) {
+    const codes = new Set();
+    let courses = 0;
+    for (const subject of term.subjects ?? []) {
+      if (!subject.code || !subject.courses?.length) continue;
+      codes.add(subject.code);
+      courses += subject.courses.length;
+    }
+    byTerm.set(strm, { codes, subjects: codes.size, courses });
   }
-  return codes;
+  return byTerm;
 }
 
-// Per-term counts from the same index, for the collapse check below.
-function previousCounts(previous) {
-  const counts = {};
-  for (const [strm, term] of Object.entries(previous?.terms ?? {})) {
-    const subjects = term.subjects ?? [];
-    counts[strm] = {
-      subjects: subjects.length,
-      courses: subjects.reduce((n, s) => n + (s.courses?.length ?? 0), 0),
-    };
-  }
-  return counts;
+// Subjects the last index had courses for that this run came back empty on.
+function lostSubjects(previous, subjects) {
+  const offered = new Set(subjects.map((s) => s.code));
+  return [...previous].filter((code) => !offered.has(code));
 }
 
 // Every reason not to write a term. Apart from main so a test can hold it to the
-// counts that are really committed.
-function writeRefusals(strm, offered, courses, before) {
+// counts that are really committed. `subjects` is what this run built for the
+// term, because one of the reasons is which of them went missing.
+function writeRefusals(strm, offered, courses, before, subjects = []) {
+  const lost = lostSubjects(before?.codes ?? new Set(), subjects);
   return [
     countRefusal(`term ${strm} subjects`, offered, MIN_SUBJECTS, before?.subjects),
     countRefusal(`term ${strm} courses`, courses, MIN_COURSES, before?.courses),
+    // Forceable for the same reason a shrink is: a subject really can retire, and
+    // the stale index goes on saying it had courses until an operator accepts it.
+    lost.length
+      ? forceable(`term ${strm}: ${lost.join(', ')} had courses in the last index and none now`)
+      : null,
   ];
 }
 
@@ -296,7 +316,13 @@ async function reconcileSubject(term, code) {
 
     if (pass === 1) firstPassCount = added;
     else addedLater += added;
-    if (!byCatalog.size) break; // not offered this term, one look is enough
+    // Kept out of the stable-pass check below: falling through would count an
+    // empty pass as clean and end the walk on the spot.
+    if (!byCatalog.size) {
+      if (pass >= EMPTY_PASSES) break;
+      await sleep(DELAY_MS);
+      continue;
+    }
 
     clean = added === 0 ? clean + 1 : 0;
     if (clean >= (pages > 1 ? STABLE_PASSES : SINGLE_PAGE_STABLE_PASSES)) break;
@@ -380,7 +406,12 @@ async function writeAtomic(path, contents) {
 }
 
 async function main() {
-  const requested = process.argv.slice(2).filter((a) => /^\d{4}$/.test(a));
+  const args = process.argv.slice(2);
+  const requested = args.filter((a) => /^\d{4}$/.test(a));
+  // A shrink and a retired subject are the same kind of event, so they take the
+  // same escape hatch. Without one the weekly run stays red until someone finds
+  // the flag in this comment.
+  const force = process.env.FORCE_WRITE === '1' || args.includes('--allow-drop');
   const all = await searchableTerms();
   const terms = requested.length ? all.filter((t) => requested.includes(t.strm)) : all;
   if (!terms.length) throw new Error(`none of ${requested.join(', ')} is searchable`);
@@ -392,9 +423,10 @@ async function main() {
   // is rewritten every run. A named run is exempt: dropping the rest is what
   // that mode is for.
   if (!requested.length) {
-    const refusal = refusalMessage([
-      countRefusal('searchable terms', terms.length, 1, Object.keys(committed?.terms ?? {}).length),
-    ]);
+    const refusal = refusalMessage(
+      [countRefusal('searchable terms', terms.length, 1, Object.keys(committed?.terms ?? {}).length)],
+      force
+    );
     if (refusal) throw new Error(`Refusing to write ${OUT_PATH}.\n${refusal}`);
   }
 
@@ -405,9 +437,10 @@ async function main() {
   // Every subject the last index knew about stays a candidate. The sweep below
   // is itself paged, so it is as lossy as anything else here, and without this
   // a subject could drop out of the file for one run and come back the next.
-  // A candidate that really is not offered costs one request and is dropped.
-  const previous = previousSubjects(committed);
-  for (const code of previous) candidates.add(code);
+  // A candidate that really is not offered costs two requests and is dropped.
+  const previous = subjectsByTerm(committed);
+  const previousCodes = new Set([...previous.values()].flatMap(({ codes }) => [...codes]));
+  for (const code of previousCodes) candidates.add(code);
 
   let swept = 0;
   for (const term of terms) {
@@ -418,11 +451,9 @@ async function main() {
 
   const codes = [...candidates].sort();
   console.log(
-    `${codes.length} candidate subjects: ${barrett.size} from Barrett, ${previous.size} from the last index, ` +
+    `${codes.length} candidate subjects: ${barrett.size} from Barrett, ${previousCodes.size} from the last index, ` +
       `${swept} subject hits across ${terms.length} term sweeps`
   );
-
-  const counts = previousCounts(committed);
 
   const out = {};
   for (const term of terms) {
@@ -437,7 +468,10 @@ async function main() {
         `${stats.unconverged} unconverged, ${stats.seconds.toFixed(1)}s`
     );
 
-    const refusal = refusalMessage(writeRefusals(term.strm, stats.offered, stats.courses, counts[term.strm]));
+    const refusal = refusalMessage(
+      writeRefusals(term.strm, stats.offered, stats.courses, previous.get(term.strm), index.subjects),
+      force
+    );
     if (refusal) throw new Error(`Refusing to write ${OUT_PATH}.\n${refusal}`);
   }
 
@@ -463,7 +497,15 @@ async function main() {
 // Exported so a checker can reuse the walk without rerunning the whole index, so
 // the retry policy can be exercised without a network, and so a test can drive
 // the write gate against the committed index.
-export { fetchJson, previousCounts, previousIndex, reconcileSubject, searchableTerms, writeRefusals };
+export {
+  fetchJson,
+  lostSubjects,
+  previousIndex,
+  reconcileSubject,
+  searchableTerms,
+  subjectsByTerm,
+  writeRefusals,
+};
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((err) => {
