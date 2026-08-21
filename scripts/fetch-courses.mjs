@@ -17,6 +17,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { countRefusal, refusalMessage } from './guards.mjs';
+
 const API = 'https://content.osu.edu/v2/classes';
 const BARRETT = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
 const CAMPUS = 'col';
@@ -59,8 +61,8 @@ const STABLE_PASSES = 2;
 const SINGLE_PAGE_STABLE_PASSES = 1;
 
 // Autumn 2026 measured 243 subjects and 6072 courses, Summer 2026 the smallest
-// at 197 and 1984. The floors sit well under the smallest term: they exist to
-// catch a run that came back gutted, not to police term to term drift.
+// at 197 and 1984. The floors sit well under the smallest term because they only
+// have to cover a first run: after that a term is held to its own last count.
 const MIN_SUBJECTS = 100;
 const MIN_COURSES = 1200;
 
@@ -196,19 +198,45 @@ async function discoverSubjects(term) {
   return found;
 }
 
-// Subject list, part three: whatever the last run wrote. Missing or unreadable
-// means a first run, which is not an error.
-async function previousSubjects() {
-  const codes = new Set();
+// The index the last run wrote. Missing or unreadable means a first run, which
+// is not an error. Read once, since both readers below want a projection of it.
+async function previousIndex(path = OUT_PATH) {
   try {
-    const previous = JSON.parse(await readFile(OUT_PATH, 'utf8'));
-    for (const term of Object.values(previous.terms ?? {})) {
-      for (const subject of term.subjects ?? []) if (subject.code) codes.add(subject.code);
-    }
+    return JSON.parse(await readFile(path, 'utf8'));
   } catch {
-    return codes;
+    return null;
+  }
+}
+
+// Subject list, part three: every code the last run knew about.
+function previousSubjects(previous) {
+  const codes = new Set();
+  for (const term of Object.values(previous?.terms ?? {})) {
+    for (const subject of term.subjects ?? []) if (subject.code) codes.add(subject.code);
   }
   return codes;
+}
+
+// Per-term counts from the same index, for the collapse check below.
+function previousCounts(previous) {
+  const counts = {};
+  for (const [strm, term] of Object.entries(previous?.terms ?? {})) {
+    const subjects = term.subjects ?? [];
+    counts[strm] = {
+      subjects: subjects.length,
+      courses: subjects.reduce((n, s) => n + (s.courses?.length ?? 0), 0),
+    };
+  }
+  return counts;
+}
+
+// Every reason not to write a term. Apart from main so a test can hold it to the
+// counts that are really committed.
+function writeRefusals(strm, offered, courses, before) {
+  return [
+    countRefusal(`term ${strm} subjects`, offered, MIN_SUBJECTS, before?.subjects),
+    countRefusal(`term ${strm} courses`, courses, MIN_COURSES, before?.courses),
+  ];
 }
 
 // One complete walk of one subject. The subject filter takes the code
@@ -357,6 +385,19 @@ async function main() {
   const terms = requested.length ? all.filter((t) => requested.includes(t.strm)) : all;
   if (!terms.length) throw new Error(`none of ${requested.join(', ')} is searchable`);
 
+  const committed = await previousIndex();
+
+  // searchableTermsV2 is one uncached call to the same API that pages
+  // non-deterministically, and a short answer drops whole terms from a file that
+  // is rewritten every run. A named run is exempt: dropping the rest is what
+  // that mode is for.
+  if (!requested.length) {
+    const refusal = refusalMessage([
+      countRefusal('searchable terms', terms.length, 1, Object.keys(committed?.terms ?? {}).length),
+    ]);
+    if (refusal) throw new Error(`Refusing to write ${OUT_PATH}.\n${refusal}`);
+  }
+
   const candidates = new Set();
   const barrett = await barrettSubjects();
   for (const code of barrett) candidates.add(code);
@@ -365,7 +406,7 @@ async function main() {
   // is itself paged, so it is as lossy as anything else here, and without this
   // a subject could drop out of the file for one run and come back the next.
   // A candidate that really is not offered costs one request and is dropped.
-  const previous = await previousSubjects();
+  const previous = previousSubjects(committed);
   for (const code of previous) candidates.add(code);
 
   let swept = 0;
@@ -381,6 +422,8 @@ async function main() {
       `${swept} subject hits across ${terms.length} term sweeps`
   );
 
+  const counts = previousCounts(committed);
+
   const out = {};
   for (const term of terms) {
     const { index, stats } = await indexTerm(term, codes);
@@ -394,16 +437,8 @@ async function main() {
         `${stats.unconverged} unconverged, ${stats.seconds.toFixed(1)}s`
     );
 
-    if (stats.offered < MIN_SUBJECTS) {
-      throw new Error(
-        `term ${term.strm}: only ${stats.offered} subjects offered, expected at least ${MIN_SUBJECTS}, refusing to write`
-      );
-    }
-    if (stats.courses < MIN_COURSES) {
-      throw new Error(
-        `term ${term.strm}: only ${stats.courses} courses, expected at least ${MIN_COURSES}, refusing to write`
-      );
-    }
+    const refusal = refusalMessage(writeRefusals(term.strm, stats.offered, stats.courses, counts[term.strm]));
+    if (refusal) throw new Error(`Refusing to write ${OUT_PATH}.\n${refusal}`);
   }
 
   // Always keyed by term, even for a single term, so the page reads one shape
@@ -425,9 +460,10 @@ async function main() {
   console.log(`wrote ${OUT_PATH} (${bytes} bytes, ${(bytes / 1024).toFixed(1)} KiB)`);
 }
 
-// Exported so a checker can reuse the walk without rerunning the whole index,
-// and so the retry policy can be exercised without a network.
-export { fetchJson, reconcileSubject, searchableTerms };
+// Exported so a checker can reuse the walk without rerunning the whole index, so
+// the retry policy can be exercised without a network, and so a test can drive
+// the write gate against the committed index.
+export { fetchJson, previousCounts, previousIndex, reconcileSubject, searchableTerms, writeRefusals };
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((err) => {

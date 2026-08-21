@@ -101,6 +101,7 @@ describe("what holds a term back", () => {
   const SUBJECTS = Array.from({ length: 12 }, (_, i) => `SUBJ${String(i).padStart(2, "0")}`);
 
   const termStats = (extra) => ({
+    term: "1268",
     subjectsOffered: 241,
     subjectsFailed: 0,
     subjectsUnparsed: 0,
@@ -165,7 +166,7 @@ describe("what holds a term back", () => {
   });
 
   test("regression #93: a term that parsed nothing is reported, not thrown", () => {
-    assert.equal(termProblem(termStats({ subjectsOffered: 0, sectionsParsed: 0 })), "no sections parsed");
+    assert.equal(termProblem(termStats({ subjectsOffered: 0, sectionsParsed: 0 })), "term 1268: no sections parsed");
     assert.equal(termProblem(termStats({})), null, "a healthy term has no problem to report");
   });
 
@@ -175,6 +176,26 @@ describe("what holds a term back", () => {
       termProblem(termStats({ subjectsFailed: MAX_SUBJECT_FAILURES + 1 })),
       /subject requests failed/
     );
+  });
+
+  // Regression, #59 with #91. Every subject file of a term Barrett has not
+  // published yet carries the DRAFT banner. While that banner counted as a row
+  // the parser could not read it was one failure in every file, and #59 holds a
+  // term back on its residue, so the term refused the day it became searchable.
+  test("regression #59: a DRAFT term leaves nothing for the residue gate", async () => {
+    const restore = install({ subjects: SUBJECTS, published: ["1272"], draft: ["1272"] });
+    try {
+      const { stats, refusals } = await snapshotTerm("1272", SUBJECTS);
+      assert.equal(stats.residueFailures, 0, "the banner is not a row that failed to parse");
+      assert.deepEqual(refusals.filter(Boolean), [], "and no subject file is over the per-file rate");
+      assert.equal(termProblem(termStats({ term: "1272", residueRate: stats.residueRate })), null);
+
+      // One banner line per subject file is what the term gate used to be shown.
+      const noise = SUBJECTS.length / (stats.sectionsParsed + SUBJECTS.length);
+      assert.match(termProblem(termStats({ term: "1272", residueRate: noise })), /residue rate/);
+    } finally {
+      restore();
+    }
   });
 
   test("the subject floor and the layout check still stop a term", () => {

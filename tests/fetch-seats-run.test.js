@@ -10,8 +10,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "fetch-seats.mjs");
 const MOCK = pathToFileURL(join(ROOT, "tests", "barrett-mock.mjs")).href;
 
-// MIN_SUBJECTS is 50, so a term needs at least that many to clear its checks.
+// MIN_SUBJECTS is 50 and MIN_SECTIONS is 500, so a term needs at least that
+// many subjects, and enough sections between them, to clear its checks.
 const SUBJECTS = Array.from({ length: 50 }, (_, i) => `SUBJ${String(i).padStart(2, "0")}`);
+const SECTIONS_PER_SUBJECT = 12;
 
 function run(outDir, scenario) {
   return spawnSync(process.execPath, ["--import", MOCK, SCRIPT], {
@@ -40,12 +42,23 @@ test("regression #93: a skipped term keeps its file while the rest are written",
     });
     const before = read(dir, "seats-1272.json");
 
-    const r = run(dir, { subjects: SUBJECTS, searchable: ["1268", "1272"], published: ["1268"] });
+    const r = run(dir, {
+      subjects: SUBJECTS,
+      searchable: ["1268", "1272"],
+      published: ["1268"],
+      sections: SECTIONS_PER_SUBJECT,
+    });
 
     assert.equal(r.status, 1, `the run still goes red\n${r.stderr}`);
-    assert.match(r.stderr, /term 1272: no sections parsed, keeping the file it already has/);
+    // A term can be held back for several reasons at once, so the reasons and
+    // the note about its old file are separate lines.
+    assert.match(r.stderr, /term 1272: no sections parsed/);
+    assert.match(r.stderr, /term 1272: keeping the file it already has/);
     assert.equal(read(dir, "seats-1272.json"), before, "the skipped term's file is untouched");
-    assert.equal(Object.keys(JSON.parse(read(dir, "seats-1268.json")).sections).length, 200);
+    assert.equal(
+      Object.keys(JSON.parse(read(dir, "seats-1268.json")).sections).length,
+      SUBJECTS.length * SECTIONS_PER_SUBJECT
+    );
 
     const index = JSON.parse(read(dir, "seats.json"));
     assert.deepEqual(index.terms.map((t) => t.term), ["1268", "1272"]);

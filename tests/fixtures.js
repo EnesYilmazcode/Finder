@@ -131,6 +131,21 @@ export const BARRETT_COLUMNS =
 export const BARRETT_BANNER =
   "#####  DRAFT: pre-publication information; classes shown here are subject to change #####";
 
+// One Barrett subject file, three real AVIATN section lines from term 1268 as
+// published on 2026-08-20. The columns are load bearing, so this is verbatim.
+export const BARRETT_SUBJECT = [
+  "AVIATN         1268 (Autumn 2026)         updated: 20-Aug-2026",
+  "",
+  "                       class#    (autoenrolls)                                enrld/limit/+wait",
+  "",
+  "  AVIATN 1000.01         10132 B                                      ONLINE      36/99       {7W2} C.Roby, S.Pritchard",
+  "",
+  "  AVIATN 1000.02         10133 B                                      ONLINE      20/99       {7W2} C.Roby, S.Pritchard (SI)",
+  "",
+  "  AVIATN 1000.03         10134 B                                      ONLINE      11/99       {7W2} C.Roby, S.Pritchard (SI)",
+  "",
+].join("\n");
+
 const BARRETT_DAY_COLUMNS = { M: 49, T: 50, W: 51, R: 52, F: 53, S: 54, s: 55 };
 
 /** One section line. Anything left out stays blank, as it does in a real file. */

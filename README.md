@@ -164,7 +164,12 @@ The snapshot scripts are Node 22:
 node scripts/fetch-seats.mjs 1268
 ```
 
-`npm test` runs 138 tests through `node --test`, with nothing installed.
+All three refuse to write a snapshot that came back far short of the one already
+committed, and leave the old file in place. `FORCE_WRITE=1`, or the force input
+on the workflow, writes it anyway, which is how a real shrink gets shipped. A
+file that failed to parse is refused either way.
+
+`npm test` runs 218 tests through `node --test`, with nothing installed.
 
 ## Repo layout
 
@@ -187,7 +192,7 @@ js/
 scripts/              the three snapshot jobs
 data/                 the snapshots, committed
 docs/                 what OSU's API and Barrett's schedule get wrong
-tests/                138 tests, zero dependencies
+tests/                218 tests, zero dependencies
 wireframes/           three layouts considered first
 analytics/            the page-view counter, a Cloudflare Worker
 stats/                the page that reads the counter

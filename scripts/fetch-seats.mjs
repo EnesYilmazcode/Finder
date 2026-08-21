@@ -12,6 +12,8 @@
 // which is what the workflow does. Naming terms refreshes only those: the other
 // searchable terms keep the files and index entries they already have. A term
 // that fails its checks keeps what it has too, and the run exits non-zero.
+// FORCE_WRITE=1 writes a term that came back far short of the one already
+// committed, which is how a real upstream shrink gets shipped.
 //
 // Output is one file per term, data/seats-1268.json, plus data/seats.json
 // listing them. Seats load before anything renders, so a browser fetches the
@@ -22,6 +24,8 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { countRefusal, fatal, refusalMessage, subjectResidueRefusal } from './guards.mjs';
 
 const BASE = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
 // Only for the term list. Every seat number here comes from Barrett.
@@ -49,7 +53,21 @@ const USER_AGENT =
 // shipped. Named for its granularity because a per-file gate wants a different
 // number: one bad row in a 25-row subject file is 4%.
 const MAX_TERM_RESIDUE_RATE = 0.005;
+
+// The same rate over one subject file. Over a term alone a small file can fail
+// every row it has and still be a rounding error, and the sections it dropped
+// then render as an honestly absent seat count. subjectResidueRefusal is what
+// keeps that from being a hair trigger: measured on 2026-08-21, 633 of the 680
+// subject files offered across the three searchable terms hold under 200 rows,
+// so one odd line is already over the rate.
+const MAX_SUBJECT_RESIDUE_RATE = 0.005;
+
+// Measured on 2026-08-21: Summer 2026 is the smallest term at 198 subjects and
+// 4866 sections, Autumn 2026 the largest at 241 and 17692. Both floors sit far
+// under the smallest because they only cover a first snapshot of a term, which
+// has no committed count to be held to.
 const MIN_SUBJECTS = 50;
+const MIN_SECTIONS = 500;
 
 // A chosen ceiling, not a measured failure rate. Under it a subject's sections
 // read as unknown for a day. Over it too much of the term is missing to ship.
@@ -269,6 +287,21 @@ async function mapLimit(items, limit, worker) {
   return out;
 }
 
+// The layout check, one subject file at a time. Kept apart from the fetch so it
+// can be run against parsed files without the network.
+function subjectRefusals(term, results) {
+  return results
+    .filter((r) => r.offered)
+    .map((r) =>
+      subjectResidueRefusal(
+        `term ${term} ${r.subject}`,
+        r.sections.length,
+        r.failures.length,
+        MAX_SUBJECT_RESIDUE_RATE
+      )
+    );
+}
+
 async function snapshotTerm(term, subjects) {
   const started = Date.now();
   // mapLimit runs on Promise.all, so a worker that throws rejects the whole
@@ -355,28 +388,50 @@ async function snapshotTerm(term, subjects) {
     failures,
     fetchErrors,
     parseErrors,
+    refusals: subjectRefusals(term, results),
   };
 }
 
-// The checks a term clears before its file is rewritten. Returned rather than
-// thrown so a bad term does not take the good ones with it.
-function termProblem(stats) {
-  if (stats.sectionsParsed === 0) return 'no sections parsed';
-  if (stats.subjectsOffered < MIN_SUBJECTS) return `only ${stats.subjectsOffered} subjects returned data`;
-  if (stats.subjectsFailed > MAX_SUBJECT_FAILURES) {
-    return `${stats.subjectsFailed} subject requests failed, more than the ${MAX_SUBJECT_FAILURES} allowed`;
-  }
-  // A file that arrived and would not parse is a layout change, not a flake, so
-  // one is enough to hold the term back. This is the threshold the loud throws
-  // in parseSubjectFile rely on, so it does not get a tolerance.
-  if (stats.subjectsUnparsed > 0) return `${stats.subjectsUnparsed} subject files did not parse`;
-  if (stats.residueRate > MAX_TERM_RESIDUE_RATE) {
-    return (
-      `residue rate ${(stats.residueRate * 100).toFixed(2)}% exceeds ` +
-      `${(MAX_TERM_RESIDUE_RATE * 100).toFixed(2)}%, the fixed-width layout probably changed`
-    );
-  }
-  return null;
+// Every reason this term's file is not rewritten, as one message or null.
+// Returned rather than thrown so a bad term does not take the good ones with it,
+// and built out of the shared refusal rules so FORCE_WRITE=1 clears a genuine
+// shrink in this term and nothing else. `refusals` is the per-subject layout
+// check from snapshotTerm, `previous` how many sections the committed file for
+// this term holds.
+function termProblem(stats, { refusals = [], previous = 0, force } = {}) {
+  const label = `term ${stats.term}`;
+  // Nothing parsed is the whole story, and it is what an unpublished term looks
+  // like, so it is said once instead of tripping every count below it.
+  if (stats.sectionsParsed === 0) return refusalMessage([fatal(`${label}: no sections parsed`)], force);
+
+  return refusalMessage(
+    [
+      ...refusals,
+      stats.subjectsOffered < MIN_SUBJECTS
+        ? fatal(`${label}: only ${stats.subjectsOffered} subjects returned data`)
+        : null,
+      stats.subjectsFailed > MAX_SUBJECT_FAILURES
+        ? fatal(
+            `${label}: ${stats.subjectsFailed} subject requests failed, ` +
+              `more than the ${MAX_SUBJECT_FAILURES} allowed`
+          )
+        : null,
+      // A file that arrived and would not parse is a layout change, not a flake,
+      // so one is enough to hold the term back. This is the threshold the loud
+      // throws in parseSubjectFile rely on, so it does not get a tolerance.
+      stats.subjectsUnparsed > 0 ? fatal(`${label}: ${stats.subjectsUnparsed} subject files did not parse`) : null,
+      stats.residueRate > MAX_TERM_RESIDUE_RATE
+        ? fatal(
+            `${label}: residue rate ${(stats.residueRate * 100).toFixed(2)}% exceeds ` +
+              `${(MAX_TERM_RESIDUE_RATE * 100).toFixed(2)}%, the fixed-width layout probably changed`
+          )
+        : null,
+      // A committed term file records sections and not subjects, so only the
+      // sections have a previous count to be held to.
+      countRefusal(`${label} sections`, stats.sectionsParsed, MIN_SECTIONS, previous),
+    ],
+    force
+  );
 }
 
 async function writeAtomic(path, contents) {
@@ -392,6 +447,17 @@ async function writeJson(path, value) {
   const json = `${JSON.stringify(value, null, 0)}\n`;
   await writeAtomic(path, json);
   return Buffer.byteLength(json);
+}
+
+// How many sections the last snapshot of this term committed. Missing means a
+// first snapshot of that term, not an error.
+async function previousSections(term) {
+  try {
+    const snapshot = JSON.parse(await readFile(join(OUT_DIR, `${TERM_PREFIX}${term}.json`), 'utf8'));
+    return Object.keys(snapshot.sections ?? {}).length;
+  } catch {
+    return 0;
+  }
 }
 
 async function readIndex() {
@@ -417,6 +483,17 @@ async function main() {
   const terms = requested.length ? searchable.filter((t) => requested.includes(t)) : searchable;
   if (!terms.length) throw new Error(`none of ${requested.join(', ')} is searchable`);
 
+  const committed = await readIndex();
+
+  // searchableTermsV2 is one uncached call to an API that pages
+  // non-deterministically, and a term missing from that answer has its file
+  // deleted at the end of this run. A named run is held to the same check,
+  // because it decides what to keep from the same list.
+  const termRefusal = refusalMessage([
+    countRefusal('searchable terms', searchable.length, 1, committed?.terms?.length),
+  ]);
+  if (termRefusal) throw new Error(`Refusing to write ${OUT_DIR}.\n${termRefusal}`);
+
   // One subject index covers every term. It lists every code Barrett knows, and
   // a subject not offered in a term 404s, which is normal and not an error.
   const subjects = await fetchSubjects();
@@ -426,7 +503,7 @@ async function main() {
   const skipped = [];
 
   for (const term of terms) {
-    const { snapshot, stats, failures, fetchErrors, parseErrors } = await snapshotTerm(term, subjects);
+    const { snapshot, stats, failures, fetchErrors, parseErrors, refusals } = await snapshotTerm(term, subjects);
 
     console.log(
       `term ${term}: ${stats.subjectsOffered} subjects offered, ` +
@@ -438,11 +515,13 @@ async function main() {
     for (const f of failures.slice(0, 20)) console.log(`  residue ${f}`);
     for (const e of [...fetchErrors, ...parseErrors].slice(0, 20)) console.error(`  ${e}`);
 
-    const problem = termProblem(stats);
+    const problem = termProblem(stats, { refusals, previous: await previousSections(term) });
     if (problem) {
       skipped.push(term);
       const had = await exists(join(OUT_DIR, `${TERM_PREFIX}${term}.json`));
-      console.error(`term ${term}: ${problem}, ${had ? 'keeping the file it already has' : 'no file to keep'}`);
+      // The refusals are one per line, so the note about the old file gets its
+      // own rather than trailing whatever the last reason happened to be.
+      console.error(`${problem}\nterm ${term}: ${had ? 'keeping the file it already has' : 'no file to keep'}`);
       continue;
     }
     // Actions shows this on the run summary, so a term that shipped with
@@ -477,8 +556,7 @@ async function main() {
   // A run for named terms leaves the rest alone, so their index entries carry
   // over. A term that is no longer searchable does not, which is what drops it
   // from the index and then from disk.
-  const previous = await readIndex();
-  for (const entry of previous?.terms ?? []) {
+  for (const entry of committed?.terms ?? []) {
     const term = String(entry?.term ?? '');
     if (!searchable.includes(term)) continue;
     if (entries.some((e) => e.term === term)) continue;
@@ -511,9 +589,17 @@ async function main() {
 }
 
 // Exported so a checker can reuse the parser without refetching, so the retry
-// policy can be exercised without a network, and so the tests can run a term
-// without the writing half.
-export { MAX_SUBJECT_FAILURES, fetchText, parseSubjectFile, snapshotTerm, termProblem };
+// policy can be exercised without a network, and so the tests can run a term,
+// and its write gate, without the writing half.
+export {
+  MAX_SUBJECT_FAILURES,
+  fetchText,
+  parseSubjectFile,
+  previousSections,
+  snapshotTerm,
+  subjectRefusals,
+  termProblem,
+};
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((err) => {
