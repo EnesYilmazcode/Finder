@@ -6,7 +6,7 @@
 // enrollment figure per course and repeats it onto every section, so rendering
 // it per section would tell students a full section is open. See #13.
 
-import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
+import { formatWhen, formatPlace, formatUnits, instructorsOf, sectionFlags } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { seatsFor } from "./seats.js";
 
@@ -130,6 +130,20 @@ export function renderSection(section, term) {
       ? `Full. ${seats.enrolled} enrolled of ${seats.limit}${seats.waitlist ? `, ${seats.waitlist} waiting` : ""}.`
       : `${seats.enrolled} enrolled of ${seats.limit}.`;
     li.append(node);
+  }
+
+  // Two chips, because a row is scanned rather than read. The pane spells out
+  // the rest.
+  const flags = sectionFlags(section);
+  if (flags.length) {
+    const strip = el("span", "flags");
+    for (const flag of flags.slice(0, 2)) {
+      const chip = el("span", "flag", flag.label);
+      chip.dataset.flag = flag.key;
+      chip.title = flag.detail;
+      strip.append(chip);
+    }
+    li.append(strip);
   }
 
   return li;

@@ -1,7 +1,7 @@
 // Client-side filtering over results already fetched. No filter triggers a
 // network request, so dragging a time slider does not hammer OSU.
 
-import { instructorsOf } from "./format.js";
+import { instructorsOf, sectionFlags } from "./format.js";
 import { ratingFor } from "./ratings.js";
 import { seatsFor } from "./seats.js";
 
@@ -16,6 +16,8 @@ export const DEFAULTS = {
   hideFull: false,
   hideOnline: false,
   ratedOnly: false,
+  hideConsent: false,
+  undergradOnly: false,
 };
 
 /** "8:00 am" to minutes past midnight. Returns null when unparseable. */
@@ -44,6 +46,14 @@ function sectionDays(section) {
  */
 function keepSection(section, filters) {
   if (filters.hideOnline && /online/i.test(section.instructionMode ?? "")) return false;
+
+  // Read through the flags rather than the fields, so a checkbox hides exactly
+  // the sections that were carrying the matching chip.
+  if (filters.hideConsent || filters.undergradOnly) {
+    const keys = sectionFlags(section).map((f) => f.key);
+    if (filters.hideConsent && keys.includes("consent")) return false;
+    if (filters.undergradOnly && keys.includes("career")) return false;
+  }
 
   if (filters.hideFull) {
     const seats = seatsFor(section.classNumber, filters.term);
@@ -88,7 +98,8 @@ function keepSection(section, filters) {
 export function isActive(filters) {
   return Boolean(
     filters.days.length || filters.avoid.length || filters.from || filters.to || filters.rating ||
-    filters.hideFull || filters.hideOnline || filters.ratedOnly
+    filters.hideFull || filters.hideOnline || filters.ratedOnly ||
+    filters.hideConsent || filters.undergradOnly
   );
 }
 

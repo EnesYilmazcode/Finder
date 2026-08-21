@@ -188,3 +188,31 @@ test("applyFilters does not mutate the entries it was given", () => {
   applyFilters(entries, filters({ days: ["monday"] }));
   assert.equal(entries[0].sections.length, 4);
 });
+
+test("hideConsent drops the sections that need permission", () => {
+  const gated = entry("PSYCH", "7893", "Seminar", [
+    section(6001, { consent: "I" }),
+    section(6002, { consent: "D" }),
+    section(6003),
+  ]);
+  const { entries, hiddenSections } = applyFilters([gated], filters({ hideConsent: true }));
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [6003]);
+  assert.equal(hiddenSections, 2);
+});
+
+test("undergradOnly drops every career that is not the undergraduate one", () => {
+  const mixed = entry("CSE", "5911", "Capstone", [
+    section(6101, { career: "GRAD" }),
+    section(6102, { career: "UGRD" }),
+    section(6103, { career: "LAW" }),
+  ]);
+  const { entries, hiddenSections } = applyFilters([mixed], filters({ undergradOnly: true }));
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [6102]);
+  assert.equal(hiddenSections, 2);
+});
+
+test("the two new checkboxes count as active filters", () => {
+  assert.equal(isActive(filters({ hideConsent: true })), true);
+  assert.equal(isActive(filters({ undergradOnly: true })), true);
+  assert.equal(isActive(filters()), false);
+});
