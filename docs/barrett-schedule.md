@@ -98,6 +98,77 @@ So that whole region is matched against
 `^\s*(?:(\S+)\s+)?(\d+)/(\d+)(?:\s*\+(\d+))?\s*$` instead, which pins the room,
 the counts, and the waitlist without assuming fixed widths.
 
+## The autoenroll column
+
+Columns 33..48 hold the sections a registration drags in with it, `( 4818)` for
+one and `(30558,30559)` for two. This is the pairing Finder uses, because the
+API has its own version and it is wrong: all 22 CSE 2221 sections report
+`autoEnrollSection1: "0006"` and `associatedClass: "5"`, which would mean eleven
+lectures sharing one lab. Verified live on 2026-08-20.
+
+### The arrow is directed
+
+It is written on the section you sign up for and points at what comes with it,
+so `17827 R  (17826)` means picking that recitation also puts you in lecture
+17826, not the other way round. Measured across term 1268 on 2026-08-20, 17692
+sections:
+
+```
+2568 sections carry a value          14.5%
+ 183 of those name two parents
+1009 distinct parents
+   0 self-referencing, cross-course or two-hop
+```
+
+Two-hop is the useful one: no parent carried an autoenroll of its own, so a
+package is always one level deep and needs no recursion to resolve.
+
+Whether a named parent exists at all varies by term. Every one of Autumn 2026's
+1009 has a row of its own, but 18 of the 152 named in Summer 2026 do not: PHR
+7000.11 section 10618 points at 10616, which Barrett publishes nowhere that term.
+Those groups are dropped when the snapshot is written, because a class number
+with no row of its own is one the site cannot look up.
+
+Direction is worth stating because reading the column as an undirected pair
+merges a lecture with every lab beneath it. CHEM 2540 has 36, and treating that
+component as one registration would claim a student who takes one lab is
+enrolled in all of them.
+
+The enrollment numbers confirm the direction. For 984 of the 1009 parents, the
+parent's enrolled count is exactly the sum of its children's, and no parent had
+fewer than its children accounted for. The 25 that had more are the coverage gap
+below: Barrett does not list every section, so some students reached the parent
+through a child it does not publish.
+
+By component letter, the ends are what you would expect. The commonest shapes:
+
+```
+B -> L  1146     lab enrolls you into the lecture
+R -> L  1111     recitation into the lecture
+R -> B   159
+B -> R   102
+L -> B    84     the lecture drags a lab, the reverse arrangement
+C -> L    83
+```
+
+### How the snapshot stores it
+
+`groups` on a term file is one array per parent, parent first:
+
+```json
+"groups": [["17826","17827","17828"], ["30778","30779"]]
+```
+
+Everything after the first entry auto-enrolls into the first. Nothing links the
+children to each other, because they are alternatives and not partners: two
+recitations under one lecture are two ways in, so one of them filling up does
+not close the other. On term 1268 this is 1009 groups, and it takes the term file
+from 69.6 KB gzipped to 79.4 KB, about 14%.
+
+A section that appears in no group means Barrett names no partner for it. That
+is unknown, the same as a missing seat row, and never a promise that the section
+stands alone.
+
 ## Rows that are not sections
 
 Between section lines sit continuation rows carrying an extra meeting time for
@@ -128,3 +199,11 @@ Measured on 2026-08-18: 17680 section lines, 0 residue failures.
   in the API and D.Heym here. The API is the live system of record for names.
   Barrett is used for seats only.
 - Enrolled can exceed the limit. Class 4831 is 41/40 with one on the waitlist.
+- A section with free seats is not necessarily registrable. 75 sections in the
+  2026-08-20 snapshot were under their limit while the section they auto-enroll
+  into was full. AEDECON 2005 lab 30779 reads 17/20; its lecture 30778 is 40/40.
+- The same holds in reverse, but only once every way in is accounted for. 14
+  lectures were under their limit while every section leading into them was full
+  and those enrollments added up to the lecture's own, so nobody was reaching it
+  by a route Barrett does not list. MATH 1125 lecture 18027 is 44/46 over two
+  22/22 recitations.

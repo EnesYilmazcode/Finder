@@ -462,7 +462,8 @@ body {
 
 /* Seat counts. Full is the state worth spotting while scanning ten sections. */
 
-.seats {
+.seats,
+.linked {
   grid-column: 3;
   font-family: var(--data);
   font-size: 0.78rem;
@@ -474,8 +475,15 @@ body {
 .seats[data-state="full"] { color: var(--scarlet); font-weight: 500; }
 .waitlist { margin-left: 0.25rem; }
 
+/* The section this row auto-enrolls you into. Quieter than the row's own
+   seats, since it is the other half of the registration and not this one. */
+
+.linked { font-size: 0.7rem; }
+.linked[data-state="full"] { color: var(--scarlet); }
+
 @media (max-width: 34rem) {
-  .seats { grid-column: 1 / -1; text-align: left; }
+  .seats,
+  .linked { grid-column: 1 / -1; text-align: left; }
 }
 
 /* Selection --------------------------------------------------------------- */

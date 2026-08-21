@@ -94,6 +94,50 @@ test("a term the index does not list is settled, not pending", () => {
   assert.equal(seats.seatsFor("1001", "9999"), null);
 });
 
+// #67. Barrett's autoenroll column is what Finder pairs on, because OSU's own
+// API gives all 22 CSE 2221 sections the same autoEnrollSection1, which would
+// mean eleven lectures sharing one lab.
+test("linkedTo reads a package in both directions", () => {
+  // 1010 is a lab under lecture 1002.
+  assert.deepEqual(seats.linkedTo("1010", "1268"), { enrolls: ["1002"], enrolledBy: [] });
+  assert.deepEqual(seats.linkedTo("1002", "1268"), { enrolls: [], enrolledBy: ["1010", "1013", "1014"] });
+});
+
+test("linkedTo keeps a lecture's recitations apart from each other", () => {
+  // The two recitations are alternatives, not partners. Flattening the package
+  // into one undirected group would make each of them the other's partner.
+  assert.deepEqual(seats.linkedTo("1001", "1268").enrolledBy, ["1011", "1012", "1013"]);
+  assert.deepEqual(seats.linkedTo("1011", "1268"), { enrolls: ["1001"], enrolledBy: [] });
+});
+
+test("linkedTo carries both parents when Barrett names two", () => {
+  assert.deepEqual(seats.linkedTo("1013", "1268").enrolls, ["1001", "1002"]);
+});
+
+test("linkedTo accepts numbers, and answers per term", () => {
+  assert.deepEqual(seats.linkedTo(1010, 1268).enrolls, ["1002"]);
+  assert.equal(seats.linkedTo("1010", "1262"), null, "Spring has no groups of its own");
+});
+
+test("an absent link is unknown, not a section that stands alone", () => {
+  assert.equal(seats.linkedTo("1003", "1268"), null, "Barrett names no partner");
+  assert.equal(seats.linkedTo("9999", "1268"), null);
+  assert.equal(seats.linkedTo(undefined, "1268"), null);
+  assert.equal(seats.linkedTo("1010", null), null);
+});
+
+test("what linkedTo hands back is not the cached index", () => {
+  seats.linkedTo("1002", "1268").enrolledBy.push("9999");
+  assert.deepEqual(seats.linkedTo("1002", "1268").enrolledBy, ["1010", "1013", "1014"]);
+});
+
+test("linkedTo reads null from a snapshot written before groups existed", async () => {
+  // Every committed snapshot is like this until the nightly job runs again.
+  const older = await withSeats(["1262"], "?no-groups");
+  assert.equal(older.seatsFor("2001", "1262").full, true, "the same file still has seats");
+  assert.equal(older.linkedTo("2001", "1262"), null);
+});
+
 test("nothing is known before a snapshot is loaded", async () => {
   const fresh = await import("../js/seats.js?unloaded");
   assert.equal(fresh.seatsTerm("1268"), null);

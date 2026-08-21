@@ -3,7 +3,7 @@
 
 import { instructorsOf } from "./format.js";
 import { ratingFor } from "./ratings.js";
-import { seatsFor } from "./seats.js";
+import { linkedTo, seatsFor } from "./seats.js";
 
 const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -36,6 +36,28 @@ function sectionDays(section) {
 }
 
 /**
+ * Is every way into this section full?
+ *
+ * Yes only when Barrett publishes a capacity for all of them, every one is full,
+ * and their enrolled counts add up to this section's own, which means every
+ * student in it arrived through one of the sections listed. Barrett lists fewer
+ * sections than the API does, so a lecture holding more students than its listed
+ * labs account for has a way in Barrett never named, and hiding it would be a
+ * guess. MATH 1151 lecture 17826 fails this twice over: one of its six
+ * recitations is 12/33, and two publish no capacity at all.
+ */
+function everyWayInFull(seats, ways, term) {
+  if (!seats || !ways?.length) return false;
+  let enrolled = 0;
+  for (const way of ways) {
+    const waySeats = seatsFor(way, term);
+    if (!waySeats?.full) return false;
+    enrolled += waySeats.enrolled;
+  }
+  return enrolled === seats.enrolled;
+}
+
+/**
  * Does one section survive the filters?
  *
  * Unknown data never fails a filter. A section with no meeting pattern cannot
@@ -48,6 +70,14 @@ function keepSection(section, filters) {
   if (filters.hideFull) {
     const seats = seatsFor(section.classNumber, filters.term);
     if (seats?.full) return false;
+    // Signing up for this section signs you up for whatever it auto-enrolls
+    // into, so a full partner makes this section's own free seats unreachable.
+    // True whatever this section's own capacity is, including unpublished.
+    const linked = linkedTo(section.classNumber, filters.term);
+    if ((linked?.enrolls ?? []).some((n) => seatsFor(n, filters.term)?.full)) return false;
+    // And the other way round, but only under everyWayInFull's guard, because a
+    // lecture is not full just because one of its labs is.
+    if (everyWayInFull(seats, linked?.enrolledBy, filters.term)) return false;
   }
 
   const people = instructorsOf(section);

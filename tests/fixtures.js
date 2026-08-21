@@ -51,7 +51,7 @@ export const SEATS_INDEX = {
   note: "A missing class number means unknown, not zero.",
   terms: [
     { term: "1262", termName: "Spring 2026", sourceUpdated: "2026-04-27", sections: 2, file: "seats-1262.json" },
-    { term: "1268", termName: "Autumn 2026", sourceUpdated: "2026-08-18", sections: 7, file: "seats-1268.json" },
+    { term: "1268", termName: "Autumn 2026", sourceUpdated: "2026-08-18", sections: 20, file: "seats-1268.json" },
   ],
 };
 
@@ -66,7 +66,30 @@ export const SEATS_TERMS = {
       "1005": [12],           // malformed, too short
       "1006": ["12", 40, 0],  // malformed, enrolled is not a number
       "1007": [5, 30],        // no waitlist column
+      "1010": [5, 24, 0],     // a lab with seats left, feeding the full 1002
+      "1011": [22, 22, 0],    // one recitation into 1001, full
+      "1012": [8, 22, 0],     // the other, open
+      "1013": [3, 20, 0],     // a lab that drags in both 1001 and 1002
+      "1014": [0, 0, 2],      // no published capacity of its own, under the full 1002
+      "1020": [44, 46, 0],    // a lecture whose two recitations hold all 44 of its students
+      "1021": [22, 22, 0],
+      "1022": [22, 22, 0],
+      "1030": [107, 126, 0],  // holds more than its one listed lab explains
+      "1031": [21, 21, 0],
+      "1040": [50, 60, 0],    // one way in full, the other with no published capacity
+      "1041": [50, 50, 0],
+      "1042": [0, 0, 0],
     },
+    // Registration packages, parent first: picking any section after the
+    // parent also enrolls you into it. 1013 sits in both groups, which is
+    // Barrett's two-parent row.
+    groups: [
+      ["1001", "1011", "1012", "1013"],
+      ["1002", "1010", "1013", "1014"],
+      ["1020", "1021", "1022"],
+      ["1030", "1031"],
+      ["1040", "1041", "1042"],
+    ],
   },
   // A second term proves the guard: 1001 exists in both with different numbers,
   // so serving one term's row for another would be visible rather than subtle.
