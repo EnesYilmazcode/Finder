@@ -296,12 +296,18 @@ body {
 @media (max-width: 64rem) {
   .app {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    /* Each pane names its row: under auto placement the row a pane lands in
+       shifts with whichever pane is hidden. */
+    grid-template-rows: auto auto minmax(0, 1fr);
+    /* The pane behind the open sheet keeps its padding in a zero height row.
+       That scrolled the page 32px and a scrollbar reflowed it 15px narrower. */
+    overflow: hidden;
   }
 
   .rail {
     display: none;
     grid-column: 1;
+    grid-row: 2;
     border-right: 0;
     border-bottom: 1px solid var(--rule);
   }
@@ -326,11 +332,12 @@ body {
     color: var(--paper);
   }
 
-  .centre { grid-column: 1; }
+  .centre { grid-column: 1; grid-row: 3; }
 
   .detail {
     display: none;
     grid-column: 1;
+    grid-row: 3;
     border-left: 0;
   }
 
