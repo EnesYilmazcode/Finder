@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULTS, toMinutes, isActive, applyFilters } from "../js/filters.js";
+import { DEFAULTS, toMinutes, isActive, applyFilters, hiddenFor } from "../js/filters.js";
+import { buildSlots } from "../js/calendar.js";
 import { entry, section, taught } from "./fixtures.js";
 import { withRatings, withSeats } from "./helpers.js";
 
@@ -24,6 +25,19 @@ const online = section(5003, {
 const arranged = section(5004, { meetings: [] });
 
 const course = () => entry("CSE", "2221", "Software I", [morning, evening, online, arranged]);
+
+// The pile the calendar plots and the pile it does not. hideOnline costs the
+// plotted pile one section of Software I and the whole of Software II, and the
+// other pile its only section.
+const plotted = () => [
+  course(),
+  entry("CSE", "2231", "Software II", [
+    section(5005, { instructionMode: "Distance Learning - Online", meetings: [] }),
+  ]),
+];
+const setAside = () => [entry("CSE", "5911", "Capstone", [
+  section(5006, { instructionMode: "Distance Learning - Online", meetings: [] }),
+])];
 
 test("toMinutes reads a twelve hour clock", () => {
   assert.equal(toMinutes("8:00 am"), 480);
@@ -187,4 +201,36 @@ test("applyFilters does not mutate the entries it was given", () => {
   const entries = [course()];
   applyFilters(entries, filters({ days: ["monday"] }));
   assert.equal(entries[0].sections.length, 4);
+});
+
+test("regression #77: the calendar note counts only the pile the grid plots", () => {
+  const f = filters({ hideOnline: true });
+  assert.deepEqual(
+    hiddenFor("calendar", applyFilters(plotted(), f), applyFilters(setAside(), f)),
+    { hiddenSections: 2, hiddenCourses: 1 }
+  );
+});
+
+test("regression #77: the calendar note matches what the grid gains", () => {
+  const f = filters({ hideOnline: true });
+  const all = plotted();
+  const p = applyFilters(all, f);
+  // renderCalendar draws buildSlots and nothing else, so what buildSlots
+  // accounts for is the most the note can honestly promise back.
+  const drawn = (entries) => {
+    const { slots, unscheduled } = buildSlots(entries, TERM);
+    return slots.reduce((n, s) => n + s.items.length, 0) + unscheduled.length;
+  };
+  assert.equal(
+    hiddenFor("calendar", p, applyFilters(setAside(), f)).hiddenSections,
+    drawn(all) - drawn(p.entries)
+  );
+});
+
+test("the list note counts both piles, since the list shows both", () => {
+  const f = filters({ hideOnline: true });
+  assert.deepEqual(
+    hiddenFor("list", applyFilters(plotted(), f), applyFilters(setAside(), f)),
+    { hiddenSections: 3, hiddenCourses: 2 }
+  );
 });

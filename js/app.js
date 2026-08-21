@@ -4,7 +4,7 @@ import { renderResults } from "./render.js";
 import { loadRatings, topRated, ratedCount, profileUrl } from "./ratings.js";
 import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount } from "./seats.js";
 import { renderDetail } from "./detail.js";
-import { applyFilters, isActive, DEFAULTS } from "./filters.js";
+import { applyFilters, hiddenFor, isActive, DEFAULTS } from "./filters.js";
 import { renderCalendar } from "./calendar.js";
 import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
 
@@ -390,10 +390,7 @@ function paint(term = els.term.value) {
 
   const primary = p.entries;
   const related = r.entries;
-  // Count what the filters removed from everything on the page, not just from
-  // the primary results, or the note understates its own effect.
-  const hiddenSections = p.hiddenSections + r.hiddenSections;
-  const hiddenCourses = p.hiddenCourses + r.hiddenCourses;
+  const { hiddenSections, hiddenCourses } = hiddenFor(view, p, r);
 
     currentEntries = [...primary, ...related];
     sectionIndex = new Map();
