@@ -566,6 +566,9 @@ function rerunSearch() {
 }
 
 async function runSearch(q, term, subject, gen = genCategory()) {
+  // A new search replaces the results, and collapsed the detail pane is covering
+  // them. The empty-query and error paths below never reach paint().
+  els.app.dataset.view = "results";
   if (!term) {
     // Reachable since #80 moved the listeners above the term request. Hold the
     // call for init to run rather than search without a term.
@@ -755,6 +758,7 @@ function paint(term = els.term.value) {
     renderResults(els.results, { primary, related, openRelated }, term, sort);
   }
   resetDetail();
+  els.app.dataset.view = "results";
 
   const missed = wanted ? openLinked(wanted, term) : "";
 
