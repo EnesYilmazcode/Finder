@@ -53,6 +53,12 @@ let currentEntries = [];
 // The unfiltered result of the last search, so changing a filter re-renders
 // rather than refetching.
 let lastResult = null;
+// The last search the subject dropdown produced, so switching term re-runs it
+// scoped rather than dropping back to the keyword search. Not read back off
+// the picker, because reflectQuery fills that same box from a typed query and
+// a typed subject is still a guess. The query rides along so an edited box
+// stops matching it.
+let pickedSearch = null;
 let view = "list";
 let courseCodesTried = false;
 
@@ -239,15 +245,16 @@ function reflectQuery(q) {
   els.number.disabled = false;
 }
 
-/** A picked subject and number becomes an ordinary search. */
+/** A picked subject searches that subject, not the word. */
 function searchFromPickers() {
   const code = codeFromInput(els.subject.value);
   if (!code) return;
   const number = els.number.value.trim();
   const q = number ? `${code} ${number}` : code;
   els.query.value = q;
+  pickedSearch = { q, subject: code };
   syncUrl(q, els.term.value);
-  runSearch(q, els.term.value);
+  runSearch(q, els.term.value, code);
 }
 
 function setView(next) {
@@ -408,7 +415,7 @@ async function runSearch(q, term, subject, genCategory) {
     // never redraw. Awaited alongside the search rather than before it, so the
     // cost is the slower of the two and only on the first search.
     const [{ courses, totalItems }] = await Promise.all([
-      searchAllPages({ q, term }),
+      searchAllPages({ q, term, subject }),
       loadRatings().catch(() => null),
       loadSeats(term).catch(() => null),
       loadTrend(term),
@@ -663,7 +670,8 @@ async function init() {
       .catch(() => {})
       .then(() => paint());
     syncUrl(els.query.value, els.term.value);
-    if (els.query.value.trim()) runSearch(els.query.value, els.term.value);
+    const q = els.query.value;
+    if (q.trim()) runSearch(q, els.term.value, pickedSearch?.q === q ? pickedSearch.subject : null);
   });
 
   els.welcome.addEventListener("click", (event) => {

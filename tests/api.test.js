@@ -223,6 +223,34 @@ test("one failing page does not sink the whole search", async () => {
   assert.equal(result.pagesFetched, 2);
 });
 
+// #76: the code came from a dropdown of real subjects, so there is nothing to
+// guess. Bare "MATH" as free text comes back with LATIN and ASTRON courses and
+// professors named McMath.
+test("a picked subject is sent as the subject parameter, not as query text", async () => {
+  const calls = capture({ data: { totalItems: 89, totalPages: 1, courses: [] } });
+  const result = await searchAllPages({ q: "MATH", term: "1268", subject: "MATH" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].searchParams.get("subject"), "math", "upstream returns nothing for an uppercase subject");
+  assert.equal(calls[0].searchParams.get("q"), "", "the code must not also be matched as free text");
+  assert.equal(result.subject, "math");
+});
+
+test("a picked subject keeps the number as the query and never retries as text", async () => {
+  const calls = capture({ data: { totalItems: 0, totalPages: 0, courses: [] } });
+  await searchAllPages({ q: "MATH 2153", term: "1268", subject: "MATH" });
+  assert.equal(calls[0].searchParams.get("subject"), "math");
+  assert.equal(calls[0].searchParams.get("q"), "2153");
+  assert.equal(calls.length, 1, "a picked code that finds nothing really found nothing, so no retry");
+});
+
+test("a guessed subject that finds nothing still falls back to free text", async () => {
+  const calls = capture({ data: { totalItems: 0, totalPages: 0, courses: [] } });
+  await searchAllPages({ q: "Mathur 2153", term: "1268" });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].searchParams.get("q"), "Mathur 2153");
+  assert.ok(!calls[1].searchParams.has("subject"));
+});
+
 // The signature carries three parameters added by three branches, and
 // destructuring drops an unknown one without a word, so each is pinned at the
 // wire rather than at the call.
