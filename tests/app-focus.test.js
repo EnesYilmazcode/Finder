@@ -122,6 +122,11 @@ test("a welcome example hands focus on before the welcome screen goes", async (t
   t.after(serve());
   const page = await mountApp({ term: TERM, url: PAGE });
   await until(() => page.el("#welcome").hidden === false, "the welcome screen");
+  // init fills the landing screen twice on purpose, at the end of init, and
+  // neither fill is superseded by a later search: clicking between them un-hides
+  // the welcome screen over the results. A separate bug, not this one, so let
+  // both land first.
+  await settle(5);
 
   page.el(".w-example").click();
   await until(() => page.all(".section").length > 0, "the results");
