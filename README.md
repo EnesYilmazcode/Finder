@@ -55,7 +55,8 @@ equivalent piece to fail. It is a folder of files on GitHub Pages.
 On a phone the filters move behind a Filters button and the right pane
 takes over the screen, so you get the same three panes one at a time.
 
-- **Filters.** Days, time window, busy times, minimum rating, hide full, hide online.
+- **Filters.** Days, time window, busy times, minimum rating, rated only, hide full,
+  hide online, hide permission-only, undergraduate only. A sort control sits above them.
 - **Middle.** The same sections as a list by instructor, or on a week grid.
 - **Right pane.** Rating, difficulty, take-again, seats, room, description.
 
@@ -210,7 +211,8 @@ committed, and leave the old file in place. `FORCE_WRITE=1`, or the force input
 on the workflow, writes it anyway, which is how a real shrink gets shipped. A
 file that failed to parse is refused either way.
 
-`npm test` runs 238 tests through `node --test`, with nothing installed.
+`npm test` runs 556 tests through `node --test`, with nothing installed.
+23 of them call Ohio State and are skipped unless `FINDER_LIVE=1`.
 
 ## Repo layout
 
@@ -227,16 +229,20 @@ js/
   calendar.js         week grid
   detail.js           right pane
   filters.js          client-side filtering
+  sort.js             ordering by rating, difficulty, seats or start time
   deeplink.js         the section a link points at
   ratings.js          RMP snapshot and name matching
   seats.js            Barrett snapshot and the term guard
+  trend.js            what moved between two seat snapshots
   courses.js          lazily loaded course index
   format.js           days, times, units, names
   hit.js              one page-view ping, skipped on localhost
+  analytics.js        the one place the worker URL lives
+  stats.js            the /stats dashboard
 scripts/              the three snapshot jobs
 data/                 the snapshots, committed
 docs/                 what OSU's API and Barrett's schedule get wrong
-tests/                238 tests, zero dependencies
+tests/                556 tests, zero dependencies
 wireframes/           three layouts considered first
 analytics/            the page-view counter, a Cloudflare Worker
 stats/                the page that reads the counter
