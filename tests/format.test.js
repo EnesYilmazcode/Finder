@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, formatCoverage, instructorsOf } from "../js/format.js";
-import { entry, meeting, person, section } from "./fixtures.js";
+import { buildingOf, formatDays, formatTime, formatWhen, formatPlace, formatUnits, formatCoverage, instructorsOf, isOnlineMeeting, trendLabel } from "../js/format.js";
+import { entry, meeting, onlineMeeting, person, section } from "./fixtures.js";
 
 const DASH = "\u2013";
 
@@ -50,9 +50,30 @@ test("formatWhen keeps whichever half it has", () => {
   assert.equal(formatWhen(meeting([], "9:00 AM")), "9:00a");
 });
 
-test("formatPlace prefers the instruction mode when online", () => {
+test("buildingOf prefers the short name OSU puts on the row", () => {
+  assert.equal(buildingOf(meeting([], null, null, [], { buildingDescriptionShort: "DL 266", facilityDescription: "Dreese Laboratories 266" })), "DL 266");
+  assert.equal(buildingOf(meeting([], null, null, [], { facilityDescription: "Dreese Laboratories 266" })), "Dreese Laboratories 266");
+  assert.equal(buildingOf(meeting([])), "");
+  assert.equal(buildingOf(null), "");
+});
+
+test("isOnlineMeeting reads the building fields, not the mode", () => {
+  assert.equal(isOnlineMeeting(onlineMeeting()), true);
+  assert.equal(isOnlineMeeting(meeting([], null, null, [], { facilityDescriptionShort: "ONLINE" })), true);
+  assert.equal(isOnlineMeeting(meeting([], null, null, [], { buildingDescriptionShort: "DL 266" })), false);
+  assert.equal(isOnlineMeeting(meeting([])), false);
+  assert.equal(isOnlineMeeting(null), false);
+});
+
+test("regression #84: formatPlace reads an online meeting as its mode", () => {
+  // The row used to print the raw ONLINE that OSU puts in the building field.
+  assert.equal(formatPlace(onlineMeeting(), { instructionMode: "Distance Learning" }), "Distance Learning");
+  assert.equal(formatPlace(onlineMeeting(), { instructionMode: "Distance Enhanced" }), "Distance Enhanced");
+  assert.equal(formatPlace(onlineMeeting(), null), "Online");
+});
+
+test("formatPlace shows the building for a section that meets in one", () => {
   const m = meeting(["monday"], "1:00 PM", "2:00 PM", [], { buildingDescriptionShort: "Dreese Labs" });
-  assert.equal(formatPlace(m, { instructionMode: "Distance Learning - Online" }), "Distance Learning - Online");
   assert.equal(formatPlace(m, { instructionMode: "In Person" }), "Dreese Labs");
 });
 
@@ -119,6 +140,29 @@ test("formatCoverage says nothing when the whole result came back", () => {
   assert.equal(formatCoverage(result(30, 20, 50)), "");
   assert.equal(formatCoverage(result(40, 0, 30)), "", "a count above the total is not a shortfall");
   assert.equal(formatCoverage(result(0, 0, 0)), "");
+});
+
+// #89 later writes lastResult from a second place, and a missing count used to
+// reach toLocaleString and throw out of paint().
+test("formatCoverage says nothing when nobody counted the answer", () => {
+  assert.equal(formatCoverage(result(30, 0, undefined)), "");
+  assert.equal(formatCoverage(result(30, 0, null)), "");
+});
+
+// Shapes are what js/trend.js returns.
+test("trendLabel flips the enrolled series, because a student is counting seats", () => {
+  assert.equal(trendLabel({ field: "enrolled", change: 6, days: 3 }), "-6 seats in 3 days");
+  assert.equal(trendLabel({ field: "enrolled", change: -4, days: 5 }), "+4 seats in 5 days");
+});
+
+test("trendLabel leaves a waitlist series the way it reads", () => {
+  assert.equal(trendLabel({ field: "waitlist", change: 3, days: 4 }), "+3 waiting in 4 days");
+  assert.equal(trendLabel({ field: "waitlist", change: -2, days: 4 }), "-2 waiting in 4 days");
+});
+
+test("trendLabel counts one seat and one day in the singular", () => {
+  assert.equal(trendLabel({ field: "enrolled", change: -1, days: 1 }), "+1 seat in 1 day");
+  assert.equal(trendLabel({ field: "enrolled", change: 1, days: 2 }), "-1 seat in 2 days");
 });
 
 test("instructorsOf dedupes a name repeated across meetings", () => {

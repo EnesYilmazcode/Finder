@@ -1,9 +1,9 @@
 // Client-side filtering over results already fetched. No filter triggers a
 // network request, so dragging a time slider does not hammer OSU.
 
-import { instructorsOf } from "./format.js";
-import { ratingFor } from "./ratings.js";
-import { seatsFor } from "./seats.js";
+import { instructorsOf, isOnlineMeeting } from "./format.js";
+import { ratingFor, ratingsFailed } from "./ratings.js";
+import { linkedTo, seatsFor } from "./seats.js";
 
 const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -36,6 +36,28 @@ function sectionDays(section) {
 }
 
 /**
+ * Is every way into this section full?
+ *
+ * Yes only when Barrett publishes a capacity for all of them, every one is full,
+ * and their enrolled counts add up to this section's own, which means every
+ * student in it arrived through one of the sections listed. Barrett lists fewer
+ * sections than the API does, so a lecture holding more students than its listed
+ * labs account for has a way in Barrett never named, and hiding it would be a
+ * guess. MATH 1151 lecture 17826 fails this twice over: one of its six
+ * recitations is 12/33, and two publish no capacity at all.
+ */
+function everyWayInFull(seats, ways, term) {
+  if (!seats || !ways?.length) return false;
+  let enrolled = 0;
+  for (const way of ways) {
+    const waySeats = seatsFor(way, term);
+    if (!waySeats?.full) return false;
+    enrolled += waySeats.enrolled;
+  }
+  return enrolled === seats.enrolled;
+}
+
+/**
  * Does one section survive the filters?
  *
  * Unknown data never fails a filter. A section with no meeting pattern cannot
@@ -43,15 +65,31 @@ function sectionDays(section) {
  * sections from anyone who touched a slider.
  */
 function keepSection(section, filters) {
-  if (filters.hideOnline && /online/i.test(section.instructionMode ?? "")) return false;
+  // Online-ness lives on the meeting, not on the mode. See #84.
+  if (filters.hideOnline) {
+    const meetings = section.meetings ?? [];
+    if (meetings.length && meetings.every((m) => isOnlineMeeting(m))) return false;
+  }
 
   if (filters.hideFull) {
     const seats = seatsFor(section.classNumber, filters.term);
     if (seats?.full) return false;
+    // Signing up for this section signs you up for whatever it auto-enrolls
+    // into, so a full partner makes this section's own free seats unreachable.
+    // True whatever this section's own capacity is, including unpublished.
+    const linked = linkedTo(section.classNumber, filters.term);
+    if ((linked?.enrolls ?? []).some((n) => seatsFor(n, filters.term)?.full)) return false;
+    // And the other way round, but only under everyWayInFull's guard, because a
+    // lecture is not full just because one of its labs is.
+    if (everyWayInFull(seats, linked?.enrolledBy, filters.term)) return false;
   }
 
   const people = instructorsOf(section);
-  if (filters.ratedOnly && !people.some((p) => ratingFor(p.name))) return false;
+  // A snapshot that never arrived is not a verdict on anybody. Judged against
+  // the empty index every instructor reads as unrated, so rated-only emptied
+  // the page and the status line blamed the student's own filters. #85. The
+  // minimum rating needs no such guard: it already ignores anyone unrated.
+  if (filters.ratedOnly && !ratingsFailed() && !people.some((p) => ratingFor(p.name))) return false;
 
   if (filters.rating) {
     // Unrated is unknown, not bad. Seeding this at -1 made every unrated
