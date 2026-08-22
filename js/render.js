@@ -6,9 +6,14 @@
 // enrollment figure per course and repeats it onto every section, so rendering
 // it per section would tell students a full section is open. See #13.
 
-import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
+import { formatWhen, formatPlace, formatUnits, instructorsOf, attributeLabel, courseBadges, sectionBadges, sectionFlags } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
-import { seatsFor } from "./seats.js";
+import { linkedTo, seatsFor, unreachable } from "./seats.js";
+import { openedOn } from "./trend.js";
+import { orderBy } from "./sort.js";
+
+// One cap for the whole strip, whatever a later branch feeds into it.
+export const ROW_CHIPS = 2;
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
 const UNLISTED = "Instructor not listed";
@@ -20,15 +25,38 @@ function el(tag, className, text) {
   return node;
 }
 
-function sortSections(sections) {
-  return [...sections].sort((a, b) => {
-    const ai = COMPONENT_ORDER.indexOf(a.component);
-    const bi = COMPONENT_ORDER.indexOf(b.component);
-    const aRank = ai === -1 ? COMPONENT_ORDER.length : ai;
-    const bRank = bi === -1 ? COMPONENT_ORDER.length : bi;
-    if (aRank !== bRank) return aRank - bRank;
-    return String(a.classNumber).localeCompare(String(b.classNumber));
-  });
+/** One chip. Flags and attributes are the same object on a row. */
+function chip({ key, label, detail }) {
+  const node = el("span", "flag", label);
+  node.dataset.flag = key;
+  if (detail) node.title = detail;
+  return node;
+}
+
+/** An attribute in the shape a chip takes. */
+function asChip(attribute) {
+  return { key: attribute.name, label: attributeLabel(attribute), detail: attribute.description };
+}
+
+function byComponent(a, b) {
+  const ai = COMPONENT_ORDER.indexOf(a.component);
+  const bi = COMPONENT_ORDER.indexOf(b.component);
+  const aRank = ai === -1 ? COMPONENT_ORDER.length : ai;
+  const bRank = bi === -1 ? COMPONENT_ORDER.length : bi;
+  return aRank - bRank;
+}
+
+function byClassNumber(a, b) {
+  return String(a.classNumber).localeCompare(String(b.classNumber));
+}
+
+/**
+ * A lecture and the recitations under it are one enrolment, so a sort orders
+ * sections within a component rather than interleaving them. Sort is stable, so
+ * the key goes on first and the component order over the top.
+ */
+export function sortSections(sections, sort = "", term = "") {
+  return orderBy(sections, (section) => [section], sort, term, byClassNumber).sort(byComponent);
 }
 
 /**
@@ -38,7 +66,7 @@ function sortSections(sections) {
  * co-taught section lands in exactly one block. Filing it under every teacher
  * would double-count sections and make a course look bigger than it is.
  */
-export function groupByInstructor(sections) {
+export function groupByInstructor(sections, sort = "", term = "") {
   const groups = new Map();
   for (const section of sections ?? []) {
     const people = instructorsOf(section);
@@ -47,11 +75,13 @@ export function groupByInstructor(sections) {
     groups.get(key).sections.push(section);
   }
 
-  return [...groups.values()].sort((a, b) => {
-    if (a.key === UNLISTED) return 1;
-    if (b.key === UNLISTED) return -1;
-    return surname(a.key).localeCompare(surname(b.key));
-  });
+  return orderBy([...groups.values()], (group) => group.sections, sort, term, bySurname);
+}
+
+function bySurname(a, b) {
+  if (a.key === UNLISTED) return 1;
+  if (b.key === UNLISTED) return -1;
+  return surname(a.key).localeCompare(surname(b.key));
 }
 
 const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
@@ -101,6 +131,21 @@ function renderTeacher(group) {
   return nodes;
 }
 
+// Only the parent direction goes on a row. A lecture can have three dozen labs
+// under it, and listing those here would bury the section itself, so the detail
+// pane takes that side.
+function renderLinked(parent, term) {
+  const seats = seatsFor(parent, term);
+  const node = el("span", "linked", seats ? `with ${parent} ${seats.enrolled}/${seats.limit}` : `with ${parent}`);
+  if (seats) node.dataset.state = seats.full ? "full" : "open";
+
+  const note = `Registering for this also registers you for ${parent}.`;
+  node.title = seats
+    ? `${note} That one is ${seats.enrolled} enrolled of ${seats.limit}${seats.full ? ", so this section cannot be registered" : ""}.`
+    : note;
+  return node;
+}
+
 export function renderSection(section, term) {
   const li = el("li", "section");
   // Selecting a section is the primary action in the three-pane layout, so the
@@ -119,6 +164,23 @@ export function renderSection(section, term) {
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
 
+  // A row is scanned rather than read, so it carries the two that change a
+  // decision most and the pane spells out the rest. One strip and one cap: the
+  // fee and the honors marking are chips of the same kind as the flags, and a
+  // second run of them in a second colour tells a student nothing.
+  const flags = [...sectionFlags(section), ...sectionBadges(section).map(asChip)].slice(0, ROW_CHIPS);
+  if (flags.length) {
+    const strip = el("span", "flags");
+    for (const flag of flags) strip.append(chip(flag));
+    li.append(strip);
+  }
+
+  // Everything the third column holds goes in one cell, so a later row extra
+  // added to the grid cannot slide the seat count onto somebody else's line.
+  const seatCell = el("span", "seat-cell");
+
+  const linked = linkedTo(section.classNumber, term);
+
   // Absent means unknown, never zero. A section with no snapshot row simply
   // shows nothing rather than implying it is empty.
   const seats = seatsFor(section.classNumber, term);
@@ -129,25 +191,49 @@ export function renderSection(section, term) {
     node.title = seats.full
       ? `Full. ${seats.enrolled} enrolled of ${seats.limit}${seats.waitlist ? `, ${seats.waitlist} waiting` : ""}.`
       : `${seats.enrolled} enrolled of ${seats.limit}.`;
-    li.append(node);
+
+    // Barrett rebuilds once a day, so this is a night's difference, not a seat
+    // anyone is holding open. Never on a full row: seats and trend are two
+    // fetches and can skew by a night, and 99 of the 248 sections that opened
+    // on 2026-08-19 were full again the next night. Never on a row "hide full"
+    // drops either, since the seats it opened cannot be registered. #67.
+    const opened = !seats.full && !unreachable(section.classNumber, term)
+      ? openedOn(section.classNumber, term)
+      : null;
+    if (opened) {
+      const mark = el("span", "opened", "opened");
+      mark.title = `Full in the previous snapshot, open in the one from ${opened}.`;
+      node.append(mark);
+    }
+    seatCell.append(node);
   }
+
+  // A lab with seats left is not open if the lecture it enrolls you into is
+  // full, and that lecture is nowhere else on the row.
+  for (const parent of linked?.enrolls ?? []) {
+    seatCell.append(renderLinked(parent, term));
+  }
+
+  if (seatCell.childNodes.length) li.append(seatCell);
 
   return li;
 }
 
-export function renderCourse({ course, sections }, term) {
+export function renderCourse({ course, sections }, term, sort = "") {
   const article = el("article", "course");
 
   const head = el("header", "course-head");
   head.append(el("span", "course-code", `${course.subject} ${course.catalogNumber}`));
   head.append(el("span", "course-title", course.title ?? ""));
 
+  for (const attribute of courseBadges(course, sections)) head.append(chip(asChip(attribute)));
+
   const units = formatUnits(course);
   const count = `${sections.length} section${sections.length === 1 ? "" : "s"}`;
   head.append(el("span", "course-meta", units ? `${units} · ${count}` : count));
   article.append(head);
 
-  for (const group of groupByInstructor(sections)) {
+  for (const group of groupByInstructor(sections, sort, term)) {
     const block = el("section", "teacher");
 
     const heading = el("h3", "teacher-name");
@@ -160,7 +246,7 @@ export function renderCourse({ course, sections }, term) {
     block.append(heading);
 
     const list = el("ul", "sections");
-    for (const section of sortSections(group.sections)) list.append(renderSection(section, term));
+    for (const section of sortSections(group.sections, sort, term)) list.append(renderSection(section, term));
     block.append(list);
 
     article.append(block);
@@ -169,8 +255,8 @@ export function renderCourse({ course, sections }, term) {
   return article;
 }
 
-export function renderResults(container, { primary, related }, term) {
-  const nodes = primary.map((entry) => renderCourse(entry, term));
+export function renderResults(container, { primary, related, openRelated }, term, sort = "") {
+  const nodes = primary.map((entry) => renderCourse(entry, term, sort));
 
   if (related?.length) {
     const details = el("details", "related");
@@ -183,7 +269,7 @@ export function renderResults(container, { primary, related }, term) {
     details.addEventListener("toggle", () => {
       if (built || !details.open) return;
       built = true;
-      details.append(...related.map((entry) => renderCourse(entry, term)));
+      details.append(...related.map((entry) => renderCourse(entry, term, sort)));
     });
 
     nodes.push(details);

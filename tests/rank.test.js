@@ -213,10 +213,30 @@ test("filterCourses still answers when every match is independent study", () => 
   assert.equal(related.length, 0);
 });
 
+// A requirement browse searches with an empty box, so nothing scores above
+// anything else and the old cut at 25 was just the first 25 the API returned.
+test("filterCourses does not split when nothing was typed", () => {
+  const many = Array.from({ length: 30 }, (_, i) =>
+    entry("HISTORY", String(1000 + i), `Course ${i}`, [
+      taught(7000 + i, ["monday"], "9:00 AM", "9:55 AM", ["Ann Taylor"]),
+    ])
+  );
+  const { primary, related, reason } = filterCourses(many, "");
+  assert.equal(primary.length, 30, `only ${primary.length} of 30 courses are on screen`);
+  assert.equal(related.length, 0);
+  assert.equal(reason, "all");
+});
+
+test("filterCourses still sets independent study aside when nothing was typed", () => {
+  const { primary, related } = filterCourses(corpus(), "");
+  assert.equal(primary.length, 4);
+  assert.deepEqual(related.map((e) => e.course.catalogNumber), ["4193", "6193"]);
+});
+
 // Regression, #17. The first version of this dropped demoted courses on the
 // floor. Primary plus related must always be the whole ranked set.
 test("regression #17: filterCourses never loses a course", () => {
-  const queries = ["CSE 2321", "CSE", "Gomori", "2321", "individual studies", "MATH 2321", "english"];
+  const queries = ["CSE 2321", "CSE", "Gomori", "2321", "individual studies", "MATH 2321", "english", ""];
   for (const query of queries) {
     const ranked = rankCourses(corpus(), query);
     const { primary, related } = filterCourses(corpus(), query);
