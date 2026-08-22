@@ -8,6 +8,12 @@ const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
 
 let index = null;
 let loading = null;
+let failed = false;
+
+// Course codes are their own file, 151 KB gzipped against the roster's 211 KB, and
+// only the detail pane ever reads them. Fetched when a section is opened.
+let courses = null;
+let coursesLoading = null;
 
 /**
  * OSU returns full legal names ("Diana Ikenberry Kline") while RMP holds the
@@ -42,15 +48,15 @@ function firstName(full) {
  * Do two first names plausibly belong to the same person?
  *
  * OSU uses legal names, RMP uses whatever students typed, so "Timothy" appears
- * as "Tim" and "Steve" as "Stephen". A prefix covers the first case. The second
- * needs a shared initial, which is only safe when the surname is unique, so the
- * caller enforces that.
+ * as "Tim". Only a real abbreviation counts. Two letters would let Ji Wang
+ * answer for Jiangmeng Wang, and a shared initial would let Amy Gregg answer
+ * for Anne Gregg.
  */
 function compatibleFirstNames(a, b) {
   if (!a || !b) return false;
   if (a === b) return true;
-  if (a.startsWith(b) || b.startsWith(a)) return true;
-  return a[0] === b[0];
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  return shorter.length >= 3 && longer.startsWith(shorter);
 }
 
 export async function loadRatings(baseUrl = "data/ratings.json") {
@@ -76,10 +82,45 @@ export async function loadRatings(baseUrl = "data/ratings.json") {
       bySurname.get(last).push(person);
     }
     index = { byKey, bySurname };
+    // A retry that lands has to stop reading as failed, as seats.js does.
+    failed = false;
     return index;
-  })();
+  })().catch((error) => {
+    // A cached rejection would pin the failure for the life of the tab, and
+    // every caller swallows the error, so the flag is the only signal left.
+    loading = null;
+    failed = true;
+    throw error;
+  });
 
   return loading;
+}
+
+/** True once the snapshot has been asked for and did not arrive. */
+export function ratingsFailed() {
+  return failed;
+}
+
+/**
+ * The per-professor course codes, for courseShare.
+ *
+ * A failure is not cached, matching js/seats.js. Whether anything asks again is
+ * the caller's business.
+ */
+export async function loadRatingCourses(baseUrl = "data/ratings-courses.json") {
+  if (courses) return courses;
+
+  coursesLoading ??= (async () => {
+    const response = await fetch(baseUrl);
+    if (!response.ok) throw new Error(`ratings courses ${response.status}`);
+    return (await response.json()).professors ?? {};
+  })().catch((error) => {
+    coursesLoading = null;
+    throw error;
+  });
+
+  courses = await coursesLoading;
+  return courses;
 }
 
 /**
@@ -100,14 +141,96 @@ export function ratingFor(name, idx = index) {
   const candidates = idx.bySurname.get(surnameKey(name)) ?? [];
   if (!candidates.length) return null;
   const first = firstName(name);
-  const viable = candidates.filter((p) => {
-    const theirs = firstName(`${p.firstName} ${p.lastName}`);
-    if (theirs === first || theirs.startsWith(first) || first.startsWith(theirs)) return true;
-    // A shared initial is weak evidence, so only trust it when nobody else
-    // could be meant.
-    return candidates.length === 1 && compatibleFirstNames(first, theirs);
-  });
-  return viable.length === 1 ? viable[0] : null;
+  const theirs = candidates.map((p) => firstName(`${p.firstName} ${p.lastName}`));
+  const viable = candidates.filter((_, i) => compatibleFirstNames(first, theirs[i]));
+  // Ruling a name out is not the same as it not being there. "Ji" cannot answer
+  // for "Jiangmeng", but it is still a second Wang, so it has to block the guess
+  // instead of clearing the way for Jin Wang.
+  const related = theirs.filter((t) => t.startsWith(first) || first.startsWith(t));
+  return viable.length === 1 && related.length === 1 ? viable[0] : null;
+}
+
+/**
+ * The five per-score counts and their total, or null when there is nothing to draw.
+ *
+ * The total is summed here rather than read off numRatings, which upstream reports
+ * as a different number for 616 of the 7367 rated professors, so the segments have
+ * to divide by the counts or they will not fill the bar.
+ */
+export function ratingSpread(person) {
+  const counts = person?.distribution;
+  if (!Array.isArray(counts) || counts.length !== 5) return null;
+  if (!counts.every((n) => typeof n === "number" && n >= 0)) return null;
+
+  const total = counts.reduce((sum, n) => sum + n, 0);
+  return total > 0 ? { counts, total } : null;
+}
+
+/**
+ * Fold a rater's course text onto a subject and a number.
+ *
+ * Students type this field by hand, so one course arrives as "CSE 2221", "cse2221",
+ * "CS2221" and a bare "2221". Text carrying no number ("PHYSICS", "art", "N/A") names
+ * no course and gets null, which is 4.2% of the 33041 codes in the snapshot.
+ */
+export function courseCode(text) {
+  const clean = String(text ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const parts = /^([A-Z]*)(\d+[A-Z]*)$/.exec(clean);
+  return parts ? { subject: parts[1], number: parts[2] } : null;
+}
+
+/**
+ * How many of an instructor's ratings name the course on screen, and the code to
+ * print them against. Null when the file has not loaded or lists nobody by that id.
+ *
+ * The number decides the match and the subject only narrows it, because a bare "2221"
+ * on this professor's own page is this professor's 2221. A number that does not match
+ * is left alone, so the pre-semester CSE 321 never becomes a CSE 2221 rating.
+ */
+export function courseShare(person, course, table = courses) {
+  const codes = table?.[person?.legacyId];
+  if (!codes) return null;
+
+  const subject = String(course?.subject ?? "").toUpperCase();
+  const catalogNumber = String(course?.catalogNumber ?? "").toUpperCase();
+  const number = catalogNumber.replace(/[^A-Z0-9]/g, "");
+
+  // Nobody types the dot in "2001.01", so 23% of the catalog needs its stem to count
+  // too. Safe because only 9 of those 1136 numbers also exist plain, unlike the 259
+  // letter-suffixed ones, where 187 have a plain sibling whose ratings it would steal.
+  const stem = /^\d+\./.test(catalogNumber) ? catalogNumber.split(".")[0] : "";
+  const names = (code) => code.number === number || (stem !== "" && code.number === stem);
+
+  // Raters abbreviate ("CS2221") and spell out ("CHEMISTRY1250"), so either side
+  // can be the longer string.
+  const mine = (code) => subject.startsWith(code.subject) || code.subject.startsWith(subject);
+
+  const rows = Object.entries(codes).map(([text, count]) => [courseCode(text), count]);
+  const codeTotal = rows.reduce((sum, [, count]) => sum + count, 0);
+  if (codeTotal === 0) return null;
+
+  // A bare number is only ambiguous when this professor also carries it under a
+  // subject that is not this one, which is the case where their 2221 could be
+  // someone else's 2221 and counting it would be the confident wrong answer.
+  const contested = rows.some(([code]) => code?.subject && names(code) && !mine(code));
+
+  let matched = 0;
+  let exact = true;
+  for (const [code, count] of rows) {
+    if (!code || !names(code)) continue;
+    if (code.subject ? !mine(code) : contested) continue;
+    matched += count;
+    if (code.number !== number) exact = false;
+  }
+
+  // The figure above prints numRatings, so dividing by anything else puts two totals
+  // for one professor in the same block.
+  const total = person?.numRatings > 0 ? person.numRatings : codeTotal;
+  return {
+    matched: Math.min(matched, total),
+    total,
+    code: `${subject} ${exact ? catalogNumber : stem}`,
+  };
 }
 
 export function searchUrl(name) {
