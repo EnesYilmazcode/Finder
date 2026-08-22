@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 import { mountApp, fire, until } from "./dom.js";
 import { stubFetch } from "./helpers.js";
-import { RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught } from "./fixtures.js";
+import { RATINGS, SEATS_INDEX, SEATS_TERMS, entry, onlineMeeting, section, taught } from "./fixtures.js";
 
 const TERM = "1268";
 const MWF = ["monday", "wednesday", "friday"];
@@ -123,5 +123,47 @@ test("regression #62: clearing the filters takes the busy blocks with them", asy
   assert.equal(rows(page), 4);
   assert.equal(page.el("#f-clear").hidden, true);
   assert.doesNotMatch(page.location.search, /busy=/);
+  restore();
+});
+
+// Regression, #77. The grid plots the primary pile only, so a note that counts
+// the related pile there offers back sections the calendar will never draw.
+// Searching the exact code puts Software 1 in the primary pile and Software 2
+// in the related one; hiding online costs each of them one section.
+const SPLIT = [
+  entry("CSE", "2221", "Software 1", [
+    taught(1001, MWF, "9:00 AM", "9:55 AM", ["Stephen Gomori"]),
+    section(5003, { instructionMode: "Distance Learning", meetings: [onlineMeeting()] }),
+  ]),
+  entry("CSE", "2231", "Software 2", [
+    section(5005, { instructionMode: "Distance Learning", meetings: [onlineMeeting()] }),
+  ]),
+];
+
+/** The filters note, which in calendar view sits behind the not-on-the-grid one. */
+const filterNote = (page) =>
+  page.all(".hidden-note").find((n) => n.textContent.includes("hidden by your filters"))?.textContent ?? "";
+
+test("regression #77: the calendar note counts only the pile the grid plots", async () => {
+  const restore = stubFetch(new Map([
+    ["data/ratings.json", RATINGS],
+    ["data/seats.json", SEATS_INDEX],
+    [`data/seats-${TERM}.json`, SEATS_TERMS[TERM]],
+    [/searchableTermsV2/, TERMS],
+    [/\/classes\/search/, { data: { totalItems: 3, totalPages: 1, courses: SPLIT } }],
+  ]));
+  const page = await mountApp({ query: "CSE 2221", term: TERM });
+  await until(() => rows(page) === 2, "the primary course to paint");
+
+  page.el("#f-online").checked = true;
+  fire(page.el("#filters"), "change");
+  assert.match(filterNote(page), /^2 sections and 1 course hidden by your filters/);
+
+  page.el("#view-cal").click();
+  assert.match(filterNote(page), /^1 section hidden by your filters/,
+    "Software 2 is not on the grid, so offering it back there is an offer the grid cannot keep");
+
+  page.el("#view-list").click();
+  assert.match(filterNote(page), /^2 sections and 1 course hidden by your filters/);
   restore();
 });
