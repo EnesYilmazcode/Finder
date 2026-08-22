@@ -28,6 +28,22 @@ export function stubFetch(routes) {
 }
 
 /**
+ * Like stubFetch, but the first call rejects the way a dropped connection
+ * does. For checking that a loader retries instead of caching the failure.
+ */
+export function stubFetchFailingOnce(routes) {
+  const restore = stubFetch(routes);
+  const serving = globalThis.fetch;
+  let failed = false;
+  globalThis.fetch = async (url) => {
+    if (failed) return serving(url);
+    failed = true;
+    throw new TypeError("Failed to fetch");
+  };
+  return restore;
+}
+
+/**
  * Exact keys win over patterns whatever order they were written in, so one
  * named URL can always be pinned out of a pattern that would swallow it.
  */

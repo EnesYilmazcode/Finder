@@ -86,8 +86,9 @@ export async function loadRatings(baseUrl = "data/ratings.json") {
     failed = false;
     return index;
   })().catch((error) => {
-    // Every caller swallows this rejection, so unless it is recorded here
-    // nothing downstream can tell a dead snapshot from an empty one.
+    // A cached rejection would pin the failure for the life of the tab, and
+    // every caller swallows the error, so the flag is the only signal left.
+    loading = null;
     failed = true;
     throw error;
   });

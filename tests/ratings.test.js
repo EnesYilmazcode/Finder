@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { nameKey, surnameKey, searchUrl, profileUrl, courseCode } from "../js/ratings.js";
-import { stubFetch, withRatings, withRatingCourses } from "./helpers.js";
+import { stubFetch, stubFetchFailingOnce, withRatings, withRatingCourses } from "./helpers.js";
 import { RATINGS, RATING_COURSES } from "./fixtures.js";
 
 const ratings = await withRatings();
@@ -97,6 +97,20 @@ test("loadRatings caches, so a second call does not fetch again", async () => {
   const again = await ratings.loadRatings("never-fetched.json");
   assert.equal(again.byKey.get("diana kline").length, 1);
   assert.equal(again.bySurname.get("reed").length, 2);
+});
+
+test("regression #79: a failed loadRatings is not cached, so the next call retries", async () => {
+  const fresh = await import("../js/ratings.js?retry");
+  const restore = stubFetchFailingOnce({ "ratings.json": RATINGS });
+  try {
+    await assert.rejects(() => fresh.loadRatings("ratings.json"), TypeError);
+    const again = await fresh.loadRatings("ratings.json");
+    assert.equal(again.byKey.get("diana kline").length, 1);
+    // Recovering must not cost the caching: the stub throws on any other route.
+    await fresh.loadRatings("never-fetched.json");
+  } finally {
+    restore();
+  }
 });
 
 test("ratingSpread totals the counts instead of trusting the ratings count", () => {
@@ -206,15 +220,14 @@ test("ratingsFailed never contradicts a snapshot that is in memory", async () =>
   assert.equal(blip.ratingsFailed(), true);
   assert.equal(blip.ratingFor("Diana Kline"), null);
 
-  // loadRatings hands back its cached rejection until #79 clears it, so the
-  // second ask is only a real retry once #79 lands. Either way the flag and the
-  // lookup have to follow it together, or a snapshot that is right here leaves
-  // the outage note up and the two rating controls switched off.
+  // #79 clears the cached rejection, so the second ask is a real retry. The flag
+  // and the lookup have to follow it together, or a snapshot that is right here
+  // leaves the outage note up and the two rating controls switched off.
   restore = stubFetch({ "ratings.json": RATINGS });
-  const retried = await blip.loadRatings("ratings.json").then(() => true, () => false);
+  await blip.loadRatings("ratings.json");
   restore();
-  assert.equal(blip.ratingsFailed(), !retried);
-  assert.equal(blip.ratingFor("Diana Kline")?.avgRating ?? null, retried ? 4.2 : null);
+  assert.equal(blip.ratingsFailed(), false);
+  assert.equal(blip.ratingFor("Diana Kline").avgRating, 4.2);
 });
 
 test("the RateMyProfessors links point at Ohio State", () => {

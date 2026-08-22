@@ -15,7 +15,11 @@ export async function loadCourses(url = "data/courses.json") {
     if (!response.ok) throw new Error(`courses ${response.status}`);
     index = await response.json();
     return index;
-  })();
+  })().catch((error) => {
+    // A cached rejection would pin the failure for the life of the tab.
+    loading = null;
+    throw error;
+  });
 
   return loading;
 }
