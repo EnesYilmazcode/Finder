@@ -504,7 +504,10 @@ function showWelcome(term) {
   const sections = seatsSectionCount(term);
   const bits = [termName(term)];
   if (sections) bits.push(`${sections.toLocaleString()} sections`);
-  if (seatsTerm(term) && seatsUpdated(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
+  // The date comes from the index, so it is honest before this term's own file
+  // lands. Dropped only once that file is known to have failed, since then
+  // there are no numbers for it to date.
+  if (seatsUpdated(term) && !seatsFailed(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
   els.wStats.textContent = bits.join(" · ");
 
   const best = topRated();
@@ -1073,14 +1076,24 @@ async function init() {
   const pending = queued ?? { q: initialQuery };
   if (pending.q.trim() || genCategory()) runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
   else {
-    // Ratings and seats are already in flight; fill the landing screen once
-    // they land rather than showing an empty frame in the meantime.
+    // Ratings and the seats index are already in flight; fill the landing screen
+    // once they land rather than showing an empty frame. The term's own seats
+    // are another 69 KB and nothing on this screen shows a seat count, so they
+    // are started but not waited on.
     setStatus(staleGen ? `Finder has no requirement called ${staleGen}. Pick one under Fulfills.` : "");
-    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => {
-      markSources(els.term.value);
-      if (!staleGen) setStatus(outageNote(els.term.value));
-      showWelcome(els.term.value);
-    });
+    const term = els.term.value;
+    const describe = () => {
+      markSources(term);
+      if (!staleGen) setStatus(outageNote(term));
+      showWelcome(term);
+    };
+    // Twice on purpose. The first run has the index and can already give the
+    // section count and the date; the second is the only place a dead term file
+    // can be announced, since the note above is written while it is still in
+    // flight and reads clean.
+    const seats = loadSeats(term).catch(() => {});
+    Promise.allSettled([loadRatings(), loadSeats()]).then(describe);
+    seats.then(describe);
   }
 }
 
