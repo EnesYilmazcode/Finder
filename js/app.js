@@ -53,7 +53,6 @@ let currentEntries = [];
 // The unfiltered result of the last search, so changing a filter re-renders
 // rather than refetching.
 let lastResult = null;
-let showHidden = false;
 let view = "list";
 let courseCodesTried = false;
 
@@ -115,6 +114,22 @@ function writeFilters(params) {
   els.filters.hideFull.checked = params.get("hideFull") === "1";
   els.filters.hideOnline.checked = params.get("hideOnline") === "1";
   els.filters.ratedOnly.checked = params.get("ratedOnly") === "1";
+}
+
+/**
+ * The one way filters come off, so the rail, the status line and the URL can
+ * never describe a set that is no longer on screen.
+ *
+ * The contract for anything added after this: whatever readFilters() reads has
+ * to be resettable here. els.filters.reset() reaches only what lives in the
+ * form, and filter state has already started escaping it.
+ */
+function clearFilters() {
+  els.filters.reset();
+  for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
+  // Filter state that lives outside the form is reset here.
+  syncUrl(els.query.value, els.term.value);
+  paint();
 }
 
 /**
@@ -400,7 +415,6 @@ async function runSearch(q, term, subject, genCategory) {
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
     lastResult = { ...filterCourses(courses, q), totalItems };
-    showHidden = false;
     paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
@@ -453,9 +467,8 @@ function paint(term = els.term.value) {
   const active = isActive(filters);
   els.clear.hidden = !active;
 
-  const blank = { entries: [], hiddenSections: 0, hiddenCourses: 0 };
-  const p = showHidden ? { ...blank, entries: lastResult.primary } : applyFilters(lastResult.primary, filters);
-  const r = showHidden ? { ...blank, entries: lastResult.related } : applyFilters(lastResult.related, filters);
+  const p = applyFilters(lastResult.primary, filters);
+  const r = applyFilters(lastResult.related, filters);
 
   const primary = p.entries;
   const related = r.entries;
@@ -504,7 +517,9 @@ function paint(term = els.term.value) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Show them anyway";
-    button.addEventListener("click", () => { showHidden = true; paint(term); });
+    // Clearing rather than overriding is what keeps the rail, the status line
+    // and the URL from describing a set that is no longer on screen.
+    button.addEventListener("click", clearFilters);
     note.append(button);
     els.results.append(note);
   }
@@ -590,7 +605,6 @@ async function init() {
   els.viewCal.addEventListener("click", () => setView("calendar"));
 
   els.filters.addEventListener("change", () => {
-    showHidden = false;
     syncUrl(els.query.value, els.term.value);
     paint();
   });
@@ -599,18 +613,11 @@ async function init() {
     const button = event.target.closest(".f-day");
     if (!button) return;
     setDayState(button, NEXT_STATE[button.dataset.state] ?? "require");
-    showHidden = false;
     syncUrl(els.query.value, els.term.value);
     paint();
   });
 
-  els.clear.addEventListener("click", () => {
-    els.filters.reset();
-    for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
-    showHidden = false;
-    syncUrl(els.query.value, els.term.value);
-    paint();
-  });
+  els.clear.addEventListener("click", clearFilters);
 
   els.railToggle.addEventListener("click", () => {
     openRail(els.app.dataset.rail !== "open");
