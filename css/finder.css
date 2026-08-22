@@ -493,6 +493,15 @@ body {
 .seats[data-state="full"] { color: var(--scarlet); font-weight: 500; }
 .waitlist { margin-left: 0.25rem; }
 
+/* Went from full to open in last night's snapshot. Quiet on purpose. */
+.opened {
+  margin-left: 0.4rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--open);
+}
+
 /* The section this row auto-enrolls you into. Quieter than the row's own
    seats, since it is the other half of the registration and not this one. */
 

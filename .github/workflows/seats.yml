@@ -51,7 +51,9 @@ jobs:
           # One file per term now, so stage by pathspec. -A picks up a term that
           # is new and one that was dropped, and staging a file whose bytes did
           # not move records nothing, so an unchanged term stays out of the diff.
-          git add -A -- data/seats.json 'data/seats-*.json'
+          # The trend files stage here too, or they are written on the runner
+          # and never committed.
+          git add -A -- data/seats.json 'data/seats-*.json' 'data/trend-*.json'
           if git diff --cached --quiet; then
             echo "No seat file changed, nothing to commit."
             exit 0

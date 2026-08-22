@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildingOf, formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf, isOnlineMeeting } from "../js/format.js";
+import { buildingOf, formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf, isOnlineMeeting, trendLabel } from "../js/format.js";
 import { meeting, onlineMeeting, person, section } from "./fixtures.js";
 
 const DASH = "\u2013";
@@ -94,6 +94,22 @@ test("formatUnits is empty when the course carries no units", () => {
   assert.equal(formatUnits({}), "");
   assert.equal(formatUnits(null), "");
   assert.equal(formatUnits({ minUnits: 3, maxUnits: null }), "3 credits");
+});
+
+// Shapes are what js/trend.js returns.
+test("trendLabel flips the enrolled series, because a student is counting seats", () => {
+  assert.equal(trendLabel({ field: "enrolled", change: 6, days: 3 }), "-6 seats in 3 days");
+  assert.equal(trendLabel({ field: "enrolled", change: -4, days: 5 }), "+4 seats in 5 days");
+});
+
+test("trendLabel leaves a waitlist series the way it reads", () => {
+  assert.equal(trendLabel({ field: "waitlist", change: 3, days: 4 }), "+3 waiting in 4 days");
+  assert.equal(trendLabel({ field: "waitlist", change: -2, days: 4 }), "-2 waiting in 4 days");
+});
+
+test("trendLabel counts one seat and one day in the singular", () => {
+  assert.equal(trendLabel({ field: "enrolled", change: -1, days: 1 }), "+1 seat in 1 day");
+  assert.equal(trendLabel({ field: "enrolled", change: 1, days: 2 }), "-1 seat in 2 days");
 });
 
 test("instructorsOf dedupes a name repeated across meetings", () => {

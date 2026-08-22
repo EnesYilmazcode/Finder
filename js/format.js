@@ -52,6 +52,22 @@ export function formatUnits(course) {
   return `${min}–${max} credits`;
 }
 
+/**
+ * A trend from js/trend.js as a line a student reads: "-6 seats in 3 days".
+ *
+ * The enrolled series counts enrolments and a student is counting seats, so its
+ * sign is flipped on the way out. A waitlist series already reads the way they
+ * would say it.
+ */
+export function trendLabel(trend) {
+  const span = `${trend.days} day${trend.days === 1 ? "" : "s"}`;
+  if (trend.field === "waitlist") {
+    return `${trend.change > 0 ? "+" : ""}${trend.change} waiting in ${span}`;
+  }
+  const seats = -trend.change;
+  return `${seats > 0 ? "+" : ""}${seats} seat${Math.abs(seats) === 1 ? "" : "s"} in ${span}`;
+}
+
 /** Instructors for a section, deduped, since they hang off each meeting. */
 export function instructorsOf(section) {
   const seen = new Map();

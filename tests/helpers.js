@@ -1,12 +1,13 @@
 // Shared test harness: real snapshots into the real modules, and a reader for
 // the rules a stylesheet declares.
 //
-// ratings.js and seats.js hold their data in module-level state that only
-// loadRatings/loadSeats can fill, and both fill it from fetch. Rather than
-// hand-building the index and skipping the code that builds it, these helpers
-// serve a fixture over a stubbed fetch and let the real loaders run.
+// ratings.js, seats.js and trend.js hold their data in module-level state that
+// only loadRatings/loadSeats/loadTrend can fill, and all three fill it from
+// fetch. Rather than hand-building the index and skipping the code that builds
+// it, these helpers serve a fixture over a stubbed fetch and let the real
+// loaders run.
 
-import { RATINGS, SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
+import { RATINGS, SEATS_INDEX, SEATS_TERMS, TREND } from "./fixtures.js";
 
 /**
  * Swap in a fetch that serves fixtures by URL. Returns a restore function.
@@ -75,6 +76,23 @@ export async function withSeats(terms = ["1268"], suffix = "", index = SEATS_IND
   try {
     // One call per term, the same way app.js loads the term on screen.
     for (const term of terms) await mod.loadSeats(term, "seats.json");
+  } finally {
+    restore();
+  }
+  return mod;
+}
+
+/**
+ * Load trends into a module instance. A term the fixture does not name is left
+ * unloaded, which reads the same as a term that has no trend file: nothing.
+ */
+export async function withTrend(terms = ["1268"], suffix = "", data = TREND) {
+  const mod = await import(`../js/trend.js${suffix}`);
+  const routes = {};
+  for (const [term, trend] of Object.entries(data)) routes[`trend-${term}.json`] = trend;
+  const restore = stubFetch(routes);
+  try {
+    for (const term of terms) await mod.loadTrend(term, "");
   } finally {
     restore();
   }

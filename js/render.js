@@ -9,6 +9,7 @@
 import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { linkedTo, seatsFor } from "./seats.js";
+import { openedOn } from "./trend.js";
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
 const UNLISTED = "Instructor not listed";
@@ -138,6 +139,8 @@ export function renderSection(section, term) {
   // added to the grid cannot slide the seat count onto somebody else's line.
   const seatCell = el("span", "seat-cell");
 
+  const linked = linkedTo(section.classNumber, term);
+
   // Absent means unknown, never zero. A section with no snapshot row simply
   // shows nothing rather than implying it is empty.
   const seats = seatsFor(section.classNumber, term);
@@ -148,12 +151,26 @@ export function renderSection(section, term) {
     node.title = seats.full
       ? `Full. ${seats.enrolled} enrolled of ${seats.limit}${seats.waitlist ? `, ${seats.waitlist} waiting` : ""}.`
       : `${seats.enrolled} enrolled of ${seats.limit}.`;
+
+    // Barrett rebuilds once a day, so this is a night's difference, not a seat
+    // anyone is holding open. Never on a full row: seats and trend are two
+    // fetches and can skew by a night, and 99 of the 248 sections that opened
+    // on 2026-08-19 were full again the next night. Never when a section this
+    // one auto-enrolls into is full either, since the seats it opened are then
+    // unreachable and the same rule already hides it from "hide full". #67.
+    const reachable = !seats.full && !(linked?.enrolls ?? []).some((n) => seatsFor(n, term)?.full);
+    const opened = reachable ? openedOn(section.classNumber, term) : null;
+    if (opened) {
+      const mark = el("span", "opened", "opened");
+      mark.title = `Full in the previous snapshot, open in the one from ${opened}.`;
+      node.append(mark);
+    }
     seatCell.append(node);
   }
 
   // A lab with seats left is not open if the lecture it enrolls you into is
   // full, and that lecture is nowhere else on the row.
-  for (const parent of linkedTo(section.classNumber, term)?.enrolls ?? []) {
+  for (const parent of linked?.enrolls ?? []) {
     seatCell.append(renderLinked(parent, term));
   }
 

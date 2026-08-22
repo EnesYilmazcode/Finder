@@ -1,9 +1,10 @@
 // The right pane. Everything here already exists in memory by the time a
 // section is selected, so nothing fetches.
 
-import { formatWhen, formatUnits, instructorsOf } from "./format.js";
+import { formatWhen, formatUnits, instructorsOf, trendLabel } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { linkedTo, seatsFor, seatsUpdated } from "./seats.js";
+import { trendFor } from "./trend.js";
 import { isIndividualStudy } from "./rank.js";
 
 function el(tag, className, text) {
@@ -164,6 +165,19 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
     seatBlock.append(row("Enrolled", `${seats.enrolled} / ${seats.limit}`, seats.full ? "is-full" : "is-open"));
     seatBlock.append(row("Waitlist", seats.waitlist > 0 ? `${seats.waitlist} waiting` : "none",
       seats.waitlist > 0 ? "is-full" : null));
+
+    // A full section gets the waitlist series and nothing else. Its enrolment
+    // is free to move, but calling that movement "seats" under a row reading
+    // 40 / 40 would tell a student a full section is open.
+    const moved = seats.full
+      ? trendFor(section.classNumber, term, "waitlist")
+      : trendFor(section.classNumber, term);
+    if (moved) {
+      const line = row("Trend", trendLabel(moved), moved.change > 0 ? "is-full" : "is-open");
+      line.title = `${moved.points} snapshots moved between ${moved.from} and ${moved.to}.`;
+      seatBlock.append(line);
+    }
+
     const asOf = seatsUpdated(term);
     if (asOf) seatBlock.append(row("As of", formatDate ? formatDate(asOf) : asOf));
   } else {

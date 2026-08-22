@@ -218,6 +218,49 @@ are short: 633 of the 680 offered across the three searchable terms on
 
 Measured on 2026-08-18: 17680 section lines, 0 residue failures.
 
+## What changed overnight
+
+The job fetches both sides of the diff every night and used to keep only one of
+them. Comparing the 2026-08-18 snapshot against 2026-08-19 for term 1268: 17680
+sections became 17688, 8 added, 2468 changed, 248 went from full to open and 239
+from open to full. That is 14% of the term moving in a night.
+
+So each term also gets `data/trend-{term}.json`:
+
+```json
+{
+  "term": "1268",
+  "from": "2026-08-18",
+  "days": ["2026-08-19", "2026-08-20"],
+  "enrolled": { "4817": [-1, 0] },
+  "waitlist": { "4831": [1, 0] },
+  "opened": ["1047"]
+}
+```
+
+Series hold the per-day change in that field, not the count, and line up with
+`days` one for one. `from` is the date the first entry was measured against, so
+the span either side of any movement is computable even after the window slides.
+`opened` is the sections that went from full to open on the last day in `days`,
+which is the only day worth marking.
+
+Three rules keep it honest and keep it small:
+
+- Series that are all zero are dropped. Across the two nights on record 3331 of
+  the 17692 sections moved at all, and 629 had a waitlist move. That prune is
+  what holds the two-day file at 58436 bytes, 14103 gzipped.
+- The window is capped at 7 days. A week is as far back as a registration
+  decision reaches, and without a cap the file grows all term. Only three
+  snapshots exist so far, so a full seven-day file has not been measured and it
+  will be bigger than the two-day one above. The cap is `TREND_DAYS` in
+  `scripts/fetch-seats.mjs`.
+- An append only happens when `sourceUpdated` moves. Barrett freezes a term once
+  it is over, and `data/seats-1262.json` has read 2026-04-27 since April, so
+  without that gate a dead term stacks a fake flat day every night forever.
+
+`js/trend.js` will not draw anything until a series has moved on three separate
+days, so this renders blank until a term has three nights of history.
+
 ## Caveats for anything consuming data/seats.json
 
 - Barrett has fewer sections than the API, 484 for CSE against roughly 1000.
