@@ -146,6 +146,72 @@ test("hideFull drops a full section and keeps one with no seat data", () => {
   assert.ok(kept.includes(5003) && kept.includes(5004), "unknown seats never fail the filter");
 });
 
+// Regression, #67. Barrett's autoenroll column says 1010 also puts you in
+// 1002, and 1002 is full, so nobody can take 1010's nineteen free seats.
+// Live equivalent in the 2026-08-20 snapshot: AEDECON 2005 lab 30779 reads
+// 17/20 while the lecture it enrolls you into, 30778, is 40/40.
+test("regression #67: hideFull drops a section whose registration includes a full one", () => {
+  const linked = entry("CSE", "2221", "Software I", [
+    taught(1010, ["tuesday"], "1:00 PM", "2:20 PM", ["Nobody Here"]),
+  ]);
+  const { entries, hiddenSections } = applyFilters([linked], filters({ hideFull: true }));
+  assert.equal(entries.length, 0, "a lab you cannot register for is not an open section");
+  assert.equal(hiddenSections, 1);
+});
+
+test("a lecture is not full because one of its recitations is", () => {
+  // 1001 is reached through 1011, which is full, and 1012, which is not.
+  // Treating the package as one undirected blob would hide the lecture and
+  // every other recitation with it.
+  const lecture = entry("MATH", "1151", "Calculus I", [
+    taught(1001, ["monday"], "8:00 AM", "8:55 AM", ["Diana Ikenberry Kline"]),
+    taught(1012, ["tuesday"], "8:00 AM", "8:55 AM", ["Nobody Here"]),
+  ]);
+  const { entries } = applyFilters([lecture], filters({ hideFull: true }));
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [1001, 1012]);
+});
+
+// Regression, #67, the other direction. 1020 reads 44/46 and both recitations
+// that lead into it are 22/22, which is all 44 of its students, so there is no
+// way left to register. Live equivalent: MATH 1125 lecture 18027.
+test("regression #67: hideFull drops a lecture whose every way in is full", () => {
+  const lecture = entry("MATH", "1125", "Precalculus", [
+    taught(1020, ["monday"], "9:00 AM", "9:55 AM", ["Nobody Here"]),
+  ]);
+  const { entries, hiddenSections } = applyFilters([lecture], filters({ hideFull: true }));
+  assert.equal(entries.length, 0);
+  assert.equal(hiddenSections, 1);
+});
+
+test("a lecture holding more students than its labs explain stays", () => {
+  // 1030 is 107/126 and its one listed lab accounts for 21 of those, so Barrett
+  // is not naming every way in and hiding the lecture would be a guess. Live
+  // equivalent: MECHENG 4870 lecture 6243, 107/126 over a single 21/21 lab.
+  const lecture = entry("MECHENG", "4870", "Design", [
+    taught(1030, ["monday"], "9:00 AM", "9:55 AM", ["Nobody Here"]),
+  ]);
+  assert.equal(applyFilters([lecture], filters({ hideFull: true })).entries.length, 1);
+});
+
+test("a way in with no published capacity is not a full one", () => {
+  // 1041 is full but 1042 publishes no capacity, so whether 1040 can still be
+  // reached is unknown. This is what keeps MATH 1151 lecture 17826 on screen:
+  // two of its six recitations have no capacity in Barrett.
+  const lecture = entry("MATH", "1151", "Calculus I", [
+    taught(1040, ["monday"], "9:00 AM", "9:55 AM", ["Nobody Here"]),
+  ]);
+  assert.equal(applyFilters([lecture], filters({ hideFull: true })).entries.length, 1);
+});
+
+test("no seat data of its own does not save a section under a full one", () => {
+  // 1014 publishes no capacity, so nothing is known about its own seats, but
+  // 1002 is 40/40 and registering for 1014 means registering for 1002.
+  const lab = entry("CSE", "2221", "Software I", [
+    taught(1014, ["friday"], "1:00 PM", "2:20 PM", ["Nobody Here"]),
+  ]);
+  assert.equal(applyFilters([lab], filters({ hideFull: true })).entries.length, 0);
+});
+
 test("hideFull hides nothing when the term does not match the snapshot", () => {
   const { entries, hiddenSections } = applyFilters([course()], filters({ hideFull: true, term: "1262" }));
   assert.equal(entries[0].sections.length, 4);

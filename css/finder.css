@@ -368,8 +368,9 @@ body {
   .section-number { grid-column: 1; }
   .section-when,
   .section-where,
-  .section-who { grid-column: 1 / -1; }
-  .seats { grid-column: 1 / -1; text-align: left; }
+  .section-also,
+  .section-who,
+  .flags { grid-column: 1 / -1; }
   .course-meta { margin-left: 0; width: 100%; white-space: normal; }
 }
 
@@ -469,8 +470,19 @@ body {
 
 /* Seat counts. Full is the state worth spotting while scanning ten sections. */
 
-.seats {
+/* One owner for the third column. Row extras land in column 2, so the seat
+   count stays on the line the section's own time and place are on. */
+.seat-cell {
   grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+
+.seats,
+.linked {
   font-family: var(--data);
   font-size: 0.78rem;
   color: var(--mute);
@@ -481,8 +493,20 @@ body {
 .seats[data-state="full"] { color: var(--scarlet); font-weight: 500; }
 .waitlist { margin-left: 0.25rem; }
 
+/* The section this row auto-enrolls you into. Quieter than the row's own
+   seats, since it is the other half of the registration and not this one. */
+
+.linked { font-size: 0.7rem; }
+.linked[data-state="full"] { color: var(--scarlet); }
+
 @media (max-width: 34rem) {
-  .seats { grid-column: 1 / -1; text-align: left; }
+  .seat-cell {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    align-items: flex-start;
+  }
+  .seats,
+  .linked { text-align: left; }
 }
 
 /* Selection --------------------------------------------------------------- */

@@ -265,6 +265,34 @@ function parseSubjectFile(subject, term, text) {
   return { termName: header[3], updated: header[4], sections, failures, continuations };
 }
 
+// Registration packages from the autoenroll column, one group per parent and
+// parent first: ["17826", "17827"] means picking 17827 also enrolls you into
+// 17826, and not the reverse. The direction is the whole point. Merging both
+// ends into one undirected blob would file a CHEM 2540 lecture and all 36 of
+// its labs as a single 37-section registration. One hop is enough: across the
+// 2568 linked sections in term 1268, no parent carried an autoenroll of its own.
+function linkGroups(sections) {
+  const byNumber = (a, b) => Number(a) - Number(b);
+  const known = new Set(sections.map((s) => s.classNumber));
+  const children = new Map();
+
+  for (const s of sections) {
+    for (const parent of s.autoEnroll.match(/\d+/g) ?? []) {
+      if (parent === s.classNumber) continue;
+      // Barrett names parents it publishes no row for, 18 of them in Summer
+      // 2026. With no row there is nothing to read seats from and nothing to
+      // filter on, only a class number the site cannot look up.
+      if (!known.has(parent)) continue;
+      if (!children.has(parent)) children.set(parent, new Set());
+      children.get(parent).add(s.classNumber);
+    }
+  }
+
+  return [...children.keys()]
+    .sort(byNumber)
+    .map((parent) => [parent, ...[...children.get(parent)].sort(byNumber)]);
+}
+
 function toIsoDate(barrettDate) {
   const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(barrettDate);
   if (!m) return barrettDate;
@@ -363,11 +391,14 @@ async function snapshotTerm(term, subjects) {
     sections[key] = [s.enrolled, s.limit, s.waitlist];
   }
 
+  const groups = linkGroups([...byClass.values()]);
+
   const snapshot = {
     term,
     termName,
     sourceUpdated: toIsoDate(updated),
     sections,
+    groups,
   };
 
   return {
@@ -379,6 +410,7 @@ async function snapshotTerm(term, subjects) {
       subjectsFailed: fetchErrors.length,
       subjectsUnparsed: parseErrors.length,
       sectionsParsed: parsed,
+      linkGroups: groups.length,
       continuationRows: continuations,
       residueFailures: failures.length,
       residueRate,
@@ -507,7 +539,8 @@ async function main() {
 
     console.log(
       `term ${term}: ${stats.subjectsOffered} subjects offered, ` +
-        `${stats.sectionsParsed} sections, ${stats.subjectsFailed} subjects failed, ` +
+        `${stats.sectionsParsed} sections, ${stats.linkGroups} link groups, ` +
+        `${stats.subjectsFailed} subjects failed, ` +
         `${stats.subjectsUnparsed} unparsed, ${stats.residueFailures} residue failures, ` +
         `${stats.continuationRows} continuation rows, ${stats.collisions} collisions, ` +
         `${stats.seconds.toFixed(1)}s`
@@ -594,6 +627,7 @@ async function main() {
 export {
   MAX_SUBJECT_FAILURES,
   fetchText,
+  linkGroups,
   parseSubjectFile,
   previousSections,
   snapshotTerm,
