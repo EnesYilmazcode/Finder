@@ -7,9 +7,11 @@
 //
 // Usage: node scripts/fetch-ratings.mjs
 
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { countRefusal, refusalMessage } from "./guards.mjs";
 
 const ENDPOINT = "https://www.ratemyprofessors.com/graphql";
 
@@ -33,12 +35,20 @@ const PAGE_DELAY_MS = 300;
 const MAX_ATTEMPTS = 3;
 const MAX_PAGES = 200; // stops a broken cursor from looping forever
 
-// ~7.3k Ohio State professors have at least one rating. Anything far below that means
-// upstream changed shape or started rate limiting, and writing it would silently gut
-// the file the site reads.
+// ~7.3k Ohio State professors have at least one rating. This is only the first-run
+// backstop: what the run is really held to is the count already committed.
 const MIN_EXPECTED = 5000;
 
-const OUT_PATH = join(dirname(dirname(fileURLToPath(import.meta.url))), "data", "ratings.json");
+// Practically every rated professor names at least one course, 7357 of 7367 on the
+// run this was written against, so a collapse means courseCodes changed shape.
+const MIN_TAUGHT = 5000;
+
+const DATA_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "data");
+const OUT_PATH = join(DATA_DIR, "ratings.json");
+
+// Course codes are 505 KB against the roster's 1.8 MB, and only the detail pane ever
+// reads them, so they ship as their own file the page fetches when one is opened.
+const COURSES_PATH = join(DATA_DIR, "ratings-courses.json");
 
 // This public credential is what the RateMyProfessors web client itself sends.
 const HEADERS = {
@@ -53,7 +63,9 @@ const QUERY = `query Roster($school: ID!, $first: Int!, $after: String) {
     teachers(query: {text: "", schoolID: $school}, first: $first, after: $after) {
       resultCount
       pageInfo { hasNextPage endCursor }
-      edges { node { legacyId firstName lastName department avgRating numRatings avgDifficulty wouldTakeAgainPercent } }
+      edges { node { legacyId firstName lastName department avgRating numRatings avgDifficulty wouldTakeAgainPercent
+        ratingsDistribution { r1 r2 r3 r4 r5 }
+        courseCodes { courseName courseCount } } }
     }
   }
 }`;
@@ -109,11 +121,50 @@ function normalize(node) {
     numRatings: node.numRatings ?? 0,
     avgDifficulty: score(node.avgDifficulty),
     wouldTakeAgainPercent: score(node.wouldTakeAgainPercent),
+    distribution: spread(node.ratingsDistribution),
   };
+}
+
+// The five per-score counts. Upstream also sends their sum as `total`, left out
+// because it is the sum, though it is not always `numRatings` (see js/ratings.js).
+function spread(dist) {
+  if (!dist) return null;
+  const counts = [dist.r1, dist.r2, dist.r3, dist.r4, dist.r5];
+  return counts.every((n) => typeof n === "number" && n >= 0) ? counts : null;
+}
+
+// What raters typed as the course, kept verbatim. "CSE 2221", "cse2221", "CS2221" and
+// a bare "2221" are all one course, and none of them is the catalog code, so the
+// folding happens in js/ratings.js against the course actually on screen.
+function courseCodes(node) {
+  const codes = {};
+  for (const code of node.courseCodes ?? []) {
+    const name = (code?.courseName ?? "").trim();
+    const count = code?.courseCount ?? 0;
+    if (!name || count <= 0) continue;
+    codes[name] = (codes[name] ?? 0) + count;
+  }
+  return codes;
+}
+
+// What the last run wrote. Missing or unreadable means a first run, not an error.
+async function previousCount(path = OUT_PATH) {
+  try {
+    return JSON.parse(await readFile(path, "utf8")).professors?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+// Every reason not to write this run. Apart from main so a test can hold it to
+// the file that is really committed.
+async function writeRefusals(count, path = OUT_PATH) {
+  return [countRefusal("rated professors", count, MIN_EXPECTED, await previousCount(path))];
 }
 
 async function main() {
   const professors = new Map(); // keyed by legacyId; paging can repeat an edge
+  const codes = new Map();
   let after;
   let resultCount = 0;
   let pages = 0;
@@ -127,6 +178,7 @@ async function main() {
       const node = edge?.node;
       if (node?.legacyId == null) continue;
       professors.set(node.legacyId, normalize(node));
+      codes.set(node.legacyId, courseCodes(node));
     }
 
     console.log(`page ${pages}: ${professors.size}/${resultCount}`);
@@ -144,10 +196,10 @@ async function main() {
 
   console.log(`fetched ${professors.size} of ${resultCount}, ${fresh.length} of them rated`);
 
-  if (fresh.length < MIN_EXPECTED) {
+  const refusal = refusalMessage(await writeRefusals(fresh.length));
+  if (refusal) {
     console.error(
-      `Refusing to write: got ${fresh.length} rated professors, expected at least ${MIN_EXPECTED}. ` +
-        `Upstream reported resultCount ${resultCount}. Leaving ${OUT_PATH} untouched.`
+      `Refusing to write ${OUT_PATH}. Upstream reported resultCount ${resultCount}.\n${refusal}`
     );
     process.exit(1);
   }
@@ -162,7 +214,7 @@ async function main() {
 
   // No fetch timestamp on purpose: it would change every night and defeat the
   // commit-only-when-changed check. The commit date already records when it ran.
-  const json = JSON.stringify(snapshot, null, 2) + "\n";
+  const json = JSON.stringify(snapshot, null, 0) + "\n";
 
   await mkdir(dirname(OUT_PATH), { recursive: true });
   const tmp = `${OUT_PATH}.tmp`;
@@ -170,9 +222,41 @@ async function main() {
   await rename(tmp, OUT_PATH); // rename is atomic, so a crash cannot leave a partial file
 
   console.log(`Wrote ${records.length} professors to ${OUT_PATH} (${json.length} bytes)`);
+
+  // Checked after ratings.json is safely written, so a change to courseCodes costs
+  // the new file and not the nightly refresh the whole site runs on.
+  const taught = records.filter((p) => Object.keys(codes.get(p.legacyId) ?? {}).length);
+  if (taught.length < MIN_TAUGHT) {
+    console.error(
+      `Only ${taught.length} of ${records.length} rated professors list a course code, ` +
+        `expected at least ${MIN_TAUGHT}. Leaving ${COURSES_PATH} untouched.`
+    );
+    process.exit(1);
+  }
+
+  const courses = {
+    source: ENDPOINT,
+    note: "Course names are free text typed by raters, not catalog codes.",
+    count: taught.length,
+    professors: Object.fromEntries(taught.map((p) => [p.legacyId, codes.get(p.legacyId)])),
+  };
+
+  // Compact rather than indented like ratings.json. Nothing but the detail pane reads
+  // this file, and at two-space indent the same codes come to 851 KB instead of 505.
+  const coursesJson = JSON.stringify(courses, null, 0) + "\n";
+  const coursesTmp = `${COURSES_PATH}.tmp`;
+  await writeFile(coursesTmp, coursesJson, "utf8");
+  await rename(coursesTmp, COURSES_PATH);
+
+  console.log(`Wrote course codes for ${taught.length} professors to ${COURSES_PATH} (${coursesJson.length} bytes)`);
 }
 
-main().catch((error) => {
-  console.error(`fetch-ratings failed: ${error.message}`);
-  process.exit(1);
-});
+// Exported so a test can drive the write gate without fetching the roster.
+export { previousCount, writeRefusals };
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main().catch((error) => {
+    console.error(`fetch-ratings failed: ${error.message}`);
+    process.exit(1);
+  });
+}

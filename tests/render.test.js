@@ -1,11 +1,12 @@
-// Only groupByInstructor is covered here. Everything else in render.js builds
-// DOM nodes and needs a document, which is out of scope for this suite.
+// groupByInstructor, plus the one row rule that needs a rendered row to see.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { groupByInstructor } from "../js/render.js";
-import { section, taught } from "./fixtures.js";
+import { groupByInstructor, renderSection } from "../js/render.js";
+import { section, taught, TREND } from "./fixtures.js";
+import { setupDom } from "./dom.js";
+import { withSeats, withTrend } from "./helpers.js";
 
 const MWF = ["monday", "wednesday", "friday"];
 
@@ -98,4 +99,25 @@ test("a co-taught key is alphabetical and sorts on its first name", () => {
   ]);
   // The key is built from the sorted names, so the pair files under Roberts.
   assert.deepEqual(groups.map((g) => g.key), ["Bob Roberts & Zoe Adams", "Ann Taylor"]);
+});
+
+// Regression, #60 with #67. 1010 is a lab with 5 of 24 taken that went full to
+// open overnight, and 1002, the lecture it auto-enrolls you into, is 40/40. The
+// seats it opened cannot be registered, and "hide full" already drops the row
+// for that reason, so the badge cannot say otherwise. 1012's lecture is open.
+test("regression #60: the opened mark waits on the section it enrolls you into", async () => {
+  setupDom();
+  await withSeats(["1268"]);
+  await withTrend(["1268"], "", { "1268": { ...TREND["1268"], opened: ["1010", "1012"] } });
+
+  const reachable = renderSection(section(1012), "1268");
+  assert.equal(
+    reachable.querySelector(".opened")?.title,
+    "Full in the previous snapshot, open in the one from 2026-08-18.",
+    "the fixture's own night, so the trend route really was read"
+  );
+
+  const blocked = renderSection(section(1010), "1268");
+  assert.equal(blocked.querySelector(".opened"), null, "1002 is 40/40, so nobody can take the seats 1010 opened");
+  assert.equal(blocked.querySelector(".seats").textContent, "5/24", "the row still reports its own count");
 });
