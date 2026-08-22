@@ -1,11 +1,15 @@
-// Only groupByInstructor is covered here. Everything else in render.js builds
-// DOM nodes, which app.test.js drives through the stub document in dom.js.
+// The pure orderings, plus the one row rule that needs a rendered row to see.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { groupByInstructor } from "../js/render.js";
-import { section, taught } from "./fixtures.js";
+import { groupByInstructor, renderCourse, renderSection, sortSections } from "../js/render.js";
+import { attr, entry, section, taught, TREND } from "./fixtures.js";
+import { setupDom } from "./dom.js";
+import { withRatings, withSeats, withTrend } from "./helpers.js";
+
+await withRatings();
+await withSeats();
 
 const MWF = ["monday", "wednesday", "friday"];
 
@@ -98,4 +102,141 @@ test("a co-taught key is alphabetical and sorts on its first name", () => {
   ]);
   // The key is built from the sorted names, so the pair files under Roberts.
   assert.deepEqual(groups.map((g) => g.key), ["Bob Roberts & Zoe Adams", "Ann Taylor"]);
+});
+
+// #63. Alphabetical is an ordering, not an answer. MATH 1151 returned 74
+// sections on 2026-08-20, and the best rated instructor can sit anywhere in them.
+test("a sort key orders instructor blocks by their best rating", () => {
+  const groups = groupByInstructor([
+    taught(1001, MWF, "9:00 AM", "9:55 AM", ["Ivan C. Smith III"]),
+    taught(1002, MWF, "10:00 AM", "10:55 AM", ["Timothy Long"]),
+    taught(1003, MWF, "11:00 AM", "11:55 AM", ["Nobody Here"]),
+    taught(1004, MWF, "1:00 PM", "1:55 PM", ["Diana Ikenberry Kline"]),
+  ], "rating");
+  assert.deepEqual(groups.map((g) => g.key), [
+    "Diana Ikenberry Kline",
+    "Ivan C. Smith III",
+    "Timothy Long",
+    "Nobody Here",
+  ]);
+});
+
+test("blocks the sort cannot place keep their alphabetical order at the end", () => {
+  const groups = groupByInstructor([
+    taught(1001, MWF, "9:00 AM", "9:55 AM", ["Zoe Zephyr"]),
+    taught(1002, MWF, "10:00 AM", "10:55 AM", ["Ann Abbott"]),
+    taught(1003, MWF, "11:00 AM", "11:55 AM", ["Timothy Long"]),
+    section(1004),
+  ], "rating");
+  assert.deepEqual(groups.map((g) => g.key), [
+    "Timothy Long",
+    "Ann Abbott",
+    "Zoe Zephyr",
+    "Instructor not listed",
+  ]);
+});
+
+test("sections inside a block order by start time when that is the sort", () => {
+  const sections = [
+    taught(1001, MWF, "1:00 PM", "1:55 PM", ["Timothy Long"]),
+    taught(1002, MWF, "8:30 AM", "9:25 AM", ["Timothy Long"]),
+    taught(1003, MWF, "10:20 AM", "11:15 AM", ["Timothy Long"]),
+  ];
+  assert.deepEqual(sortSections(sections, "start").map((s) => s.classNumber), [1002, 1003, 1001]);
+});
+
+// Every section in a block shares its instructors, so a rating sort ties across
+// the whole block and must leave the lecture-first order alone.
+test("a rating sort does not shuffle the sections inside a block", () => {
+  const sections = [
+    taught(1002, MWF, "9:00 AM", "9:55 AM", ["Timothy Long"], { component: "Recitation" }),
+    taught(1001, MWF, "10:00 AM", "10:55 AM", ["Timothy Long"]),
+  ];
+  assert.deepEqual(sortSections(sections, "rating").map((s) => s.classNumber), [1001, 1002]);
+  assert.deepEqual(sortSections(sections).map((s) => s.classNumber), [1001, 1002]);
+});
+
+// A recitation with seats is not a substitute for the lecture it hangs off, so
+// seats and start order sections within a component instead of across them.
+test("a seats or start sort leaves the lecture above its recitations", () => {
+  const sections = [
+    // 1001 has 10 seats left, 1003 is over cap, and the lecture is exactly full.
+    taught(1001, MWF, "1:00 PM", "1:55 PM", ["Timothy Long"], { component: "Recitation" }),
+    taught(1002, MWF, "10:00 AM", "10:55 AM", ["Timothy Long"]),
+    taught(1003, MWF, "8:30 AM", "9:25 AM", ["Timothy Long"], { component: "Recitation" }),
+  ];
+  assert.deepEqual(sortSections(sections, "seats", "1268").map((s) => s.classNumber), [1002, 1001, 1003]);
+  assert.deepEqual(sortSections(sections, "start", "1268").map((s) => s.classNumber), [1002, 1003, 1001]);
+  assert.deepEqual(sortSections(sections).map((s) => s.classNumber), [1002, 1001, 1003]);
+});
+
+// #68. The strip is one primitive with one cap, and it is a column-2 extra like
+// the section's own place line, so it lands ahead of the third column's cell.
+// Four flags are true here and the row shows the two that decide the most.
+test("the row carries the first two flags and the pane takes the rest", () => {
+  setupDom();
+  const li = renderSection(
+    section(1001, { consent: "I", career: "GRAD", waitlistCapacity: 0, sessionCode: "B" }),
+    "1268"
+  );
+  const chips = li.querySelectorAll(".flags .flag");
+  assert.deepEqual(chips.map((chip) => chip.dataset.flag), ["consent", "career"]);
+  assert.deepEqual(chips.map((chip) => chip.textContent), ["Permission required", "Graduate"]);
+  assert.equal(chips[0].title, "You cannot register for this one yourself. It needs permission first.");
+  assert.deepEqual(
+    li.children.map((node) => node.className),
+    ["section-number", "section-when", "section-where", "flags", "seat-cell"]
+  );
+});
+
+// #65 feeding #68's strip. A fee and an honors marking are chips of the same
+// kind as a flag, so they share the strip and the cap rather than running a
+// second identical set inline on the time line in a second colour.
+test("a section's own attributes are chips in the same strip", () => {
+  setupDom();
+  const fee = attr("ALX", "72", "Digital Txtbook Fee(s): $72");
+  const row = renderSection(section(1001, { attributes: [fee, attr("HON", "CHON", "Honors Course")] }), "1268");
+  assert.deepEqual(
+    row.querySelectorAll(".flags .flag").map((chip) => [chip.dataset.flag, chip.textContent]),
+    [["ALX", "$72"], ["HON", "Honors"]]
+  );
+  assert.equal(row.querySelectorAll(".flag").length, 2, "every chip on the row is in the one strip");
+
+  // The cap is the strip's, and something that can keep a student out outranks
+  // what it will cost them.
+  const blocked = renderSection(section(1002, { consent: "I", career: "GRAD", attributes: [fee] }), "1268");
+  assert.deepEqual(blocked.querySelectorAll(".flags .flag").map((chip) => chip.dataset.flag), ["consent", "career"]);
+});
+
+// #65. ART 3009 declares nothing at the course level and carries the credit on
+// every section, so without the fallback its header says nothing at all.
+test("a course header badges the GE all of its sections agree on", () => {
+  setupDom();
+  const art = entry("ART", "3009", "Film/Video I", [
+    section(1, { attributes: [attr("GE2", "F3", "GEN Foundation: Literary, Visual & Performing Arts")] }),
+    section(2, { attributes: [attr("GE2", "F3", "GEN Foundation: Literary, Visual & Performing Arts")] }),
+  ], { courseAttributes: [attr("", "", "")] });
+  const head = renderCourse(art, "1268").querySelector(".course-head");
+  assert.deepEqual(head.querySelectorAll(".flag").map((chip) => [chip.dataset.flag, chip.textContent]), [["GE2", "GE F3"]]);
+});
+
+// Regression, #60 with #67. 1010 is a lab with 5 of 24 taken that went full to
+// open overnight, and 1002, the lecture it auto-enrolls you into, is 40/40. The
+// seats it opened cannot be registered, and "hide full" already drops the row
+// for that reason, so the badge cannot say otherwise. 1012's lecture is open.
+test("regression #60: the opened mark waits on the section it enrolls you into", async () => {
+  setupDom();
+  await withSeats(["1268"]);
+  await withTrend(["1268"], "", { "1268": { ...TREND["1268"], opened: ["1010", "1012"] } });
+
+  const reachable = renderSection(section(1012), "1268");
+  assert.equal(
+    reachable.querySelector(".opened")?.title,
+    "Full in the previous snapshot, open in the one from 2026-08-18.",
+    "the fixture's own night, so the trend route really was read"
+  );
+
+  const blocked = renderSection(section(1010), "1268");
+  assert.equal(blocked.querySelector(".opened"), null, "1002 is 40/40, so nobody can take the seats 1010 opened");
+  assert.equal(blocked.querySelector(".seats").textContent, "5/24", "the row still reports its own count");
 });

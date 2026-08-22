@@ -6,6 +6,8 @@ const TIMEOUT_MS = 12000;
 // Relevance is the upstream default and it reshuffles between identical
 // requests. Catalog order does not. See docs/osu-api.md.
 const SORT = "catalogNumber";
+// Broad queries saturate totalItems here instead of counting it. See docs/osu-api.md.
+export const RESULT_CAP = 10000;
 
 export class ApiError extends Error {
   constructor(message, { status = null, cause = null } = {}) {
@@ -101,12 +103,47 @@ export function defaultTerm(terms, date = new Date()) {
 }
 
 /**
+ * The GEN categories `gen-categories` accepts, verbatim.
+ *
+ * Committed rather than read off the response facet, because that facet drops
+ * its own small entries: `subject=psych` lists one category where querying all
+ * of these directly finds four. Matching is exact, so a reword upstream turns
+ * one of these into an empty result rather than an error. See docs/osu-api.md,
+ * and tests/gen-categories.live.test.js, which is what notices.
+ */
+export const GEN_CATEGORIES = [
+  "GEN Foundation: Writing and Information Literacy",
+  "GEN Foundation: Literary, Visual & Performing Arts",
+  "GEN Foundation: Historical and Cultural Studies",
+  "GEN Foundation: Natural Sciences",
+  "GEN Foundation: Social and Behavioral Sciences",
+  "GEN Foundation: Race, Ethnicity & Gender Diversity",
+  "GEN Foundation: Math & Quant Reason (or Data Anyl)",
+  "GEN Theme: Citizenship for a Diverse & Just World",
+  "GEN Theme: Health and Well-being",
+  "GEN Theme: Lived Environments",
+  "GEN Theme: Migration, Mobility, and Immobility",
+  "GEN Theme: Number, Nature, Mind",
+  "GEN Theme: Origins and Evolution",
+  "GEN Theme: Sustainability",
+  "GEN Theme: Traditions, Cultures, & Transformations",
+  "GEN Bookend: Launch Seminar",
+  "GEN Bookend: Reflection Seminar",
+  "GEN HIP: Global and Intercultural Learning: Abroad",
+  "GEN HIP: Interdisciplinary and Integrated Coll Tch",
+  "GEN HIP: Research and Creative Inquiry",
+  "GEN HIP: Service Learning",
+  "GEN: World Languages",
+];
+
+/**
  * Search classes. Returns { totalItems, totalPages, page, courses }.
  *
- * `sort` and `subject` are both real upstream parameters, documented in
- * docs/osu-api.md. `subject` has to be lowercase: `subject=CSE` returns zero.
+ * `sort`, `subject` and `gen-categories` are all real upstream parameters,
+ * documented in docs/osu-api.md. `subject` has to be lowercase: `subject=CSE`
+ * returns zero.
  */
-export async function searchClasses({ q, term, page = 1, sort, subject }) {
+export async function searchClasses({ q, term, page = 1, sort, subject, genCategory }) {
   if (!term) throw new ApiError("Pick a term before searching.");
   const data = await getJson("/classes/search", {
     q: q ?? "",
@@ -115,6 +152,9 @@ export async function searchClasses({ q, term, page = 1, sort, subject }) {
     p: page,
     sort,
     subject,
+    // Sending it empty is not the same as leaving it off: `gen-categories=`
+    // returns zero.
+    "gen-categories": genCategory || undefined,
   });
   return {
     totalItems: data?.totalItems ?? 0,
@@ -143,6 +183,18 @@ export function subjectScope(raw) {
 }
 
 /**
+ * Scope to a subject the caller already knows is real, like one picked out of
+ * the subject dropdown. Same request shape as subjectScope, the code moved out
+ * of `q` and into `subject`, with nothing left to guess at.
+ */
+function pickedScope(raw, subject) {
+  const code = String(subject ?? "").trim().toLowerCase();
+  if (!code) return null;
+  const tokens = String(raw ?? "").trim().split(/\s+/).filter(Boolean);
+  return { subject: code, q: tokens.filter((t) => t.toLowerCase() !== code).join(" ") };
+}
+
+/**
  * Search across several pages and merge.
  *
  * Two things upstream shape this, both measured in docs/osu-api.md.
@@ -162,16 +214,18 @@ export function subjectScope(raw) {
  * when the answer does not fit, the relevance pass runs as well and both are
  * merged. rank.js dedupes by class number, so the extra page is free coverage.
  */
-export async function searchAllPages({ q, term, maxPages = 5 }) {
-  const scope = subjectScope(q);
-  let params = scope ? { q: scope.q, subject: scope.subject } : { q };
+export async function searchAllPages({ q, term, maxPages = 5, subject, genCategory }) {
+  const picked = pickedScope(q, subject);
+  const scope = picked ?? subjectScope(q);
+  let params = scope ? { q: scope.q, subject: scope.subject, genCategory } : { q, genCategory };
 
   let first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
 
   // The subject guess was wrong, so that word was a name or a title, not a
-  // subject code. Nothing matches a subject that is not offered.
-  if (scope && first.totalItems === 0) {
-    params = { q };
+  // subject code. Nothing matches a subject that is not offered. A picked code
+  // is not a guess, so zero results there are real.
+  if (scope && !picked && first.totalItems === 0) {
+    params = { q, genCategory };
     first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
   }
 

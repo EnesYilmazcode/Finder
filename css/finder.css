@@ -275,7 +275,8 @@ body {
 
 .section-who { color: var(--ink); }
 
-.component {
+.component,
+.flag {
   font-family: var(--data);
   font-size: 0.72rem;
   text-transform: uppercase;
@@ -285,6 +286,20 @@ body {
   padding: 0.1rem 0.4rem;
   border-radius: var(--radius);
 }
+
+/* "$90.91" and "Legacy GE QL2" both break badly across two lines. */
+.flag { white-space: nowrap; }
+
+.flags {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* The two that can keep a student out of the section. */
+.flag[data-flag="consent"],
+.flag[data-flag="career"] { color: var(--scarlet); }
 
 /* Small screens ----------------------------------------------------------- */
 
@@ -296,12 +311,18 @@ body {
 @media (max-width: 64rem) {
   .app {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    /* Each pane names its row: under auto placement the row a pane lands in
+       shifts with whichever pane is hidden. */
+    grid-template-rows: auto auto minmax(0, 1fr);
+    /* The pane behind the open sheet keeps its padding in a zero height row.
+       That scrolled the page 32px and a scrollbar reflowed it 15px narrower. */
+    overflow: hidden;
   }
 
   .rail {
     display: none;
     grid-column: 1;
+    grid-row: 2;
     border-right: 0;
     border-bottom: 1px solid var(--rule);
   }
@@ -326,11 +347,12 @@ body {
     color: var(--paper);
   }
 
-  .centre { grid-column: 1; }
+  .centre { grid-column: 1; grid-row: 3; }
 
   .detail {
     display: none;
     grid-column: 1;
+    grid-row: 3;
     border-left: 0;
   }
 
@@ -361,8 +383,9 @@ body {
   .section-number { grid-column: 1; }
   .section-when,
   .section-where,
-  .section-who { grid-column: 1 / -1; }
-  .seats { grid-column: 1 / -1; text-align: left; }
+  .section-also,
+  .section-who,
+  .flags { grid-column: 1 / -1; }
   .course-meta { margin-left: 0; width: 100%; white-space: normal; }
 }
 
@@ -462,8 +485,19 @@ body {
 
 /* Seat counts. Full is the state worth spotting while scanning ten sections. */
 
-.seats {
+/* One owner for the third column. Row extras land in column 2, so the seat
+   count stays on the line the section's own time and place are on. */
+.seat-cell {
   grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+
+.seats,
+.linked {
   font-family: var(--data);
   font-size: 0.78rem;
   color: var(--mute);
@@ -474,8 +508,29 @@ body {
 .seats[data-state="full"] { color: var(--scarlet); font-weight: 500; }
 .waitlist { margin-left: 0.25rem; }
 
+/* Went from full to open in last night's snapshot. Quiet on purpose. */
+.opened {
+  margin-left: 0.4rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--open);
+}
+
+/* The section this row auto-enrolls you into. Quieter than the row's own
+   seats, since it is the other half of the registration and not this one. */
+
+.linked { font-size: 0.7rem; }
+.linked[data-state="full"] { color: var(--scarlet); }
+
 @media (max-width: 34rem) {
-  .seats { grid-column: 1 / -1; text-align: left; }
+  .seat-cell {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    align-items: flex-start;
+  }
+  .seats,
+  .linked { text-align: left; }
 }
 
 /* Selection --------------------------------------------------------------- */
@@ -506,6 +561,25 @@ body {
   color: var(--mute);
   margin: 0 0 0.4rem;
 }
+
+/* The buttons sit on the eyebrow's baseline, so they carry its bottom margin
+   as well, or the instructor name rides up under them. */
+.d-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+
+.d-act {
+  font: inherit;
+  font-family: var(--data);
+  font-size: 0.72rem;
+  padding: 0.25rem 0.5rem;
+  margin-bottom: 0.4rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.d-act:hover { color: var(--ink); border-color: var(--ink); }
 
 .d-name {
   font-family: var(--display);
@@ -557,6 +631,16 @@ body {
 .d-val.is-open { color: var(--open); }
 .d-val.is-none { color: var(--mute); }
 
+.d-attr {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.32rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.d-attr-desc { font-size: 0.8rem; color: var(--mute); }
+
 .d-note { margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--mute); }
 .d-prose { margin: 0; font-size: 0.84rem; color: var(--mute); }
 
@@ -570,6 +654,26 @@ body {
 
 .bar i { display: block; height: 100%; background: var(--open); }
 .bar i.f { background: var(--scarlet); }
+
+/* The rating spread. Widths are set per segment in js/detail.js and add to 100%,
+   so nothing here may grow or shrink them. */
+.spread {
+  display: flex;
+  height: 7px;
+  background: var(--sunk);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 0 0 0.25rem;
+}
+
+.spread i { flex: none; height: 100%; }
+.spread i.s1 { background: var(--scarlet); }
+.spread i.s2 { background: var(--scarlet); opacity: 0.55; }
+.spread i.s3 { background: var(--wait); }
+.spread i.s4 { background: var(--open); opacity: 0.55; }
+.spread i.s5 { background: var(--open); }
+
+.spread-cap { margin-bottom: 0.6rem; }
 
 .section:focus-visible {
   outline: 2px solid var(--scarlet);
@@ -603,7 +707,8 @@ body {
   color: var(--mute);
 }
 
-.f-day[data-state="require"] span {
+.f-day[data-state="require"] span,
+.f-day[data-state="busy"] span {
   background: var(--scarlet);
   border-color: var(--scarlet);
   color: var(--paper);
@@ -649,7 +754,13 @@ body {
 
 .f-check input { accent-color: var(--scarlet); width: 0.95rem; height: 0.95rem; }
 
-.f-clear {
+/* Greyed because the snapshot behind it never arrived. A disabled checkbox
+   does not dim its own label text, so the label carries it. */
+.f-set .f-ctl:disabled,
+.f-check:has(input:disabled) { opacity: 0.5; cursor: default; }
+
+.f-clear,
+.f-add {
   font: inherit;
   font-size: 0.8rem;
   width: 100%;
@@ -661,7 +772,32 @@ body {
   cursor: pointer;
 }
 
-.f-clear:hover { color: var(--ink); border-color: var(--ink); }
+.f-clear:hover,
+.f-add:hover { color: var(--ink); border-color: var(--ink); }
+
+.f-add { margin-top: 0.6rem; }
+
+.f-span { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+.f-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.6rem 0 0; padding: 0; }
+
+.f-chip {
+  font: inherit;
+  font-family: var(--data);
+  font-size: 0.72rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--wash);
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Decoration. The button already carries a label that says it removes. */
+.f-chip::after { content: " ×"; color: var(--mute); }
+
+.f-chip:hover { color: var(--scarlet); border-color: var(--scarlet); }
+.f-chip:focus-visible { outline: 2px solid var(--scarlet); outline-offset: 2px; }
 
 .hidden-note {
   border: 1px dashed var(--rule);
@@ -709,7 +845,7 @@ body {
 
 .cal {
   display: grid;
-  grid-template-columns: 3rem repeat(var(--cal-days), minmax(9rem, 1fr));
+  grid-template-columns: 3rem repeat(var(--cal-days), 1fr);
   /* fit-content, not auto: with a floor under the columns the grid is wider
      than a phone, and it has to say so or overflow:hidden eats the difference
      instead of handing it to .cal-scroll. */
@@ -732,7 +868,10 @@ body {
   border-bottom: 1px solid var(--rule);
 }
 
-.cal-col { border-left: 1px solid var(--rule); min-width: 0; }
+/* The floor is per column, from that day's own --cal-split, so one crowded
+   Wednesday does not widen Monday with it. A split that divides a column's
+   width is #38's squeezed name, so the floor rises with the split. */
+.cal-col { border-left: 1px solid var(--rule); min-width: calc(9rem * var(--cal-split, 1)); }
 .cal-body { position: relative; }
 .cal-line { border-bottom: 1px solid var(--sunk); }
 
@@ -765,6 +904,30 @@ body {
 
 .cal-slot.is-full { border-left-color: var(--scarlet); }
 .cal-slot.is-part { border-left-color: var(--wait); }
+
+/* Past MAX_SPLIT columns the day shares the room out instead of widening, so
+   the block can end up too narrow for all three parts of a line. The name is
+   what the grid exists to compare, so the numbers beside it go first: both are
+   still in the block's aria-label, the detail pane and the list view, and the
+   left border still carries whether the sections are full. Measured on a bare
+   MATH search in term 1268, where 12 names rendered at 0px wide without it. */
+.cal-slot { container-type: inline-size; }
+
+@container (max-width: 120px) {
+  .cal-seats { display: none; }
+}
+
+@container (max-width: 68px) {
+  .cal-rate { display: none; }
+}
+
+/* One line each, at any block width: the heights renderSlot budgets for the
+   chrome are single-line, so a wrap here silently clips an instructor. */
+.cal-time, .cal-count, .cal-more {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .cal-time, .cal-count {
   margin: 0;
@@ -806,7 +969,7 @@ body {
 /* Course pickers ---------------------------------------------------------- */
 
 .picker { margin-bottom: 1.25rem; padding-bottom: 1.1rem; border-bottom: 1px solid var(--rule); }
-.picker .f-ctl { cursor: text; }
+.picker input.f-ctl { cursor: text; }
 .picker .f-ctl:disabled { opacity: 0.5; cursor: default; }
 .picker .f-ctl::placeholder { color: var(--mute); }
 
