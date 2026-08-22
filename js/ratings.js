@@ -42,15 +42,15 @@ function firstName(full) {
  * Do two first names plausibly belong to the same person?
  *
  * OSU uses legal names, RMP uses whatever students typed, so "Timothy" appears
- * as "Tim" and "Steve" as "Stephen". A prefix covers the first case. The second
- * needs a shared initial, which is only safe when the surname is unique, so the
- * caller enforces that.
+ * as "Tim". Only a real abbreviation counts. Two letters would let Ji Wang
+ * answer for Jiangmeng Wang, and a shared initial would let Amy Gregg answer
+ * for Anne Gregg.
  */
 function compatibleFirstNames(a, b) {
   if (!a || !b) return false;
   if (a === b) return true;
-  if (a.startsWith(b) || b.startsWith(a)) return true;
-  return a[0] === b[0];
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  return shorter.length >= 3 && longer.startsWith(shorter);
 }
 
 export async function loadRatings(baseUrl = "data/ratings.json") {
@@ -100,14 +100,13 @@ export function ratingFor(name, idx = index) {
   const candidates = idx.bySurname.get(surnameKey(name)) ?? [];
   if (!candidates.length) return null;
   const first = firstName(name);
-  const viable = candidates.filter((p) => {
-    const theirs = firstName(`${p.firstName} ${p.lastName}`);
-    if (theirs === first || theirs.startsWith(first) || first.startsWith(theirs)) return true;
-    // A shared initial is weak evidence, so only trust it when nobody else
-    // could be meant.
-    return candidates.length === 1 && compatibleFirstNames(first, theirs);
-  });
-  return viable.length === 1 ? viable[0] : null;
+  const theirs = candidates.map((p) => firstName(`${p.firstName} ${p.lastName}`));
+  const viable = candidates.filter((_, i) => compatibleFirstNames(first, theirs[i]));
+  // Ruling a name out is not the same as it not being there. "Ji" cannot answer
+  // for "Jiangmeng", but it is still a second Wang, so it has to block the guess
+  // instead of clearing the way for Jin Wang.
+  const related = theirs.filter((t) => t.startsWith(first) || first.startsWith(t));
+  return viable.length === 1 && related.length === 1 ? viable[0] : null;
 }
 
 export function searchUrl(name) {
