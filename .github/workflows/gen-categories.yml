@@ -1,0 +1,27 @@
+name: GE categories
+
+# Weekly rather than on every push: the catalog does not change hourly, and a
+# check against a university's API has no business gating a pull request.
+on:
+  schedule:
+    - cron: '10 9 * * 2'
+  workflow_dispatch:
+
+concurrency:
+  group: gen-categories
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Walk every GE category
+        env:
+          FINDER_LIVE: '1'
+        run: node --test tests/gen-categories.live.test.js
