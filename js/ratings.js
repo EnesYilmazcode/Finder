@@ -77,6 +77,8 @@ export async function loadRatings(baseUrl = "data/ratings.json") {
       bySurname.get(last).push(person);
     }
     index = { byKey, bySurname };
+    // A retry that lands has to stop reading as failed, as seats.js does.
+    failed = false;
     return index;
   })().catch((error) => {
     // Every caller swallows this rejection, so unless it is recorded here
