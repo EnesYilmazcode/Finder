@@ -2,7 +2,7 @@
 // thing not already in memory when a section is selected, and app.js redraws
 // the body once they land.
 
-import { formatWhen, formatUnits, instructorsOf, sectionFlags, trendLabel } from "./format.js";
+import { formatWhen, formatUnits, instructorsOf, attributesOf, attributeLabel, sectionFlags, trendLabel } from "./format.js";
 import { ratingFor, searchUrl, profileUrl, ratingSpread, courseShare } from "./ratings.js";
 import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { trendFor } from "./trend.js";
@@ -244,6 +244,23 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
   if (section.instructionMode) meets.append(row("Mode", section.instructionMode));
   if (section.startDate && section.endDate) meets.append(row("Runs", `${section.startDate} to ${section.endDate}`));
   wrap.append(meets);
+
+  const attributes = attributesOf(course, section);
+  if (attributes.length) {
+    const attrBlock = block("Attributes");
+    for (const attribute of attributes) {
+      const line = el("div", "d-attr");
+      const badge = el("span", "flag", attributeLabel(attribute));
+      badge.dataset.flag = attribute.name;
+      line.append(badge);
+      if (attribute.description) line.append(el("span", "d-attr-desc", attribute.description));
+      attrBlock.append(line);
+    }
+    if (attributes.some((a) => a.name === "GE")) {
+      attrBlock.append(el("p", "d-note", "Legacy GE codes are the old curriculum. Your catalog year decides which set you can count."));
+    }
+    wrap.append(attrBlock);
+  }
 
   const also = alsoTeaches(people, section, entries, term);
   if (also) wrap.append(also);

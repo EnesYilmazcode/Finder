@@ -11,7 +11,7 @@ import { renderDetail } from "../js/detail.js";
 import { renderSection } from "../js/render.js";
 import { applyFilters, DEFAULTS } from "../js/filters.js";
 import { seatsFor } from "../js/seats.js";
-import { entry, meeting, section, taught, RATINGS, SEATS_TERMS, TREND } from "./fixtures.js";
+import { attr, entry, meeting, section, taught, RATINGS, SEATS_TERMS, TREND } from "./fixtures.js";
 import { setupDom } from "./dom.js";
 import { withRatingCourses, withRatings, withSeats, withTrend } from "./helpers.js";
 
@@ -156,6 +156,26 @@ test("#69: the figures lead with the rating and its count", () => {
     figs.querySelectorAll(".d-cap").map((n) => n.textContent),
     [`${kline.numRatings} ratings`, "difficulty"]
   );
+});
+
+// #65. The pane is where the codes get spelled out, and the badge is the same
+// chip the row uses. A second chip class here is what the merge was built to
+// avoid.
+test("#65: the pane spells out the attributes the row only badges", () => {
+  const target = section(1001, {
+    attributes: [attr("ALX", "72", "Digital Txtbook Fee(s): $72"), attr("GE", "QL2", "GEL Quantitative Reasoning")],
+  });
+  const block = blockNamed(pane(target), "Attributes");
+  assert.deepEqual(
+    block.querySelectorAll(".flag").map((chip) => [chip.dataset.flag, chip.textContent]),
+    // Curriculum credit leads, so the pane and the course header never disagree
+    // about which GE to read first.
+    [["GE", "Legacy GE QL2"], ["ALX", "$72"]]
+  );
+  assert.deepEqual(block.querySelectorAll(".d-attr-desc").map((n) => n.textContent),
+    ["GEL Quantitative Reasoning", "Digital Txtbook Fee(s): $72"]);
+  assert.ok(block.querySelectorAll(".d-note").map((n) => n.textContent)
+    .some((line) => line.startsWith("Legacy GE codes are the old curriculum")));
 });
 
 // The rest of the pane, which nothing pinned either.

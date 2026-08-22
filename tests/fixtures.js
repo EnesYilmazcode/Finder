@@ -12,6 +12,11 @@ export function meeting(days, startTime = null, endTime = null, instructors = []
   return m;
 }
 
+/** One course or section attribute, in the API's shape. */
+export function attr(name, value, description = "") {
+  return { name, value, description };
+}
+
 /** An online meeting in the shape OSU sends it, from PSYCH 1100 class 22988. */
 export function onlineMeeting(days = [], startTime = null, endTime = null, instructors = []) {
   return meeting(days, startTime, endTime, instructors, {
@@ -35,6 +40,7 @@ export function section(classNumber, opts = {}) {
     waitlistCapacity: opts.waitlistCapacity ?? 999,
     sessionCode: opts.sessionCode ?? "1",
     sessionDescription: opts.sessionDescription ?? "Regular Academic Term",
+    attributes: opts.attributes ?? [],
   };
 }
 
@@ -46,6 +52,7 @@ export function entry(subject, catalogNumber, title, sections = [], opts = {}) {
       title,
       minUnits: opts.minUnits ?? 3,
       maxUnits: opts.maxUnits ?? 3,
+      courseAttributes: opts.courseAttributes ?? [],
     },
     sections,
   };

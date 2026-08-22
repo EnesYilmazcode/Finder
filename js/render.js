@@ -6,7 +6,7 @@
 // enrollment figure per course and repeats it onto every section, so rendering
 // it per section would tell students a full section is open. See #13.
 
-import { formatWhen, formatPlace, formatUnits, instructorsOf, sectionFlags } from "./format.js";
+import { formatWhen, formatPlace, formatUnits, instructorsOf, attributeLabel, courseBadges, sectionBadges, sectionFlags } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { linkedTo, seatsFor, unreachable } from "./seats.js";
 import { openedOn } from "./trend.js";
@@ -23,6 +23,19 @@ function el(tag, className, text) {
   if (className) node.className = className;
   if (text != null) node.textContent = text;
   return node;
+}
+
+/** One chip. Flags and attributes are the same object on a row. */
+function chip({ key, label, detail }) {
+  const node = el("span", "flag", label);
+  node.dataset.flag = key;
+  if (detail) node.title = detail;
+  return node;
+}
+
+/** An attribute in the shape a chip takes. */
+function asChip(attribute) {
+  return { key: attribute.name, label: attributeLabel(attribute), detail: attribute.description };
 }
 
 function byComponent(a, b) {
@@ -152,16 +165,13 @@ export function renderSection(section, term) {
   li.append(el("span", "section-where", formatPlace(meeting, section)));
 
   // A row is scanned rather than read, so it carries the two that change a
-  // decision most and the pane spells out the rest.
-  const flags = sectionFlags(section).slice(0, ROW_CHIPS);
+  // decision most and the pane spells out the rest. One strip and one cap: the
+  // fee and the honors marking are chips of the same kind as the flags, and a
+  // second run of them in a second colour tells a student nothing.
+  const flags = [...sectionFlags(section), ...sectionBadges(section).map(asChip)].slice(0, ROW_CHIPS);
   if (flags.length) {
     const strip = el("span", "flags");
-    for (const flag of flags) {
-      const chip = el("span", "flag", flag.label);
-      chip.dataset.flag = flag.key;
-      chip.title = flag.detail;
-      strip.append(chip);
-    }
+    for (const flag of flags) strip.append(chip(flag));
     li.append(strip);
   }
 
@@ -215,6 +225,8 @@ export function renderCourse({ course, sections }, term, sort = "") {
   const head = el("header", "course-head");
   head.append(el("span", "course-code", `${course.subject} ${course.catalogNumber}`));
   head.append(el("span", "course-title", course.title ?? ""));
+
+  for (const attribute of courseBadges(course, sections)) head.append(chip(asChip(attribute)));
 
   const units = formatUnits(course);
   const count = `${sections.length} section${sections.length === 1 ? "" : "s"}`;

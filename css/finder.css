@@ -287,6 +287,9 @@ body {
   border-radius: var(--radius);
 }
 
+/* "$90.91" and "Legacy GE QL2" both break badly across two lines. */
+.flag { white-space: nowrap; }
+
 .flags {
   grid-column: 2;
   display: flex;
@@ -608,6 +611,16 @@ body {
 .d-val.is-full { color: var(--scarlet); font-weight: 500; }
 .d-val.is-open { color: var(--open); }
 .d-val.is-none { color: var(--mute); }
+
+.d-attr {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.32rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.d-attr-desc { font-size: 0.8rem; color: var(--mute); }
 
 .d-note { margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--mute); }
 .d-prose { margin: 0; font-size: 0.84rem; color: var(--mute); }

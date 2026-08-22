@@ -3,8 +3,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { groupByInstructor, renderSection, sortSections } from "../js/render.js";
-import { section, taught, TREND } from "./fixtures.js";
+import { groupByInstructor, renderCourse, renderSection, sortSections } from "../js/render.js";
+import { attr, entry, section, taught, TREND } from "./fixtures.js";
 import { setupDom } from "./dom.js";
 import { withRatings, withSeats, withTrend } from "./helpers.js";
 
@@ -187,6 +187,37 @@ test("the row carries the first two flags and the pane takes the rest", () => {
     li.children.map((node) => node.className),
     ["section-number", "section-when", "section-where", "flags", "seat-cell"]
   );
+});
+
+// #65 feeding #68's strip. A fee and an honors marking are chips of the same
+// kind as a flag, so they share the strip and the cap rather than running a
+// second identical set inline on the time line in a second colour.
+test("a section's own attributes are chips in the same strip", () => {
+  setupDom();
+  const fee = attr("ALX", "72", "Digital Txtbook Fee(s): $72");
+  const row = renderSection(section(1001, { attributes: [fee, attr("HON", "CHON", "Honors Course")] }), "1268");
+  assert.deepEqual(
+    row.querySelectorAll(".flags .flag").map((chip) => [chip.dataset.flag, chip.textContent]),
+    [["ALX", "$72"], ["HON", "Honors"]]
+  );
+  assert.equal(row.querySelectorAll(".flag").length, 2, "every chip on the row is in the one strip");
+
+  // The cap is the strip's, and something that can keep a student out outranks
+  // what it will cost them.
+  const blocked = renderSection(section(1002, { consent: "I", career: "GRAD", attributes: [fee] }), "1268");
+  assert.deepEqual(blocked.querySelectorAll(".flags .flag").map((chip) => chip.dataset.flag), ["consent", "career"]);
+});
+
+// #65. ART 3009 declares nothing at the course level and carries the credit on
+// every section, so without the fallback its header says nothing at all.
+test("a course header badges the GE all of its sections agree on", () => {
+  setupDom();
+  const art = entry("ART", "3009", "Film/Video I", [
+    section(1, { attributes: [attr("GE2", "F3", "GEN Foundation: Literary, Visual & Performing Arts")] }),
+    section(2, { attributes: [attr("GE2", "F3", "GEN Foundation: Literary, Visual & Performing Arts")] }),
+  ], { courseAttributes: [attr("", "", "")] });
+  const head = renderCourse(art, "1268").querySelector(".course-head");
+  assert.deepEqual(head.querySelectorAll(".flag").map((chip) => [chip.dataset.flag, chip.textContent]), [["GE2", "GE F3"]]);
 });
 
 // Regression, #60 with #67. 1010 is a lab with 5 of 24 taken that went full to
