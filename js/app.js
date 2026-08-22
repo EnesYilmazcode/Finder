@@ -62,9 +62,10 @@ let latestRequest = 0;
 // pane needs the real objects, not text scraped back out of the DOM.
 let sectionIndex = new Map();
 let currentEntries = [];
-// The unfiltered result of the last search, so changing a filter re-renders
-// rather than refetching, plus the query it ran with, since a repaint has to
-// quote that and not whatever is sitting in the box by then.
+// The unfiltered result of the last search, tagged with the term it was fetched
+// for, so changing a filter re-renders rather than refetching, plus the query it
+// ran with, since a repaint has to quote that and not whatever is sitting in the
+// box by then.
 let lastResult = null;
 let lastQuery = "";
 // The last search the subject dropdown produced, so switching term re-runs it
@@ -395,8 +396,12 @@ function applySelection(row) {
   row.setAttribute("aria-current", "true");
 
   const link = sectionLink(row.dataset.classNumber);
+  // The term these rows were fetched for, not the one in the selector, which can
+  // already have moved on while the next search is still running. Read once, so
+  // the redraw below cannot land on a different term than the first paint.
+  const term = lastResult?.term ?? els.term.value;
   const draw = () => renderDetail({
-    ...found, term: els.term.value, entries: currentEntries, formatDate, shareUrl: link,
+    ...found, term, entries: currentEntries, formatDate, shareUrl: link,
   });
   showDetail(draw());
   history.replaceState(null, "", link);
@@ -499,7 +504,10 @@ function showWelcome(term) {
   const sections = seatsSectionCount(term);
   const bits = [termName(term)];
   if (sections) bits.push(`${sections.toLocaleString()} sections`);
-  if (seatsTerm(term) && seatsUpdated(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
+  // The date comes from the index, so it is honest before this term's own file
+  // lands. Dropped only once that file is known to have failed, since then
+  // there are no numbers for it to date.
+  if (seatsUpdated(term) && !seatsFailed(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
   els.wStats.textContent = bits.join(" · ");
 
   const best = topRated();
@@ -538,6 +546,16 @@ function showWelcome(term) {
 }
 
 /**
+ * Drop the last search along with everything it put on screen. paint() repaints
+ * from lastResult, so a result left behind comes back on the next filter click.
+ */
+function clearLastSearch() {
+  lastResult = null;
+  els.results.replaceChildren();
+  resetDetail();
+}
+
+/**
  * Run the search the page already describes, again. Every trigger goes through
  * here: the query box saying "MATH" does not say whether that was typed or
  * picked, and only the memo knows.
@@ -560,11 +578,20 @@ async function runSearch(q, term, subject, gen = genCategory()) {
   }
   // A requirement on its own is a search.
   if (!q.trim() && !gen) {
-    els.results.replaceChildren();
+    // Supersede any search still in flight: it was started for whichever term
+    // was selected then. Its finally checks the id, so the busy flag comes off here.
+    const requestId = ++latestRequest;
+    setBusy(false);
+    clearLastSearch();
     showSortNote([], sortKey(), term);
     showWelcome(term);
     markSources(term);
     setStatus(outageNote(term));
+    // The section count and the date on that line come from this term's seat
+    // snapshot, which the first visit to a term has not loaded yet.
+    Promise.allSettled([loadRatings(), loadSeats(term)]).then(() => {
+      if (requestId === latestRequest) showWelcome(term);
+    });
     return;
   }
   els.welcome.hidden = true;
@@ -579,16 +606,18 @@ async function runSearch(q, term, subject, gen = genCategory()) {
     const [{ courses, totalItems }] = await Promise.all([
       searchAllPages({ q, term, subject, genCategory: gen }),
       loadRatings().catch(() => null),
+      // Seats are per term since #48, so this term's snapshot has to be in hand
+      // before the paint, or the first view after a switch shows none.
       loadSeats(term).catch(() => null),
       loadTrend(term),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
-    lastResult = { ...filterCourses(courses, q), totalItems };
+    lastResult = { ...filterCourses(courses, q), totalItems, term };
     lastQuery = q.trim();
     paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
-    els.results.replaceChildren();
+    clearLastSearch();
     showSortNote([], sortKey(), term);
     setStatus(error instanceof ApiError ? error.message : "Something went wrong. Try again.", "error");
     if (!(error instanceof ApiError)) console.error(error);
@@ -661,6 +690,10 @@ function markSources(term) {
 /** Re-render from the last search. Filters never refetch. */
 function paint(term = els.term.value) {
   markSources(term);
+  const filters = readFilters();
+  // The clear button tracks the filters, not the result, so it is set before
+  // the bail below.
+  els.clear.hidden = !isActive(filters);
   if (!lastResult) {
     showSortNote([], sortKey(), term);
     // Nothing to describe yet, but a dead snapshot still has to be named and a
@@ -669,9 +702,16 @@ function paint(term = els.term.value) {
     if (!els.welcome.hidden) setStatus(outageNote(term));
     return;
   }
-  const filters = readFilters();
-  const active = isActive(filters);
-  els.clear.hidden = !active;
+
+  // Class numbers are reused across terms, so repainting these against the new
+  // term's snapshot finds a real seat row and draws a full section as open. The
+  // `??` keeps a result written without the key from blanking every search.
+  if ((lastResult.term ?? term) !== term) {
+    clearLastSearch();
+    showSortNote([], sortKey(), term);
+    setStatus("");
+    return;
+  }
 
   const p = applyFilters(lastResult.primary, filters);
   const r = applyFilters(lastResult.related, filters);
@@ -986,14 +1026,12 @@ async function init() {
 
   els.term.addEventListener("change", () => {
     if (isLoaded()) { fillSubjects(); fillNumbers(); }
-    // Seats are per term since #48, so the new term has to arrive before the
-    // repaint, or the first view after a switch shows none. Repaint on failure
-    // too, or the controls keep describing the term we just left.
-    Promise.all([loadSeats(els.term.value), loadTrend(els.term.value)])
-      .catch(() => {})
-      .then(() => paint());
     syncUrl(els.query.value, els.term.value);
-    if (els.query.value.trim() || genCategory()) rerunSearch();
+    // Re-run either way, and let runSearch own the snapshot wait. Repainting
+    // only when the box had something in it left the previous term's rows on
+    // screen under the new term's heading, and an empty box goes through the
+    // welcome branch, which re-marks the controls for the new term.
+    rerunSearch();
   });
 
   els.welcome.addEventListener("click", (event) => {
@@ -1038,14 +1076,24 @@ async function init() {
   const pending = queued ?? { q: initialQuery };
   if (pending.q.trim() || genCategory()) runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
   else {
-    // Ratings and seats are already in flight; fill the landing screen once
-    // they land rather than showing an empty frame in the meantime.
+    // Ratings and the seats index are already in flight; fill the landing screen
+    // once they land rather than showing an empty frame. The term's own seats
+    // are another 69 KB and nothing on this screen shows a seat count, so they
+    // are started but not waited on.
     setStatus(staleGen ? `Finder has no requirement called ${staleGen}. Pick one under Fulfills.` : "");
-    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => {
-      markSources(els.term.value);
-      if (!staleGen) setStatus(outageNote(els.term.value));
-      showWelcome(els.term.value);
-    });
+    const term = els.term.value;
+    const describe = () => {
+      markSources(term);
+      if (!staleGen) setStatus(outageNote(term));
+      showWelcome(term);
+    };
+    // Twice on purpose. The first run has the index and can already give the
+    // section count and the date; the second is the only place a dead term file
+    // can be announced, since the note above is written while it is still in
+    // flight and reads clean.
+    const seats = loadSeats(term).catch(() => {});
+    Promise.allSettled([loadRatings(), loadSeats()]).then(describe);
+    seats.then(describe);
   }
 }
 
