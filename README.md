@@ -64,6 +64,11 @@ the page says how many sections it removed and offers a button that shows
 them anyway. There is no saved schedule and no conflict detection. Finder
 searches, it does not plan.
 
+Every search is in the address bar, and so is the section you picked, so a
+link opens on the section you meant rather than on the search. The right
+pane copies the class number BuckeyeLink asks for, and offers Share on the
+browsers that have it.
+
 ## Where the data comes from
 
 ```
@@ -169,10 +174,10 @@ you type "CSE 2221" and press Enter
 Only the newest search is allowed to draw, so a slow first search can never
 paint over a fast second one.
 
-That block is only the part a search waits on. Opening the page is 26 requests
+That block is only the part a search waits on. Opening the page is 27 requests
 across two hosts, counted in Chrome against a local copy with the cache
-cleared: 25 files from this repo and the term list from `content.osu.edu`. The
-25 are the HTML, two stylesheets, three font files, fifteen modules, the
+cleared: 26 files from this repo and the term list from `content.osu.edu`. The
+26 are the HTML, two stylesheets, three font files, sixteen modules, the
 ratings snapshot, two seat files and the favicon. The live page adds one more,
 the page-view ping to the analytics worker, which local runs skip.
 
@@ -222,6 +227,7 @@ js/
   calendar.js         week grid
   detail.js           right pane
   filters.js          client-side filtering
+  deeplink.js         the section a link points at
   ratings.js          RMP snapshot and name matching
   seats.js            Barrett snapshot and the term guard
   courses.js          lazily loaded course index
@@ -240,7 +246,9 @@ stats/                the page that reads the counter
 
 - Seats are a morning snapshot, so a section can fill before you search.
 - Barrett covers fewer sections than the API, so some rows never show seats.
-- The Back button does nothing, and a shared calendar link opens as a list.
+- Back closes the section pane and puts back the filters it opened with, but
+  it does not undo a search.
+- A shared calendar link opens as a list.
 - Changing a filter clears whichever section you had selected.
 - Columbus only, and only the three terms OSU's API exposes at a time.
 - A section with several meeting patterns shows the first one.
