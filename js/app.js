@@ -1,4 +1,4 @@
-import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
+import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } from "./api.js";
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
@@ -22,6 +22,7 @@ const els = {
   days: document.querySelector("#f-days"),
   subject: document.querySelector("#p-subject"),
   number: document.querySelector("#p-number"),
+  gen: document.querySelector("#p-gen"),
   subjectList: document.querySelector("#subject-list"),
   numberList: document.querySelector("#number-list"),
   hint: document.querySelector("#p-hint"),
@@ -51,8 +52,10 @@ let latestRequest = 0;
 let sectionIndex = new Map();
 let currentEntries = [];
 // The unfiltered result of the last search, so changing a filter re-renders
-// rather than refetching.
+// rather than refetching, plus the query it ran with, since a repaint has to
+// quote that and not whatever is sitting in the box by then.
 let lastResult = null;
+let lastQuery = "";
 // The last search the subject dropdown produced, so switching term re-runs it
 // scoped rather than dropping back to the keyword search. Not read back off
 // the picker, because reflectQuery fills that same box from a typed query and
@@ -61,6 +64,8 @@ let lastResult = null;
 let pickedSearch = null;
 let view = "list";
 let courseCodesTried = false;
+// A `gen` link built before Ohio State reworded the category it names.
+let staleGen = null;
 
 function dayStates() {
   const required = [];
@@ -245,6 +250,10 @@ function reflectQuery(q) {
   els.number.disabled = false;
 }
 
+function genCategory() {
+  return els.gen.value || null;
+}
+
 /** A picked subject searches that subject, not the word. */
 function searchFromPickers() {
   const code = codeFromInput(els.subject.value);
@@ -323,6 +332,8 @@ function syncUrl(q, term) {
   const url = new URL(location.href);
   if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
   if (term) url.searchParams.set("term", term);
+  const gen = genCategory();
+  if (gen) url.searchParams.set("gen", gen); else url.searchParams.delete("gen");
 
   // Filters live in the URL so a filtered view can be shared or reloaded.
   const f = readFilters();
@@ -387,18 +398,29 @@ function showWelcome(term) {
   );
 }
 
-async function runSearch(q, term, subject, genCategory) {
+/**
+ * Run the search the page already describes, again. Every trigger goes through
+ * here: the query box saying "MATH" does not say whether that was typed or
+ * picked, and only the memo knows.
+ */
+function rerunSearch() {
+  const q = els.query.value;
+  runSearch(q, els.term.value, pickedSearch?.q === q ? pickedSearch.subject : null);
+}
+
+async function runSearch(q, term, subject, gen = genCategory()) {
   if (!term) {
     // Reachable since #80 moved the listeners above the term request. Hold the
     // call for init to run rather than search without a term.
     if (termsError) setStatus(termsError, "error");
-    else if (q.trim()) {
-      queued = { q, subject, genCategory };
+    else if (q.trim() || gen) {
+      queued = { q, subject, genCategory: gen };
       setStatus("Still loading terms. Your search will run when they arrive.");
     }
     return;
   }
-  if (!q.trim()) {
+  // A requirement on its own is a search.
+  if (!q.trim() && !gen) {
     els.results.replaceChildren();
     showWelcome(term);
     markSources(term);
@@ -415,13 +437,14 @@ async function runSearch(q, term, subject, genCategory) {
     // never redraw. Awaited alongside the search rather than before it, so the
     // cost is the slower of the two and only on the first search.
     const [{ courses, totalItems }] = await Promise.all([
-      searchAllPages({ q, term, subject }),
+      searchAllPages({ q, term, subject, genCategory: gen }),
       loadRatings().catch(() => null),
       loadSeats(term).catch(() => null),
       loadTrend(term),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
     lastResult = { ...filterCourses(courses, q), totalItems };
+    lastQuery = q.trim();
     paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
@@ -535,12 +558,17 @@ function paint(term = els.term.value) {
   const withOutage = (line) => (outage ? `${line} ${outage}` : line);
 
   if (!primary.length) {
+    const gen = genCategory();
+    // Name the requirement, or an empty GE browse reads as a broken page.
+    const empty = gen
+      ? `Nothing in ${termName(term)} is listed under ${gen}${lastQuery ? ` for "${lastQuery}"` : ""}.`
+      : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`;
     // Careful not to claim everything went when related courses may still be
     // on screen underneath this message.
     setStatus(withOutage(
       isActive(filters)
         ? `No sections match your filters in ${termName(term)}. Loosen one, or clear them.`
-        : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`
+        : empty
     ));
     return;
   }
@@ -584,6 +612,25 @@ async function init() {
   // leaving all five chips announcing as "Mo" when it failed.
   writeFilters(params);
 
+  els.gen.append(
+    ...GEN_CATEGORIES.map((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      return option;
+    })
+  );
+  // An unknown value searches for nothing, so drop it and say so rather than
+  // serving the front page to someone who followed a link to a requirement.
+  const gen = params.get("gen");
+  if (GEN_CATEGORIES.includes(gen)) els.gen.value = gen;
+  else if (gen) {
+    staleGen = gen;
+    const url = new URL(location.href);
+    url.searchParams.delete("gen");
+    history.replaceState(null, "", url);
+  }
+
   const initialQuery = params.get("q") ?? "";
   els.query.value = initialQuery;
   if (initialQuery.trim()) reflectQuery(initialQuery);
@@ -606,6 +653,11 @@ async function init() {
     const code = codeFromInput(els.subject.value);
     const wanted = els.number.value.trim();
     if (coursesFor(els.term.value, code).some((c) => c.number === wanted)) searchFromPickers();
+  });
+
+  els.gen.addEventListener("change", () => {
+    syncUrl(els.query.value, els.term.value);
+    rerunSearch();
   });
 
   els.viewList.addEventListener("click", () => setView("list"));
@@ -670,8 +722,7 @@ async function init() {
       .catch(() => {})
       .then(() => paint());
     syncUrl(els.query.value, els.term.value);
-    const q = els.query.value;
-    if (q.trim()) runSearch(q, els.term.value, pickedSearch?.q === q ? pickedSearch.subject : null);
+    if (els.query.value.trim() || genCategory()) rerunSearch();
   });
 
   els.welcome.addEventListener("click", (event) => {
@@ -680,7 +731,7 @@ async function init() {
     els.query.value = button.dataset.q;
     reflectQuery(button.dataset.q);
     syncUrl(button.dataset.q, els.term.value);
-    runSearch(button.dataset.q, els.term.value);
+    rerunSearch();
   });
 
   try {
@@ -714,14 +765,14 @@ async function init() {
 
   // A search asked for while the terms were loading was refused, not dropped.
   const pending = queued ?? { q: initialQuery };
-  if (pending.q.trim()) runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
+  if (pending.q.trim() || genCategory()) runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
   else {
     // Ratings and seats are already in flight; fill the landing screen once
     // they land rather than showing an empty frame in the meantime.
-    setStatus("");
+    setStatus(staleGen ? `Finder has no requirement called ${staleGen}. Pick one under Fulfills.` : "");
     Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => {
       markSources(els.term.value);
-      setStatus(outageNote(els.term.value));
+      if (!staleGen) setStatus(outageNote(els.term.value));
       showWelcome(els.term.value);
     });
   }

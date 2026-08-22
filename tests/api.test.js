@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ApiError, fetchTerms, searchClasses, searchAllPages, termCodeFor, defaultTerm } from "../js/api.js";
+import { ApiError, fetchTerms, searchClasses, searchAllPages, termCodeFor, defaultTerm, GEN_CATEGORIES } from "../js/api.js";
 
 /** Record every request and answer each with the given body. */
 function capture(body, init = {}) {
@@ -221,6 +221,60 @@ test("one failing page does not sink the whole search", async () => {
   const result = await searchAllPages({ q: "Smith", term: "1268" });
   assert.equal(result.courses.length, 1);
   assert.equal(result.pagesFetched, 2);
+});
+
+test("a GE requirement rides along as gen-categories, spelled exactly", async () => {
+  const calls = capture(searchBody);
+  await searchClasses({ q: "", term: "1268", genCategory: "GEN Theme: Sustainability" });
+  assert.equal(calls[0].searchParams.get("gen-categories"), "GEN Theme: Sustainability");
+});
+
+test("no requirement leaves gen-categories off entirely", async () => {
+  // Not the same as sending it empty: `gen-categories=` returns zero, so an
+  // empty select would silently answer every search with nothing.
+  const calls = capture(searchBody);
+  await searchClasses({ q: "CSE 2221", term: "1268" });
+  assert.ok(!calls[0].searchParams.has("gen-categories"), calls[0].search);
+
+  const blank = capture(searchBody);
+  await searchClasses({ q: "", term: "1268", genCategory: "" });
+  assert.ok(!blank[0].searchParams.has("gen-categories"), blank[0].search);
+});
+
+test("every page of a requirement search carries the requirement", async () => {
+  // Including the relevance pull the budget falls back to, which builds its
+  // requests from scratch.
+  const calls = capture({ data: { totalItems: 900, totalPages: 7, courses: [] } });
+  await searchAllPages({ q: "", term: "1268", maxPages: 2, genCategory: "GEN Foundation: Natural Sciences" });
+  assert.equal(calls.length, 3);
+  assert.ok(
+    calls.every((u) => u.searchParams.get("gen-categories") === "GEN Foundation: Natural Sciences"),
+    calls.map((u) => u.search).join(" ")
+  );
+});
+
+test("a requirement survives the retry that drops a wrong subject guess", async () => {
+  const calls = capture((n) => ({
+    data: n === 1
+      ? { totalItems: 0, totalPages: 0, courses: [] }
+      : { totalItems: 4, totalPages: 1, courses: [] },
+  }));
+  await searchAllPages({ q: "Smith 2000", term: "1268", genCategory: "GEN Theme: Sustainability" });
+  assert.equal(calls.length, 2);
+  assert.ok(calls.some((u) => !u.searchParams.has("subject")), "the subject guess is dropped");
+  assert.ok(
+    calls.every((u) => u.searchParams.get("gen-categories") === "GEN Theme: Sustainability"),
+    calls.map((u) => u.search).join(" ")
+  );
+});
+
+test("the committed GE categories are unique and verbatim", () => {
+  // Upstream matches the string exactly. A trailing space or an "and" for an
+  // "&" returns zero rather than an error, so nothing here gets tidied.
+  assert.equal(new Set(GEN_CATEGORIES).size, GEN_CATEGORIES.length, "duplicate category");
+  for (const name of GEN_CATEGORIES) {
+    assert.equal(name, name.trim(), `padded: ${JSON.stringify(name)}`);
+  }
 });
 
 // #76: the code came from a dropdown of real subjects, so there is nothing to

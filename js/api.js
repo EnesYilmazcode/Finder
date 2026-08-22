@@ -103,6 +103,40 @@ export function defaultTerm(terms, date = new Date()) {
 }
 
 /**
+ * The GEN categories `gen-categories` accepts, verbatim.
+ *
+ * Committed rather than read off the response facet, because that facet drops
+ * its own small entries: `subject=psych` lists one category where querying all
+ * of these directly finds four. Matching is exact, so a reword upstream turns
+ * one of these into an empty result rather than an error. See docs/osu-api.md,
+ * and tests/gen-categories.live.test.js, which is what notices.
+ */
+export const GEN_CATEGORIES = [
+  "GEN Foundation: Writing and Information Literacy",
+  "GEN Foundation: Literary, Visual & Performing Arts",
+  "GEN Foundation: Historical and Cultural Studies",
+  "GEN Foundation: Natural Sciences",
+  "GEN Foundation: Social and Behavioral Sciences",
+  "GEN Foundation: Race, Ethnicity & Gender Diversity",
+  "GEN Foundation: Math & Quant Reason (or Data Anyl)",
+  "GEN Theme: Citizenship for a Diverse & Just World",
+  "GEN Theme: Health and Well-being",
+  "GEN Theme: Lived Environments",
+  "GEN Theme: Migration, Mobility, and Immobility",
+  "GEN Theme: Number, Nature, Mind",
+  "GEN Theme: Origins and Evolution",
+  "GEN Theme: Sustainability",
+  "GEN Theme: Traditions, Cultures, & Transformations",
+  "GEN Bookend: Launch Seminar",
+  "GEN Bookend: Reflection Seminar",
+  "GEN HIP: Global and Intercultural Learning: Abroad",
+  "GEN HIP: Interdisciplinary and Integrated Coll Tch",
+  "GEN HIP: Research and Creative Inquiry",
+  "GEN HIP: Service Learning",
+  "GEN: World Languages",
+];
+
+/**
  * Search classes. Returns { totalItems, totalPages, page, courses }.
  *
  * `sort`, `subject` and `gen-categories` are all real upstream parameters,

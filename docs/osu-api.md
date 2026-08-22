@@ -58,6 +58,7 @@ The main endpoint.
 | `p` | 1-based page number |
 | `sort` | `catalogNumber`, `subject`, or `-` prefixed for descending. Default is relevance, which is the source of the paging trouble below |
 | `subject` | Subject code, lowercase. Exact, unlike putting the code in `q`. Combines with `q` as an intersection |
+| `gen-categories` | A GE requirement, spelled out in full. Exact, and unenumerable from the response. See Browsing by GE requirement |
 
 Neither `sort` nor `subject` needs guessing. Every response carries `sort` and
 `filters` arrays, and each entry in them spells out the parameter and value that
@@ -258,6 +259,70 @@ subject dropdown is known to be real and is scoped.
 
 Across a 37 query mix this cut requests by 26% and median wall time by 29%.
 `CSE 2331` went from five requests and 572 ms to one request and 101 ms.
+
+### Browsing by GE requirement
+
+`gen-categories` is the parameter behind the "GEN Categories" facet, and it is
+the only way to ask what counts for a requirement without knowing the subject
+first. It works with no `subject` set, so one request spans the catalog. Autumn
+2026:
+
+| Value | Sections | Pages |
+|---|---|---|
+| `GEN Theme: Sustainability` | 75 | 1 |
+| `GEN Theme: Citizenship for a Diverse & Just World` | 232 | 2 |
+| `GEN Foundation: Natural Sciences` | 687 | 4 |
+
+Sustainability's one page carries 20 different subjects, which is the whole
+point of the parameter. Natural Sciences is the worst case of the 22 and still
+fits inside the client's five page budget.
+
+It combines the way `subject` does: `subject=enr&gen-categories=GEN Theme:
+Sustainability` returns 11 of ENR's sections against 75 term-wide.
+
+**The facet cannot enumerate its own domain, so the list has to be committed.**
+It drops its own small entries, and the rule is not documented anywhere. Autumn
+2026, facet items against querying all 22 values directly:
+
+| Request | Facet lists | Actually nonzero | Dropped counts |
+|---|---|---|---|
+| `subject=psych` | 1 | 4 | 4, 3, 3 |
+| `subject=enr` | 3 | 7 | 4, 3, 2, 2 |
+| `subject=history` | 6 | 10 | 5, 3, 2, 2 |
+
+A term-wide query is worse, not better: it returns exactly one item, where
+`subject`, `academic-program`, `class-attribute` and `class-attribute-value` all
+pin at 10. Sweeping the eight `catalog-number` buckets found 9 of the 22.
+Sweeping all 243 subjects of Autumn 2026 found all 22, which is what
+`GEN_CATEGORIES` in `js/api.js` holds, and it matches Ohio State's published
+structure exactly: 7 Foundations, 8 Themes, 2 Bookends, 4 high-impact practices
+and World Languages.
+
+**The match is exact and a miss is silent.** Every one of these answers `200`
+with `totalItems: 0` rather than an error:
+
+| Value | Why it misses |
+|---|---|
+| `gen-categories=` | Empty is not "no filter". Sending the parameter blank returns zero |
+| `GEN Theme: Sustainability ` | One trailing space |
+| `GEN Theme: Traditions, Cultures and Transformations` | "and" where the real value has "&" |
+| `GEN Foundation: Race, Ethnicity and Gender Diversity` | Same |
+
+So a reword upstream would empty the picker quietly. `tests/gen-categories.live.test.js`
+walks all 22 against the live API and the weekly GE categories workflow runs it.
+
+Judge a category across every searchable term, not one. Measured 2026-08-20,
+sections per term:
+
+| Category | Spring 2026 | Summer 2026 | Autumn 2026 |
+|---|---|---|---|
+| `GEN Theme: Origins and Evolution` | 7 | 0 | 7 |
+| `GEN Theme: Number, Nature, Mind` | 7 | 0 | 4 |
+| `GEN HIP: Service Learning` | 0 | 0 | 2 |
+| `GEN HIP: Interdisciplinary and Integrated Coll Tch` | 44 | 0 | 53 |
+
+A small category being absent from summer is normal. A reworded one is zero
+everywhere, which is the difference the test keys on.
 
 ## Enumerating the catalog
 
