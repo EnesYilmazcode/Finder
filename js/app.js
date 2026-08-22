@@ -613,10 +613,13 @@ async function init() {
     runSearch(initialQuery, els.term.value);
   }
   else {
-    // Ratings and seats are already in flight; fill the landing screen once
-    // they land rather than showing an empty frame in the meantime.
+    // Ratings and the seats index are already in flight; fill the landing
+    // screen once they land rather than showing an empty frame. The term's own
+    // seats are another 69 KB and nothing on this screen shows a seat count, so
+    // they are started here but not waited on.
     setStatus("");
-    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => showWelcome(els.term.value));
+    loadSeats(els.term.value).catch((error) => console.warn("seats unavailable", error));
+    Promise.allSettled([loadRatings(), loadSeats()]).then(() => showWelcome(els.term.value));
   }
 }
 
