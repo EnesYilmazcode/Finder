@@ -124,6 +124,15 @@ class Element extends Listeners {
     }
   }
 
+  // js/calendar.js writes the section count in last and puts it first, so the
+  // block is not left holding a count it might still change.
+  prepend(...nodes) {
+    const before = this.childNodes;
+    this.childNodes = [];
+    this.append(...nodes);
+    this.childNodes = [...this.childNodes, ...before];
+  }
+
   removeChild(node) {
     const at = this.childNodes.indexOf(node);
     if (at >= 0) this.childNodes.splice(at, 1);
