@@ -7,15 +7,19 @@
 // and a broad query stops at 10000 results. So the index is built here, in CI,
 // by walking one subject at a time and reconciling several passes per subject.
 //
-// Usage:  node scripts/fetch-courses.mjs [term ...]
+// Usage:  node scripts/fetch-courses.mjs [term ...] [--allow-drop]
 //         node scripts/fetch-courses.mjs 1268
 // With no argument every term the API reports as searchable is indexed, which is
 // what the workflow does. Naming terms is for local debugging: the file is
-// rewritten, so terms left out are dropped from it.
+// rewritten, so terms left out are dropped from it. --allow-drop is FORCE_WRITE=1
+// under another name, for accepting a subject the last index had courses for and
+// this run found none of.
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { countRefusal, forceable, refusalMessage } from './guards.mjs';
 
 const API = 'https://content.osu.edu/v2/classes';
 const BARRETT = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
@@ -26,6 +30,11 @@ const OUT_PATH = join(ROOT, 'data', 'courses.json');
 const CONCURRENCY = 5;
 const DELAY_MS = 120;
 const RETRIES = 3;
+// 408 and 425 ask for the request again and a 429 clears on its own. The rest
+// of 4xx will not fix itself. A 5xx or a timeout might.
+const RETRY_STATUS = new Set([408, 425, 429]);
+// Retry-After can name an hour, longer than the run will spend on one request.
+const MAX_RETRY_AFTER_MS = 30000;
 const USER_AGENT =
   'Finder-courses/1.0 (+https://github.com/EnesYilmazcode/Finder) weekly course index';
 
@@ -53,31 +62,61 @@ const STABLE_PASSES = 2;
 // rather than the full stable-pass treatment.
 const SINGLE_PAGE_STABLE_PASSES = 1;
 
+// A subject that is not offered this term and a pass the API dropped come back
+// as the same response: HTTP 200, totalPages 0, no courses. Believing the first
+// one deletes the whole subject until the next weekly run, so look again, spaced
+// by DELAY_MS like every other repeated request here. The cost is one extra
+// request per candidate code the term does not offer.
+const EMPTY_PASSES = 2;
+
 // Autumn 2026 measured 243 subjects and 6072 courses, Summer 2026 the smallest
-// at 197 and 1984. The floors sit well under the smallest term: they exist to
-// catch a run that came back gutted, not to police term to term drift.
+// at 197 and 1984. The floors sit well under the smallest term because they only
+// have to cover a first run: after that a term is held to its own last count.
 const MIN_SUBJECTS = 100;
 const MIN_COURSES = 1200;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Retry-After is either a count of seconds or an HTTP date. Anything else, or a
+// date already past, leaves the ordinary backoff in charge.
+function retryAfterMs(header) {
+  if (!header) return 0;
+  const seconds = /^\s*\d+\s*$/.test(header) ? Number(header) : NaN;
+  const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+  if (!(ms > 0)) return 0;
+  return Math.min(ms, MAX_RETRY_AFTER_MS);
+}
+
 async function fetchWith(url, parse, { allow404 = false } = {}) {
   let lastError;
+  let wait = 0;
+  let retriedForbidden = false;
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
-    if (attempt > 0) await sleep(500 * 2 ** (attempt - 1));
+    if (attempt > 0) await sleep(wait || 500 * 2 ** (attempt - 1));
+    wait = 0;
     try {
       const res = await fetch(url, {
         headers: { 'user-agent': USER_AGENT, accept: 'application/json,text/html' },
         signal: AbortSignal.timeout(30000),
       });
       if (res.status === 404 && allow404) return null;
-      // A 4xx will not fix itself, so stop. A 5xx or a timeout might.
       if (res.status >= 400 && res.status < 500) {
-        const err = new Error(`${res.status} ${res.statusText}`);
-        err.fatal = true;
-        throw err;
+        let retryable = RETRY_STATUS.has(res.status);
+        // A 403 is often a WAF being twitchy, so give it one more go.
+        if (res.status === 403 && !retriedForbidden) {
+          retriedForbidden = true;
+          retryable = true;
+        }
+        if (!retryable) {
+          const err = new Error(`${res.status} ${res.statusText}`);
+          err.fatal = true;
+          throw err;
+        }
       }
       if (!res.ok) {
+        // A response with no headers still has to be reported by status rather
+        // than throw over the Retry-After that is not there.
+        wait = retryAfterMs(res.headers?.get?.('retry-after'));
         lastError = new Error(`${res.status} ${res.statusText}`);
         continue;
       }
@@ -168,19 +207,56 @@ async function discoverSubjects(term) {
   return found;
 }
 
-// Subject list, part three: whatever the last run wrote. Missing or unreadable
-// means a first run, which is not an error.
-async function previousSubjects() {
-  const codes = new Set();
+// The index the last run wrote. Missing or unreadable means a first run, which
+// is not an error. Read once, since everything below wants a projection of it.
+async function previousIndex(path = OUT_PATH) {
   try {
-    const previous = JSON.parse(await readFile(OUT_PATH, 'utf8'));
-    for (const term of Object.values(previous.terms ?? {})) {
-      for (const subject of term.subjects ?? []) if (subject.code) codes.add(subject.code);
-    }
+    return JSON.parse(await readFile(path, 'utf8'));
   } catch {
-    return codes;
+    return null;
   }
-  return codes;
+}
+
+// Subject list, part three: what the last run wrote, keyed by strm so a subject
+// one term dropped is not confused with one another term never had, and carrying
+// the counts the collapse check compares against. A subject with no courses is
+// left out because this also decides what was lost, and lost means it had
+// courses and now has none.
+function subjectsByTerm(previous) {
+  const byTerm = new Map();
+  for (const [strm, term] of Object.entries(previous?.terms ?? {})) {
+    const codes = new Set();
+    let courses = 0;
+    for (const subject of term.subjects ?? []) {
+      if (!subject.code || !subject.courses?.length) continue;
+      codes.add(subject.code);
+      courses += subject.courses.length;
+    }
+    byTerm.set(strm, { codes, subjects: codes.size, courses });
+  }
+  return byTerm;
+}
+
+// Subjects the last index had courses for that this run came back empty on.
+function lostSubjects(previous, subjects) {
+  const offered = new Set(subjects.map((s) => s.code));
+  return [...previous].filter((code) => !offered.has(code));
+}
+
+// Every reason not to write a term. Apart from main so a test can hold it to the
+// counts that are really committed. `subjects` is what this run built for the
+// term, because one of the reasons is which of them went missing.
+function writeRefusals(strm, offered, courses, before, subjects = []) {
+  const lost = lostSubjects(before?.codes ?? new Set(), subjects);
+  return [
+    countRefusal(`term ${strm} subjects`, offered, MIN_SUBJECTS, before?.subjects),
+    countRefusal(`term ${strm} courses`, courses, MIN_COURSES, before?.courses),
+    // Forceable for the same reason a shrink is: a subject really can retire, and
+    // the stale index goes on saying it had courses until an operator accepts it.
+    lost.length
+      ? forceable(`term ${strm}: ${lost.join(', ')} had courses in the last index and none now`)
+      : null,
+  ];
 }
 
 // One complete walk of one subject. The subject filter takes the code
@@ -240,7 +316,13 @@ async function reconcileSubject(term, code) {
 
     if (pass === 1) firstPassCount = added;
     else addedLater += added;
-    if (!byCatalog.size) break; // not offered this term, one look is enough
+    // Kept out of the stable-pass check below: falling through would count an
+    // empty pass as clean and end the walk on the spot.
+    if (!byCatalog.size) {
+      if (pass >= EMPTY_PASSES) break;
+      await sleep(DELAY_MS);
+      continue;
+    }
 
     clean = added === 0 ? clean + 1 : 0;
     if (clean >= (pages > 1 ? STABLE_PASSES : SINGLE_PAGE_STABLE_PASSES)) break;
@@ -324,10 +406,29 @@ async function writeAtomic(path, contents) {
 }
 
 async function main() {
-  const requested = process.argv.slice(2).filter((a) => /^\d{4}$/.test(a));
+  const args = process.argv.slice(2);
+  const requested = args.filter((a) => /^\d{4}$/.test(a));
+  // A shrink and a retired subject are the same kind of event, so they take the
+  // same escape hatch. Without one the weekly run stays red until someone finds
+  // the flag in this comment.
+  const force = process.env.FORCE_WRITE === '1' || args.includes('--allow-drop');
   const all = await searchableTerms();
   const terms = requested.length ? all.filter((t) => requested.includes(t.strm)) : all;
   if (!terms.length) throw new Error(`none of ${requested.join(', ')} is searchable`);
+
+  const committed = await previousIndex();
+
+  // searchableTermsV2 is one uncached call to the same API that pages
+  // non-deterministically, and a short answer drops whole terms from a file that
+  // is rewritten every run. A named run is exempt: dropping the rest is what
+  // that mode is for.
+  if (!requested.length) {
+    const refusal = refusalMessage(
+      [countRefusal('searchable terms', terms.length, 1, Object.keys(committed?.terms ?? {}).length)],
+      force
+    );
+    if (refusal) throw new Error(`Refusing to write ${OUT_PATH}.\n${refusal}`);
+  }
 
   const candidates = new Set();
   const barrett = await barrettSubjects();
@@ -336,9 +437,10 @@ async function main() {
   // Every subject the last index knew about stays a candidate. The sweep below
   // is itself paged, so it is as lossy as anything else here, and without this
   // a subject could drop out of the file for one run and come back the next.
-  // A candidate that really is not offered costs one request and is dropped.
-  const previous = await previousSubjects();
-  for (const code of previous) candidates.add(code);
+  // A candidate that really is not offered costs two requests and is dropped.
+  const previous = subjectsByTerm(committed);
+  const previousCodes = new Set([...previous.values()].flatMap(({ codes }) => [...codes]));
+  for (const code of previousCodes) candidates.add(code);
 
   let swept = 0;
   for (const term of terms) {
@@ -349,7 +451,7 @@ async function main() {
 
   const codes = [...candidates].sort();
   console.log(
-    `${codes.length} candidate subjects: ${barrett.size} from Barrett, ${previous.size} from the last index, ` +
+    `${codes.length} candidate subjects: ${barrett.size} from Barrett, ${previousCodes.size} from the last index, ` +
       `${swept} subject hits across ${terms.length} term sweeps`
   );
 
@@ -366,16 +468,11 @@ async function main() {
         `${stats.unconverged} unconverged, ${stats.seconds.toFixed(1)}s`
     );
 
-    if (stats.offered < MIN_SUBJECTS) {
-      throw new Error(
-        `term ${term.strm}: only ${stats.offered} subjects offered, expected at least ${MIN_SUBJECTS}, refusing to write`
-      );
-    }
-    if (stats.courses < MIN_COURSES) {
-      throw new Error(
-        `term ${term.strm}: only ${stats.courses} courses, expected at least ${MIN_COURSES}, refusing to write`
-      );
-    }
+    const refusal = refusalMessage(
+      writeRefusals(term.strm, stats.offered, stats.courses, previous.get(term.strm), index.subjects),
+      force
+    );
+    if (refusal) throw new Error(`Refusing to write ${OUT_PATH}.\n${refusal}`);
   }
 
   // Always keyed by term, even for a single term, so the page reads one shape
@@ -397,8 +494,18 @@ async function main() {
   console.log(`wrote ${OUT_PATH} (${bytes} bytes, ${(bytes / 1024).toFixed(1)} KiB)`);
 }
 
-// Exported so a checker can reuse the walk without rerunning the whole index.
-export { reconcileSubject, searchableTerms };
+// Exported so a checker can reuse the walk without rerunning the whole index, so
+// the retry policy can be exercised without a network, and so a test can drive
+// the write gate against the committed index.
+export {
+  fetchJson,
+  lostSubjects,
+  previousIndex,
+  reconcileSubject,
+  searchableTerms,
+  subjectsByTerm,
+  writeRefusals,
+};
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((err) => {
