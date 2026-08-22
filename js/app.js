@@ -342,9 +342,19 @@ function showWelcome(term) {
   );
 }
 
+/**
+ * Drop the last search along with everything it put on screen. paint() repaints
+ * from lastResult, so a result left behind comes back on the next filter click.
+ */
+function clearLastSearch() {
+  lastResult = null;
+  els.results.replaceChildren();
+  resetDetail();
+}
+
 async function runSearch(q, term) {
   if (!q.trim()) {
-    els.results.replaceChildren();
+    clearLastSearch();
     showWelcome(term);
     setStatus("");
     return;
@@ -369,7 +379,7 @@ async function runSearch(q, term) {
     paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
-    els.results.replaceChildren();
+    clearLastSearch();
     setStatus(error instanceof ApiError ? error.message : "Something went wrong. Try again.", "error");
     if (!(error instanceof ApiError)) console.error(error);
   } finally {
@@ -379,10 +389,11 @@ async function runSearch(q, term) {
 
 /** Re-render from the last search. Filters never refetch. */
 function paint(term = els.term.value) {
-  if (!lastResult) return;
+  // The clear button tracks the filters, not the result, so it has to be set
+  // before the bail below.
   const filters = readFilters();
-  const active = isActive(filters);
-  els.clear.hidden = !active;
+  els.clear.hidden = !isActive(filters);
+  if (!lastResult) return;
 
   const blank = { entries: [], hiddenSections: 0, hiddenCourses: 0 };
   const p = showHidden ? { ...blank, entries: lastResult.primary } : applyFilters(lastResult.primary, filters);
