@@ -6,7 +6,7 @@
 // enrollment figure per course and repeats it onto every section, so rendering
 // it per section would tell students a full section is open. See #13.
 
-import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
+import { formatWhen, formatPlace, formatUnits, instructorsOf, courseBadges, sectionBadges, attributeLabel } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { seatsFor } from "./seats.js";
 
@@ -18,6 +18,14 @@ function el(tag, className, text) {
   if (className) node.className = className;
   if (text != null) node.textContent = text;
   return node;
+}
+
+/** A chip for one attribute. The full wording lives in its title. */
+function attributeBadge(attribute) {
+  const badge = el("span", "attr", attributeLabel(attribute));
+  badge.dataset.attr = attribute.name;
+  if (attribute.description) badge.title = attribute.description;
+  return badge;
 }
 
 function sortSections(sections) {
@@ -115,6 +123,7 @@ export function renderSection(section, term) {
   const when = el("span", "section-when");
   when.append(document.createTextNode(formatWhen(meeting) + " "));
   if (section.component) when.append(el("span", "component", section.component));
+  for (const attribute of sectionBadges(section)) when.append(document.createTextNode(" "), attributeBadge(attribute));
   li.append(when);
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
@@ -141,6 +150,8 @@ export function renderCourse({ course, sections }, term) {
   const head = el("header", "course-head");
   head.append(el("span", "course-code", `${course.subject} ${course.catalogNumber}`));
   head.append(el("span", "course-title", course.title ?? ""));
+
+  for (const attribute of courseBadges(course, sections)) head.append(attributeBadge(attribute));
 
   const units = formatUnits(course);
   const count = `${sections.length} section${sections.length === 1 ? "" : "s"}`;
