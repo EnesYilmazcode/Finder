@@ -14,17 +14,48 @@ import { RATINGS, SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
  * `routes` is a URL-keyed map of JSON bodies, or a function returning a whole
  * Response-like object, which is what the seat snapshotter's tests need: text
  * bodies and the 403s and 404s Barrett really answers with.
+ *
+ * Pass a Map or a list of pairs to key a route on a RegExp or a predicate
+ * instead. The API calls carry query strings that vary with the search, so an
+ * exact URL cannot name them at all.
  */
 export function stubFetch(routes) {
   const original = globalThis.fetch;
-  const serve = typeof routes === "function"
-    ? routes
-    : (key) => {
-        if (!(key in routes)) throw new Error(`unexpected fetch: ${key}`);
-        return { ok: true, status: 200, json: async () => routes[key] };
-      };
+  const serve = typeof routes === "function" ? routes : byRoute(routes);
   globalThis.fetch = async (url) => serve(String(url));
   return () => { globalThis.fetch = original; };
+}
+
+/**
+ * Exact keys win over patterns whatever order they were written in, so one
+ * named URL can always be pinned out of a pattern that would swallow it.
+ */
+function byRoute(routes) {
+  const entries = routes instanceof Map ? [...routes]
+    : Array.isArray(routes) ? routes
+    : Object.entries(routes);
+  const exact = new Map(entries.filter(([key]) => typeof key === "string"));
+  const patterns = entries.filter(([key]) => typeof key !== "string");
+
+  return (url) => {
+    if (exact.has(url)) return answer(exact.get(url), url);
+    for (const [key, value] of patterns) {
+      if (key instanceof RegExp) key.lastIndex = 0; // a /g route would match every other call
+      if (key instanceof RegExp ? key.test(url) : key(url)) return answer(value, url);
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+}
+
+/**
+ * A route answers with a JSON body. A function computes that body from the URL,
+ * which is how a test serves page 2 differently from page 1, and anything
+ * carrying `ok` is taken as the whole response, so a route can fail.
+ */
+function answer(value, url) {
+  const body = typeof value === "function" ? value(url) : value;
+  if (body && typeof body === "object" && "ok" in body) return body;
+  return { ok: true, status: 200, json: async () => body };
 }
 
 /**
