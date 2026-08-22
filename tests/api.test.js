@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ApiError, fetchTerms, searchClasses, searchAllPages, termCodeFor, defaultTerm } from "../js/api.js";
+import { ApiError, fetchTerms, searchClasses, searchAllPages, termCodeFor, defaultTerm, GEN_CATEGORIES } from "../js/api.js";
 
 /** Record every request and answer each with the given body. */
 function capture(body, init = {}) {
@@ -221,4 +221,116 @@ test("one failing page does not sink the whole search", async () => {
   const result = await searchAllPages({ q: "Smith", term: "1268" });
   assert.equal(result.courses.length, 1);
   assert.equal(result.pagesFetched, 2);
+});
+
+test("a GE requirement rides along as gen-categories, spelled exactly", async () => {
+  const calls = capture(searchBody);
+  await searchClasses({ q: "", term: "1268", genCategory: "GEN Theme: Sustainability" });
+  assert.equal(calls[0].searchParams.get("gen-categories"), "GEN Theme: Sustainability");
+});
+
+test("no requirement leaves gen-categories off entirely", async () => {
+  // Not the same as sending it empty: `gen-categories=` returns zero, so an
+  // empty select would silently answer every search with nothing.
+  const calls = capture(searchBody);
+  await searchClasses({ q: "CSE 2221", term: "1268" });
+  assert.ok(!calls[0].searchParams.has("gen-categories"), calls[0].search);
+
+  const blank = capture(searchBody);
+  await searchClasses({ q: "", term: "1268", genCategory: "" });
+  assert.ok(!blank[0].searchParams.has("gen-categories"), blank[0].search);
+});
+
+test("every page of a requirement search carries the requirement", async () => {
+  // Including the relevance pull the budget falls back to, which builds its
+  // requests from scratch.
+  const calls = capture({ data: { totalItems: 900, totalPages: 7, courses: [] } });
+  await searchAllPages({ q: "", term: "1268", maxPages: 2, genCategory: "GEN Foundation: Natural Sciences" });
+  assert.equal(calls.length, 3);
+  assert.ok(
+    calls.every((u) => u.searchParams.get("gen-categories") === "GEN Foundation: Natural Sciences"),
+    calls.map((u) => u.search).join(" ")
+  );
+});
+
+test("a requirement survives the retry that drops a wrong subject guess", async () => {
+  const calls = capture((n) => ({
+    data: n === 1
+      ? { totalItems: 0, totalPages: 0, courses: [] }
+      : { totalItems: 4, totalPages: 1, courses: [] },
+  }));
+  await searchAllPages({ q: "Smith 2000", term: "1268", genCategory: "GEN Theme: Sustainability" });
+  assert.equal(calls.length, 2);
+  assert.ok(calls.some((u) => !u.searchParams.has("subject")), "the subject guess is dropped");
+  assert.ok(
+    calls.every((u) => u.searchParams.get("gen-categories") === "GEN Theme: Sustainability"),
+    calls.map((u) => u.search).join(" ")
+  );
+});
+
+test("the committed GE categories are unique and verbatim", () => {
+  // Upstream matches the string exactly. A trailing space or an "and" for an
+  // "&" returns zero rather than an error, so nothing here gets tidied.
+  assert.equal(new Set(GEN_CATEGORIES).size, GEN_CATEGORIES.length, "duplicate category");
+  for (const name of GEN_CATEGORIES) {
+    assert.equal(name, name.trim(), `padded: ${JSON.stringify(name)}`);
+  }
+});
+
+// #76: the code came from a dropdown of real subjects, so there is nothing to
+// guess. Bare "MATH" as free text comes back with LATIN and ASTRON courses and
+// professors named McMath.
+test("a picked subject is sent as the subject parameter, not as query text", async () => {
+  const calls = capture({ data: { totalItems: 89, totalPages: 1, courses: [] } });
+  const result = await searchAllPages({ q: "MATH", term: "1268", subject: "MATH" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].searchParams.get("subject"), "math", "upstream returns nothing for an uppercase subject");
+  assert.equal(calls[0].searchParams.get("q"), "", "the code must not also be matched as free text");
+  assert.equal(result.subject, "math");
+});
+
+test("a picked subject keeps the number as the query and never retries as text", async () => {
+  const calls = capture({ data: { totalItems: 0, totalPages: 0, courses: [] } });
+  await searchAllPages({ q: "MATH 2153", term: "1268", subject: "MATH" });
+  assert.equal(calls[0].searchParams.get("subject"), "math");
+  assert.equal(calls[0].searchParams.get("q"), "2153");
+  assert.equal(calls.length, 1, "a picked code that finds nothing really found nothing, so no retry");
+});
+
+test("a guessed subject that finds nothing still falls back to free text", async () => {
+  const calls = capture({ data: { totalItems: 0, totalPages: 0, courses: [] } });
+  await searchAllPages({ q: "Mathur 2153", term: "1268" });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].searchParams.get("q"), "Mathur 2153");
+  assert.ok(!calls[1].searchParams.has("subject"));
+});
+
+// The signature carries three parameters added by three branches, and
+// destructuring drops an unknown one without a word, so each is pinned at the
+// wire rather than at the call.
+test("searchAllPages sends every scope it was handed", async () => {
+  const calls = capture({ data: { totalItems: 2, totalPages: 1, courses: [] } });
+  await searchAllPages({ q: "MATH", term: "1268", subject: "math", genCategory: "GEN Theme: Sustainability" });
+
+  assert.equal(calls[0].searchParams.get("subject"), "math");
+  assert.equal(calls[0].searchParams.get("q"), "", "a picked code moves out of q");
+  assert.equal(calls[0].searchParams.get("gen-categories"), "GEN Theme: Sustainability");
+});
+
+test("searchAllPages leaves off a scope nobody picked", async () => {
+  const calls = capture({ data: { totalItems: 2, totalPages: 1, courses: [] } });
+  await searchAllPages({ q: "Smith", term: "1268" });
+
+  assert.equal(calls[0].searchParams.has("subject"), false);
+  assert.equal(calls[0].searchParams.has("gen-categories"), false);
+});
+
+// A picked code is not a guess, so an empty answer is the answer. The keyword
+// fallback would silently widen a browse the student chose.
+test("searchAllPages does not retry unscoped after a picked subject finds nothing", async () => {
+  const calls = capture({ data: { totalItems: 0, totalPages: 0, courses: [] } });
+  await searchAllPages({ q: "", term: "1268", subject: "arab" });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].searchParams.get("subject"), "arab");
 });

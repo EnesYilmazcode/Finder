@@ -1,21 +1,24 @@
 // Client-side filtering over results already fetched. No filter triggers a
 // network request, so dragging a time slider does not hammer OSU.
 
-import { instructorsOf } from "./format.js";
-import { ratingFor } from "./ratings.js";
-import { seatsFor } from "./seats.js";
+import { dayCodes, instructorsOf, isOnlineMeeting, sectionFlags } from "./format.js";
+import { ratingFor, ratingsFailed } from "./ratings.js";
+import { seatsFor, unreachable } from "./seats.js";
 
 const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 export const DEFAULTS = {
   days: [],          // days that must be met; empty means no constraint
   avoid: [],         // days that must not be met
+  busy: [],          // {days, start, end} blocks nothing may overlap
   from: "",          // earliest start, as minutes past midnight
   to: "",            // latest end
   rating: "",        // minimum average rating
   hideFull: false,
   hideOnline: false,
   ratedOnly: false,
+  hideConsent: false,
+  undergradOnly: false,
 };
 
 /** "8:00 am" to minutes past midnight. Returns null when unparseable. */
@@ -25,6 +28,43 @@ export function toMinutes(text) {
   let hour = Number(match[1]) % 12;
   if (match[3].toLowerCase() === "p") hour += 12;
   return hour * 60 + Number(match[2]);
+}
+
+/**
+ * A busy block from its URL form, "TuTh-575-655". Returns null when unparseable.
+ *
+ * Minutes past midnight, the same as `from` and `to`, and dashes rather than
+ * colons so a shared link does not come out full of %3A.
+ */
+export function parseBusy(text) {
+  const match = /^([A-Za-z]+)-(\d{1,4})-(\d{1,4})$/.exec(String(text ?? "").trim());
+  if (!match) return null;
+  if (match[1].length % 2) return null;
+  const codes = match[1].match(/.{2}/g);
+
+  const wanted = new Set();
+  for (const code of codes) {
+    const key = DAY_KEYS.find((k) => dayCodes([k]).toLowerCase() === code.toLowerCase());
+    if (!key) return null;
+    wanted.add(key);
+  }
+  const days = DAY_KEYS.filter((key) => wanted.has(key));
+
+  const start = Number(match[2]);
+  const end = Number(match[3]);
+  if (start >= end || end > 1440) return null;
+  return { days, start, end };
+}
+
+export function formatBusy(block) {
+  return `${dayCodes(block.days)}-${block.start}-${block.end}`;
+}
+
+/** Half open, so a class that ends exactly when a block starts is not a clash. */
+function overlaps(start, end, block) {
+  // No end time means the class is only known to be in progress at its start.
+  const stop = end > start ? end : start + 1;
+  return start < block.end && stop > block.start;
 }
 
 function sectionDays(section) {
@@ -43,15 +83,34 @@ function sectionDays(section) {
  * sections from anyone who touched a slider.
  */
 function keepSection(section, filters) {
-  if (filters.hideOnline && /online/i.test(section.instructionMode ?? "")) return false;
+  // Online-ness lives on the meeting, not on the mode. See #84.
+  if (filters.hideOnline) {
+    const meetings = section.meetings ?? [];
+    if (meetings.length && meetings.every((m) => isOnlineMeeting(m))) return false;
+  }
+
+  // Read through the flags rather than the fields, so a checkbox hides exactly
+  // the sections that were carrying the matching chip.
+  if (filters.hideConsent || filters.undergradOnly) {
+    const keys = sectionFlags(section).map((f) => f.key);
+    if (filters.hideConsent && keys.includes("consent")) return false;
+    if (filters.undergradOnly && keys.includes("career")) return false;
+  }
 
   if (filters.hideFull) {
-    const seats = seatsFor(section.classNumber, filters.term);
-    if (seats?.full) return false;
+    if (seatsFor(section.classNumber, filters.term)?.full) return false;
+    // A section with seats nobody can register for is no more use than a full
+    // one. The package rule lives in seats.js so the row and the detail pane
+    // answer this the same way. #67.
+    if (unreachable(section.classNumber, filters.term)) return false;
   }
 
   const people = instructorsOf(section);
-  if (filters.ratedOnly && !people.some((p) => ratingFor(p.name))) return false;
+  // A snapshot that never arrived is not a verdict on anybody. Judged against
+  // the empty index every instructor reads as unrated, so rated-only emptied
+  // the page and the status line blamed the student's own filters. #85. The
+  // minimum rating needs no such guard: it already ignores anyone unrated.
+  if (filters.ratedOnly && !ratingsFailed() && !people.some((p) => ratingFor(p.name))) return false;
 
   if (filters.rating) {
     // Unrated is unknown, not bad. Seeding this at -1 made every unrated
@@ -74,13 +133,15 @@ function keepSection(section, filters) {
     if (filters.avoid.length && filters.avoid.some((d) => meetsOn.has(d))) return false;
   }
 
-  // A lab that meets Tuesday morning and again Thursday afternoon was surviving
-  // "ends no later than noon" on the strength of its Tuesday half. See #82.
+  // A lab and its lecture meet at different hours, so the first meeting listed
+  // is not the section's span.
   for (const meeting of section.meetings ?? []) {
     const start = toMinutes(meeting.startTime);
+    if (start == null) continue;
     const end = toMinutes(meeting.endTime) ?? start;
-    if (filters.from && start != null && start < Number(filters.from)) return false;
-    if (filters.to && end != null && end > Number(filters.to)) return false;
+    if (filters.from && start < Number(filters.from)) return false;
+    if (filters.to && end > Number(filters.to)) return false;
+    if (filters.busy.some((b) => b.days.some((d) => meeting[d]) && overlaps(start, end, b))) return false;
   }
 
   return true;
@@ -88,8 +149,10 @@ function keepSection(section, filters) {
 
 export function isActive(filters) {
   return Boolean(
-    filters.days.length || filters.avoid.length || filters.from || filters.to || filters.rating ||
-    filters.hideFull || filters.hideOnline || filters.ratedOnly
+    filters.days.length || filters.avoid.length || filters.busy.length ||
+    filters.from || filters.to || filters.rating ||
+    filters.hideFull || filters.hideOnline || filters.ratedOnly ||
+    filters.hideConsent || filters.undergradOnly
   );
 }
 
