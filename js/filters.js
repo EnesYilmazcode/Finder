@@ -1,8 +1,8 @@
 // Client-side filtering over results already fetched. No filter triggers a
 // network request, so dragging a time slider does not hammer OSU.
 
-import { instructorsOf } from "./format.js";
-import { ratingFor } from "./ratings.js";
+import { instructorsOf, isOnlineMeeting } from "./format.js";
+import { ratingFor, ratingsFailed } from "./ratings.js";
 import { linkedTo, seatsFor } from "./seats.js";
 
 const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -65,7 +65,11 @@ function everyWayInFull(seats, ways, term) {
  * sections from anyone who touched a slider.
  */
 function keepSection(section, filters) {
-  if (filters.hideOnline && /online/i.test(section.instructionMode ?? "")) return false;
+  // Online-ness lives on the meeting, not on the mode. See #84.
+  if (filters.hideOnline) {
+    const meetings = section.meetings ?? [];
+    if (meetings.length && meetings.every((m) => isOnlineMeeting(m))) return false;
+  }
 
   if (filters.hideFull) {
     const seats = seatsFor(section.classNumber, filters.term);
@@ -81,7 +85,11 @@ function keepSection(section, filters) {
   }
 
   const people = instructorsOf(section);
-  if (filters.ratedOnly && !people.some((p) => ratingFor(p.name))) return false;
+  // A snapshot that never arrived is not a verdict on anybody. Judged against
+  // the empty index every instructor reads as unrated, so rated-only emptied
+  // the page and the status line blamed the student's own filters. #85. The
+  // minimum rating needs no such guard: it already ignores anyone unrated.
+  if (filters.ratedOnly && !ratingsFailed() && !people.some((p) => ratingFor(p.name))) return false;
 
   if (filters.rating) {
     // Unrated is unknown, not bad. Seeding this at -1 made every unrated

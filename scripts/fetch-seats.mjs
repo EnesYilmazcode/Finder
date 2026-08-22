@@ -10,7 +10,10 @@
 //         node scripts/fetch-seats.mjs 1268
 // With no argument every term the API reports as searchable is snapshotted,
 // which is what the workflow does. Naming terms refreshes only those: the other
-// searchable terms keep the files and index entries they already have.
+// searchable terms keep the files and index entries they already have. A term
+// that fails its checks keeps what it has too, and the run exits non-zero.
+// FORCE_WRITE=1 writes a term that came back far short of the one already
+// committed, which is how a real upstream shrink gets shipped.
 //
 // Output is one file per term, data/seats-1268.json, plus data/seats.json
 // listing them. Seats load before anything renders, so a browser fetches the
@@ -22,11 +25,14 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promise
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { countRefusal, fatal, refusalMessage, subjectResidueRefusal } from './guards.mjs';
+
 const BASE = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
 // Only for the term list. Every seat number here comes from Barrett.
 const API = 'https://content.osu.edu/v2/classes';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT_DIR = join(ROOT, 'data');
+// Overridable so a test can run the script against a temp directory.
+const OUT_DIR = process.env.SEATS_OUT_DIR ?? join(ROOT, 'data');
 const INDEX_NAME = 'seats.json';
 const TERM_PREFIX = 'seats-';
 const TERM_FILE_RE = /^seats-\d{4}\.json$/;
@@ -34,13 +40,38 @@ const TERM_FILE_RE = /^seats-\d{4}\.json$/;
 const CONCURRENCY = 5;
 const DELAY_MS = 120;
 const RETRIES = 3;
+// 408 and 425 ask for the request again and a 429 clears on its own. The rest
+// of 4xx will not fix itself. A 5xx or a timeout might.
+const RETRY_STATUS = new Set([408, 425, 429]);
+// Retry-After can name an hour, longer than the run will spend on one request.
+const MAX_RETRY_AFTER_MS = 30000;
 const USER_AGENT =
   'Finder-seats/1.0 (+https://github.com/EnesYilmazcode/Finder) daily snapshot';
 
-// A subject file that fails the layout check this badly is a format change,
-// not a stray line, so the job should fail loudly instead of shipping junk.
-const MAX_RESIDUE_RATE = 0.005;
+// Residue measured across a whole term. A term that fails the layout check this
+// badly is a format change, not a stray line, so it is held back rather than
+// shipped. Named for its granularity because a per-file gate wants a different
+// number: one bad row in a 25-row subject file is 4%.
+const MAX_TERM_RESIDUE_RATE = 0.005;
+
+// The same rate over one subject file. Over a term alone a small file can fail
+// every row it has and still be a rounding error, and the sections it dropped
+// then render as an honestly absent seat count. subjectResidueRefusal is what
+// keeps that from being a hair trigger: measured on 2026-08-21, 633 of the 680
+// subject files offered across the three searchable terms hold under 200 rows,
+// so one odd line is already over the rate.
+const MAX_SUBJECT_RESIDUE_RATE = 0.005;
+
+// Measured on 2026-08-21: Summer 2026 is the smallest term at 198 subjects and
+// 4866 sections, Autumn 2026 the largest at 241 and 17692. Both floors sit far
+// under the smallest because they only cover a first snapshot of a term, which
+// has no committed count to be held to.
 const MIN_SUBJECTS = 50;
+const MIN_SECTIONS = 500;
+
+// A chosen ceiling, not a measured failure rate. Under it a subject's sections
+// read as unknown for a day. Over it too much of the term is missing to ship.
+const MAX_SUBJECT_FAILURES = 5;
 
 // Fixed-width field slices, measured against every subject file for term 1268
 // on 2026-08-18 (17680 section lines, zero residue). Half-open [start, end).
@@ -65,27 +96,55 @@ const DAY_COLUMNS = { 49: 'M', 50: 'T', 51: 'W', 52: 'R', 53: 'F', 54: 'Sa', 55:
 const TAIL_RE = /^\s*(?:(\S+)\s+)?(\d+)\/(\d+)(?:\s*\+(\d+))?\s*$/;
 
 const HEADER_RE = /^(\S+)\s+(\d{4}) \((.+?)\)\s+updated: (\S+)\s*$/;
+// A pre-publication term carries a DRAFT banner above the column header, so its
+// header is five lines instead of three. Only the top of the file is searched,
+// so a trailer row cannot stand in for the header.
+const COLUMNS_RE = /class#.*enrld\/limit\/\+wait/;
+const COLUMNS_SEARCH_LINES = 10;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Retry-After is either a count of seconds or an HTTP date. Anything else, or a
+// date already past, leaves the ordinary backoff in charge.
+function retryAfterMs(header) {
+  if (!header) return 0;
+  const seconds = /^\s*\d+\s*$/.test(header) ? Number(header) : NaN;
+  const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+  if (!(ms > 0)) return 0;
+  return Math.min(ms, MAX_RETRY_AFTER_MS);
+}
+
 async function fetchText(url, { allow404 = false, accept = 'text/plain,text/html' } = {}) {
   let lastError;
+  let wait = 0;
+  let retriedForbidden = false;
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
-    if (attempt > 0) await sleep(500 * 2 ** (attempt - 1));
+    if (attempt > 0) await sleep(wait || 500 * 2 ** (attempt - 1));
+    wait = 0;
     try {
       const res = await fetch(url, {
         headers: { 'user-agent': USER_AGENT, accept },
         signal: AbortSignal.timeout(30000),
       });
       if (res.status === 404 && allow404) return null;
-      // A 4xx will not fix itself, so stop. A 5xx or a timeout might.
       if (res.status >= 400 && res.status < 500) {
-        const err = new Error(`${res.status} ${res.statusText}`);
-        err.fatal = true;
-        throw err;
+        let retryable = RETRY_STATUS.has(res.status);
+        // A 403 is often a WAF being twitchy, so give it one more go.
+        if (res.status === 403 && !retriedForbidden) {
+          retriedForbidden = true;
+          retryable = true;
+        }
+        if (!retryable) {
+          const err = new Error(`${res.status} ${res.statusText}`);
+          err.fatal = true;
+          throw err;
+        }
       }
       if (!res.ok) {
+        // A response with no headers still has to be reported by status rather
+        // than throw over the Retry-After that is not there.
+        wait = retryAfterMs(res.headers?.get?.('retry-after'));
         lastError = new Error(`${res.status} ${res.statusText}`);
         continue;
       }
@@ -141,18 +200,30 @@ function parseDays(line) {
   return out;
 }
 
+// A file whose shape is not the one the column map describes is a layout
+// change, not a stray line, so a caller that tolerates a few bad subjects has
+// to rethrow this rather than count it as one of them.
+function layoutError(message) {
+  const err = new Error(message);
+  err.layout = true;
+  return err;
+}
+
 function parseSubjectFile(subject, term, text) {
   const lines = text.split('\n');
   const header = HEADER_RE.exec(lines[0] ?? '');
-  if (!header) throw new Error(`${subject}: unrecognised header ${JSON.stringify(lines[0])}`);
-  if (header[2] !== term) throw new Error(`${subject}: header term ${header[2]} is not ${term}`);
+  if (!header) throw layoutError(`${subject}: unrecognised header ${JSON.stringify(lines[0])}`);
+  if (header[2] !== term) throw layoutError(`${subject}: header term ${header[2]} is not ${term}`);
+
+  const columnsAt = lines.slice(0, COLUMNS_SEARCH_LINES).findIndex((line) => COLUMNS_RE.test(line));
+  if (columnsAt < 0) throw layoutError(`${subject}: no column header near the top of the file`);
 
   const sections = [];
   const failures = [];
   let continuations = 0;
 
   // Two trailer tables follow the section list and use different layouts.
-  for (const line of lines.slice(3)) {
+  for (const line of lines.slice(columnsAt + 1)) {
     if (line.startsWith('INDependent study classes') || line.startsWith('waitlist report')) break;
     if (!line.trim()) continue;
 
@@ -244,23 +315,57 @@ async function mapLimit(items, limit, worker) {
   return out;
 }
 
+// The layout check, one subject file at a time. Kept apart from the fetch so it
+// can be run against parsed files without the network.
+function subjectRefusals(term, results) {
+  return results
+    .filter((r) => r.offered)
+    .map((r) =>
+      subjectResidueRefusal(
+        `term ${term} ${r.subject}`,
+        r.sections.length,
+        r.failures.length,
+        MAX_SUBJECT_RESIDUE_RATE
+      )
+    );
+}
+
 async function snapshotTerm(term, subjects) {
   const started = Date.now();
+  // mapLimit runs on Promise.all, so a worker that throws rejects the whole
+  // term. A failed request and a file that will not parse are recorded apart
+  // because only the first of them is worth tolerating.
   const results = await mapLimit(subjects, CONCURRENCY, async (subject) => {
-    const text = await fetchText(`${BASE}/${subject}/${term}.txt`, { allow404: true });
+    let text;
+    try {
+      text = await fetchText(`${BASE}/${subject}/${term}.txt`, { allow404: true });
+    } catch (err) {
+      return { subject, offered: false, fetchError: err.message };
+    }
     if (text === null) return { subject, offered: false };
-    return { subject, offered: true, ...parseSubjectFile(subject, term, text) };
+    try {
+      return { subject, offered: true, ...parseSubjectFile(subject, term, text) };
+    } catch (err) {
+      // The layout errors land here too. They are one renamed column across
+      // every file rather than one bad subject, so they must reach the counter
+      // termProblem gives no tolerance to, never the failed-request one.
+      return { subject, offered: false, parseError: err.message };
+    }
   });
 
   const byClass = new Map();
   const collisions = [];
   const failures = [];
+  const fetchErrors = [];
+  const parseErrors = [];
   let offered = 0;
   let continuations = 0;
   let updated = '';
   let termName = '';
 
   for (const r of results) {
+    if (r.fetchError) fetchErrors.push(r.fetchError);
+    if (r.parseError) parseErrors.push(r.parseError);
     if (!r.offered) continue;
     offered++;
     continuations += r.continuations;
@@ -302,6 +407,8 @@ async function snapshotTerm(term, subjects) {
       term,
       subjectsListed: subjects.length,
       subjectsOffered: offered,
+      subjectsFailed: fetchErrors.length,
+      subjectsUnparsed: parseErrors.length,
       sectionsParsed: parsed,
       linkGroups: groups.length,
       continuationRows: continuations,
@@ -311,7 +418,52 @@ async function snapshotTerm(term, subjects) {
       seconds: (Date.now() - started) / 1000,
     },
     failures,
+    fetchErrors,
+    parseErrors,
+    refusals: subjectRefusals(term, results),
   };
+}
+
+// Every reason this term's file is not rewritten, as one message or null.
+// Returned rather than thrown so a bad term does not take the good ones with it,
+// and built out of the shared refusal rules so FORCE_WRITE=1 clears a genuine
+// shrink in this term and nothing else. `refusals` is the per-subject layout
+// check from snapshotTerm, `previous` how many sections the committed file for
+// this term holds.
+function termProblem(stats, { refusals = [], previous = 0, force } = {}) {
+  const label = `term ${stats.term}`;
+  // Nothing parsed is the whole story, and it is what an unpublished term looks
+  // like, so it is said once instead of tripping every count below it.
+  if (stats.sectionsParsed === 0) return refusalMessage([fatal(`${label}: no sections parsed`)], force);
+
+  return refusalMessage(
+    [
+      ...refusals,
+      stats.subjectsOffered < MIN_SUBJECTS
+        ? fatal(`${label}: only ${stats.subjectsOffered} subjects returned data`)
+        : null,
+      stats.subjectsFailed > MAX_SUBJECT_FAILURES
+        ? fatal(
+            `${label}: ${stats.subjectsFailed} subject requests failed, ` +
+              `more than the ${MAX_SUBJECT_FAILURES} allowed`
+          )
+        : null,
+      // A file that arrived and would not parse is a layout change, not a flake,
+      // so one is enough to hold the term back. This is the threshold the loud
+      // throws in parseSubjectFile rely on, so it does not get a tolerance.
+      stats.subjectsUnparsed > 0 ? fatal(`${label}: ${stats.subjectsUnparsed} subject files did not parse`) : null,
+      stats.residueRate > MAX_TERM_RESIDUE_RATE
+        ? fatal(
+            `${label}: residue rate ${(stats.residueRate * 100).toFixed(2)}% exceeds ` +
+              `${(MAX_TERM_RESIDUE_RATE * 100).toFixed(2)}%, the fixed-width layout probably changed`
+          )
+        : null,
+      // A committed term file records sections and not subjects, so only the
+      // sections have a previous count to be held to.
+      countRefusal(`${label} sections`, stats.sectionsParsed, MIN_SECTIONS, previous),
+    ],
+    force
+  );
 }
 
 async function writeAtomic(path, contents) {
@@ -327,6 +479,17 @@ async function writeJson(path, value) {
   const json = `${JSON.stringify(value, null, 0)}\n`;
   await writeAtomic(path, json);
   return Buffer.byteLength(json);
+}
+
+// How many sections the last snapshot of this term committed. Missing means a
+// first snapshot of that term, not an error.
+async function previousSections(term) {
+  try {
+    const snapshot = JSON.parse(await readFile(join(OUT_DIR, `${TERM_PREFIX}${term}.json`), 'utf8'));
+    return Object.keys(snapshot.sections ?? {}).length;
+  } catch {
+    return 0;
+  }
 }
 
 async function readIndex() {
@@ -352,48 +515,65 @@ async function main() {
   const terms = requested.length ? searchable.filter((t) => requested.includes(t)) : searchable;
   if (!terms.length) throw new Error(`none of ${requested.join(', ')} is searchable`);
 
+  const committed = await readIndex();
+
+  // searchableTermsV2 is one uncached call to an API that pages
+  // non-deterministically, and a term missing from that answer has its file
+  // deleted at the end of this run. A named run is held to the same check,
+  // because it decides what to keep from the same list.
+  const termRefusal = refusalMessage([
+    countRefusal('searchable terms', searchable.length, 1, committed?.terms?.length),
+  ]);
+  if (termRefusal) throw new Error(`Refusing to write ${OUT_DIR}.\n${termRefusal}`);
+
   // One subject index covers every term. It lists every code Barrett knows, and
   // a subject not offered in a term 404s, which is normal and not an error.
   const subjects = await fetchSubjects();
   console.log(`${terms.length} searchable terms (${terms.join(', ')}), ${subjects.length} subjects listed`);
 
-  const out = {};
-  let residueSeen = 0;
-  let sectionsSeen = 0;
+  const ready = [];
+  const skipped = [];
 
   for (const term of terms) {
-    const { snapshot, stats, failures } = await snapshotTerm(term, subjects);
-    out[term] = snapshot;
-    residueSeen += stats.residueFailures;
-    sectionsSeen += stats.sectionsParsed;
+    const { snapshot, stats, failures, fetchErrors, parseErrors, refusals } = await snapshotTerm(term, subjects);
 
     console.log(
       `term ${term}: ${stats.subjectsOffered} subjects offered, ` +
         `${stats.sectionsParsed} sections, ${stats.linkGroups} link groups, ` +
-        `${stats.residueFailures} residue failures, ` +
+        `${stats.subjectsFailed} subjects failed, ` +
+        `${stats.subjectsUnparsed} unparsed, ${stats.residueFailures} residue failures, ` +
         `${stats.continuationRows} continuation rows, ${stats.collisions} collisions, ` +
         `${stats.seconds.toFixed(1)}s`
     );
     for (const f of failures.slice(0, 20)) console.log(`  residue ${f}`);
-    if (stats.sectionsParsed === 0) throw new Error(`term ${term}: no sections parsed`);
-    if (stats.subjectsOffered < MIN_SUBJECTS) {
-      throw new Error(`term ${term}: only ${stats.subjectsOffered} subjects returned data`);
+    for (const e of [...fetchErrors, ...parseErrors].slice(0, 20)) console.error(`  ${e}`);
+
+    const problem = termProblem(stats, { refusals, previous: await previousSections(term) });
+    if (problem) {
+      skipped.push(term);
+      const had = await exists(join(OUT_DIR, `${TERM_PREFIX}${term}.json`));
+      // The refusals are one per line, so the note about the old file gets its
+      // own rather than trailing whatever the last reason happened to be.
+      console.error(`${problem}\nterm ${term}: ${had ? 'keeping the file it already has' : 'no file to keep'}`);
+      continue;
     }
+    // Actions shows this on the run summary, so a term that shipped with
+    // subjects missing is visible without opening the log of a green job.
+    if (stats.subjectsFailed) {
+      console.error(
+        `::warning::term ${term}: snapshot is missing ${stats.subjectsFailed} of ${stats.subjectsListed} subjects`
+      );
+    }
+    ready.push([term, snapshot]);
   }
 
-  const rate = sectionsSeen + residueSeen ? residueSeen / (sectionsSeen + residueSeen) : 0;
-  if (rate > MAX_RESIDUE_RATE) {
-    throw new Error(
-      `residue rate ${(rate * 100).toFixed(2)}% exceeds ${(MAX_RESIDUE_RATE * 100).toFixed(2)}%, ` +
-        'the fixed-width layout probably changed, refusing to write'
-    );
-  }
+  if (!ready.length) throw new Error('no term cleared its checks, nothing written');
 
-  // One file per term. Nothing is written until every term has cleared the
-  // checks above, so a bad run cannot leave one term fresh and another stale.
+  // One file per term, written independently. A term that failed its checks
+  // keeps the file it already had, so a run can leave a fresh term next to a
+  // stale one.
   const entries = [];
-  for (const term of terms) {
-    const snapshot = out[term];
+  for (const [term, snapshot] of ready) {
     const file = `${TERM_PREFIX}${term}.json`;
     const bytes = await writeJson(join(OUT_DIR, file), snapshot);
     entries.push({
@@ -409,8 +589,7 @@ async function main() {
   // A run for named terms leaves the rest alone, so their index entries carry
   // over. A term that is no longer searchable does not, which is what drops it
   // from the index and then from disk.
-  const previous = await readIndex();
-  for (const entry of previous?.terms ?? []) {
+  for (const entry of committed?.terms ?? []) {
     const term = String(entry?.term ?? '');
     if (!searchable.includes(term)) continue;
     if (entries.some((e) => e.term === term)) continue;
@@ -437,10 +616,24 @@ async function main() {
     await rm(join(OUT_DIR, name));
     console.log(`removed data/${name}, that term is no longer searchable`);
   }
+
+  // Red, but only after the terms that did parse have been written.
+  if (skipped.length) throw new Error(`did not refresh term ${skipped.join(', ')}`);
 }
 
-// Exported so a checker can reuse the parser without refetching.
-export { parseSubjectFile, linkGroups };
+// Exported so a checker can reuse the parser without refetching, so the retry
+// policy can be exercised without a network, and so the tests can run a term,
+// and its write gate, without the writing half.
+export {
+  MAX_SUBJECT_FAILURES,
+  fetchText,
+  linkGroups,
+  parseSubjectFile,
+  previousSections,
+  snapshotTerm,
+  subjectRefusals,
+  termProblem,
+};
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((err) => {
