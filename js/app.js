@@ -111,6 +111,8 @@ function readFilters() {
     hideFull: els.filters.hideFull.checked,
     hideOnline: els.filters.hideOnline.checked,
     ratedOnly: els.filters.ratedOnly.checked,
+    hideConsent: els.filters.hideConsent.checked,
+    undergradOnly: els.filters.undergradOnly.checked,
     term: els.term.value,
   };
 }
@@ -132,6 +134,8 @@ function writeFilters(params) {
   els.filters.hideFull.checked = params.get("hideFull") === "1";
   els.filters.hideOnline.checked = params.get("hideOnline") === "1";
   els.filters.ratedOnly.checked = params.get("ratedOnly") === "1";
+  els.filters.hideConsent.checked = params.get("hideConsent") === "1";
+  els.filters.undergradOnly.checked = params.get("undergradOnly") === "1";
   // A select set to a value it has no option for shows nothing at all, so an
   // unknown sort has to be written back as relevance.
   const sort = params.get("sort") ?? "";
@@ -356,7 +360,7 @@ function syncUrl(q, term) {
   for (const [key, value] of [["from", f.from], ["to", f.to], ["rating", f.rating], ["sort", sortKey()]]) {
     if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
   }
-  for (const key of ["hideFull", "hideOnline", "ratedOnly"]) {
+  for (const key of ["hideFull", "hideOnline", "ratedOnly", "hideConsent", "undergradOnly"]) {
     if (f[key]) url.searchParams.set(key, "1"); else url.searchParams.delete(key);
   }
   history.replaceState(null, "", url);
@@ -520,6 +524,8 @@ function markSources(term) {
   els.filters.rating.disabled = ratings;
   els.filters.ratedOnly.disabled = ratings;
   els.filters.hideFull.disabled = seats;
+  // hideConsent and undergradOnly are absent on purpose: both read fields the
+  // search response itself carries, so there is no snapshot to lose. #68.
 
   // The orders read the same two snapshots the filters do. Left on, a sort with
   // nothing to read leaves the page in relevance order and blames every section

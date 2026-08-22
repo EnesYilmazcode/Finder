@@ -170,6 +170,25 @@ test("a seats or start sort leaves the lecture above its recitations", () => {
   assert.deepEqual(sortSections(sections).map((s) => s.classNumber), [1002, 1001, 1003]);
 });
 
+// #68. The strip is one primitive with one cap, and it is a column-2 extra like
+// the section's own place line, so it lands ahead of the third column's cell.
+// Four flags are true here and the row shows the two that decide the most.
+test("the row carries the first two flags and the pane takes the rest", () => {
+  setupDom();
+  const li = renderSection(
+    section(1001, { consent: "I", career: "GRAD", waitlistCapacity: 0, sessionCode: "B" }),
+    "1268"
+  );
+  const chips = li.querySelectorAll(".flags .flag");
+  assert.deepEqual(chips.map((chip) => chip.dataset.flag), ["consent", "career"]);
+  assert.deepEqual(chips.map((chip) => chip.textContent), ["Permission required", "Graduate"]);
+  assert.equal(chips[0].title, "You cannot register for this one yourself. It needs permission first.");
+  assert.deepEqual(
+    li.children.map((node) => node.className),
+    ["section-number", "section-when", "section-where", "flags", "seat-cell"]
+  );
+});
+
 // Regression, #60 with #67. 1010 is a lab with 5 of 24 taken that went full to
 // open overnight, and 1002, the lecture it auto-enrolls you into, is 40/40. The
 // seats it opened cannot be registered, and "hide full" already drops the row

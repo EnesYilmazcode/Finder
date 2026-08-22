@@ -55,6 +55,14 @@ test("every control whose snapshot died is switched off", () => {
   assert.equal(both.el("#f-full").disabled, true);
 });
 
+// #68. The two flag filters read fields that arrive with the search itself, so
+// no snapshot can take them away and markSources must not switch them off with
+// the three that do depend on one.
+test("a filter that needs no snapshot keeps working while both are dead", () => {
+  assert.equal(both.el("#f-consent").disabled, false);
+  assert.equal(both.el("#f-undergrad").disabled, false);
+});
+
 test("a term whose seats arrived drops the seats half of the note", () => {
   assert.equal(
     ratingsOnly.el("#status").textContent,

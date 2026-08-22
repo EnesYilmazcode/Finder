@@ -54,6 +54,7 @@ test("the seat count holds the section's own line", () => {
   assert.equal(seat["grid-row"], "1", "the seat cell has to name the row its section's time is on");
   // The other half: an extra goes under the time it belongs to, never beside it.
   assert.equal(rule(".section-where")["grid-column"], "2", "row extras land in column 2");
+  assert.equal(rule(".flags")["grid-column"], "2", "the flag strip is an extra like the rest, not a column of its own");
 });
 
 test("a row too narrow for three columns gives the seat count its own line", () => {
@@ -64,4 +65,5 @@ test("a row too narrow for three columns gives the seat count its own line", () 
   // Column alone is not enough: the pinned row 1 would keep the full-width cell
   // on the class number's line and squeeze everything else off it.
   assert.equal(seat["grid-row"], "auto");
+  assert.equal(atNarrow(".flags")["grid-column"], "1 / -1", "an extra left at column 2 renders half width and indented");
 });

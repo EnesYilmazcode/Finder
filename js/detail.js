@@ -2,7 +2,7 @@
 // thing not already in memory when a section is selected, and app.js redraws
 // the body once they land.
 
-import { formatWhen, formatUnits, instructorsOf, trendLabel } from "./format.js";
+import { formatWhen, formatUnits, instructorsOf, sectionFlags, trendLabel } from "./format.js";
 import { ratingFor, searchUrl, profileUrl, ratingSpread, courseShare } from "./ratings.js";
 import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { trendFor } from "./trend.js";
@@ -182,6 +182,13 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
     }
   } else if (people.length === 1) {
     wrap.append(el("p", "d-note", "No RateMyProfessors ratings. Their name links to a search."));
+  }
+
+  const flags = sectionFlags(section);
+  if (flags.length) {
+    const worth = block("Worth knowing");
+    for (const flag of flags) worth.append(el("p", "d-note", flag.detail));
+    wrap.append(worth);
   }
 
   const seats = seatsFor(section.classNumber, term);

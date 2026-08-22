@@ -6,11 +6,14 @@
 // enrollment figure per course and repeats it onto every section, so rendering
 // it per section would tell students a full section is open. See #13.
 
-import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
+import { formatWhen, formatPlace, formatUnits, instructorsOf, sectionFlags } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { linkedTo, seatsFor, unreachable } from "./seats.js";
 import { openedOn } from "./trend.js";
 import { orderBy } from "./sort.js";
+
+// One cap for the whole strip, whatever a later branch feeds into it.
+export const ROW_CHIPS = 2;
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
 const UNLISTED = "Instructor not listed";
@@ -147,6 +150,20 @@ export function renderSection(section, term) {
   li.append(when);
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
+
+  // A row is scanned rather than read, so it carries the two that change a
+  // decision most and the pane spells out the rest.
+  const flags = sectionFlags(section).slice(0, ROW_CHIPS);
+  if (flags.length) {
+    const strip = el("span", "flags");
+    for (const flag of flags) {
+      const chip = el("span", "flag", flag.label);
+      chip.dataset.flag = flag.key;
+      chip.title = flag.detail;
+      strip.append(chip);
+    }
+    li.append(strip);
+  }
 
   // Everything the third column holds goes in one cell, so a later row extra
   // added to the grid cannot slide the seat count onto somebody else's line.

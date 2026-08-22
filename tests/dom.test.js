@@ -97,9 +97,12 @@ test("the parser picks the controls up from index.html rather than a list", asyn
 // control, and the three shims this file replaced all threw at import the first
 // time that happened. Grow the page and nothing here changes.
 //
-// The consent checkbox is put outside the tag deliberately. No branch writes a
+// The probe checkbox is put outside the tag deliberately. No branch writes a
 // form= attribute today, so this is the only place that rule gets exercised,
-// and with the control inside the form it passed on the descendant rule.
+// and with the control inside the form it passed on the descendant rule. Its
+// name is one index.html never uses: #68's real hideConsent lives inside the
+// form, so borrowing that name made the injected control and the real one two
+// answers to one selector.
 test("a control index.html does not have yet arrives without a harness edit", async () => {
   const grown = readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
     '<form id="filters">',
@@ -107,7 +110,7 @@ test("a control index.html does not have yet arrives without a harness edit", as
     + '<select id="f-sort"><option value="">Relevance</option><option value="rating">Rating</option></select>'
     + '<input id="f-busy-add" type="button">'
     + '<select id="p-gen"><option value=""></option></select>'
-    + '<input id="f-consent" name="hideConsent" type="checkbox" form="filters" checked>'
+    + '<input id="f-probe" name="probeOnly" type="checkbox" form="filters" checked>'
     + '</div>'
     + '<form id="filters">',
   );
@@ -118,9 +121,9 @@ test("a control index.html does not have yet arrives without a harness edit", as
   assert.equal(page.el("#f-busy-add").type, "button");
   assert.equal(page.el("#p-gen").tagName, "SELECT");
 
-  assert.equal(page.el("#f-consent").closest("form"), null, "outside the tag");
-  assert.equal(filters.hideConsent, page.el("#f-consent"));
-  assert.equal(new FormData(filters).get("hideConsent"), "on");
+  assert.equal(page.el("#f-probe").closest("form"), null, "outside the tag");
+  assert.equal(filters.probeOnly, page.el("#f-probe"));
+  assert.equal(new FormData(filters).get("probeOnly"), "on");
 
   // 63's real sort select carries no name and no form=, measured on its branch,
   // so it belongs to no form and the app has to clear it by hand.
