@@ -168,10 +168,10 @@ you type "CSE 2221" and press Enter
 Only the newest search is allowed to draw, so a slow first search can never
 paint over a fast second one.
 
-That block is only the part a search waits on. Opening the page is 25 requests
+That block is only the part a search waits on. Opening the page is 26 requests
 across two hosts, counted in Chrome against a local copy with the cache
-cleared: 24 files from this repo and the term list from `content.osu.edu`. The
-24 are the HTML, two stylesheets, three font files, fourteen modules, the
+cleared: 25 files from this repo and the term list from `content.osu.edu`. The
+25 are the HTML, two stylesheets, three font files, fifteen modules, the
 ratings snapshot, two seat files and the favicon. The live page adds one more,
 the page-view ping to the analytics worker, which local runs skip.
 

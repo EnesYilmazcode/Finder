@@ -11,7 +11,7 @@ import { renderDetail } from "../js/detail.js";
 import { renderSection } from "../js/render.js";
 import { applyFilters, DEFAULTS } from "../js/filters.js";
 import { seatsFor } from "../js/seats.js";
-import { entry, meeting, section, taught, SEATS_TERMS, TREND } from "./fixtures.js";
+import { entry, meeting, section, taught, RATINGS, SEATS_TERMS, TREND } from "./fixtures.js";
 import { setupDom } from "./dom.js";
 import { withRatingCourses, withRatings, withSeats, withTrend } from "./helpers.js";
 
@@ -144,9 +144,18 @@ test("#69: an instructor rated only for other courses is said to have none here"
 });
 
 test("#69: the figures lead with the rating and its count", () => {
+  // Read off the fixture rather than pinned to it: #63 gives Kline a difficulty
+  // of her own, and a literal here reads as the pane regressing.
+  const kline = RATINGS.professors.find((p) => p.lastName === "Kline");
   const figs = pane(taught(1001, MWF, "9:00 AM", "9:55 AM", ["Diana Ikenberry Kline"])).querySelector(".d-figs");
-  assert.deepEqual(figs.querySelectorAll(".d-num").map((n) => n.textContent), ["4.2", "3.0"]);
-  assert.deepEqual(figs.querySelectorAll(".d-cap").map((n) => n.textContent), ["31 ratings", "difficulty"]);
+  assert.deepEqual(
+    figs.querySelectorAll(".d-num").map((n) => n.textContent),
+    [kline.avgRating.toFixed(1), kline.avgDifficulty.toFixed(1)]
+  );
+  assert.deepEqual(
+    figs.querySelectorAll(".d-cap").map((n) => n.textContent),
+    [`${kline.numRatings} ratings`, "difficulty"]
+  );
 });
 
 // The rest of the pane, which nothing pinned either.

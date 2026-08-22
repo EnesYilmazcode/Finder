@@ -9,6 +9,7 @@ import { applyFilters, isActive, DEFAULTS } from "./filters.js";
 import { renderCalendar } from "./calendar.js";
 import { formatCoverage } from "./format.js";
 import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
+import { isSortKey, sortEntries, unknownSections } from "./sort.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -20,6 +21,8 @@ const els = {
   detailBack: document.querySelector("#detail-back"),
   filters: document.querySelector("#filters"),
   days: document.querySelector("#f-days"),
+  sort: document.querySelector("#f-sort"),
+  sortNote: document.querySelector("#f-sort-note"),
   subject: document.querySelector("#p-subject"),
   number: document.querySelector("#p-number"),
   gen: document.querySelector("#p-gen"),
@@ -112,6 +115,10 @@ function readFilters() {
   };
 }
 
+function sortKey() {
+  return isSortKey(els.sort.value) ? els.sort.value : "";
+}
+
 function writeFilters(params) {
   const required = params.getAll("day");
   const avoided = params.getAll("noday");
@@ -125,6 +132,10 @@ function writeFilters(params) {
   els.filters.hideFull.checked = params.get("hideFull") === "1";
   els.filters.hideOnline.checked = params.get("hideOnline") === "1";
   els.filters.ratedOnly.checked = params.get("ratedOnly") === "1";
+  // A select set to a value it has no option for shows nothing at all, so an
+  // unknown sort has to be written back as relevance.
+  const sort = params.get("sort") ?? "";
+  els.sort.value = isSortKey(sort) ? sort : "";
 }
 
 /**
@@ -139,6 +150,7 @@ function clearFilters() {
   els.filters.reset();
   for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
   // Filter state that lives outside the form is reset here.
+  els.sort.value = "";
   syncUrl(els.query.value, els.term.value);
   paint();
 }
@@ -341,7 +353,7 @@ function syncUrl(q, term) {
   url.searchParams.delete("noday");
   for (const day of f.days) url.searchParams.append("day", day);
   for (const day of f.avoid) url.searchParams.append("noday", day);
-  for (const [key, value] of [["from", f.from], ["to", f.to], ["rating", f.rating]]) {
+  for (const [key, value] of [["from", f.from], ["to", f.to], ["rating", f.rating], ["sort", sortKey()]]) {
     if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
   }
   for (const key of ["hideFull", "hideOnline", "ratedOnly"]) {
@@ -422,6 +434,7 @@ async function runSearch(q, term, subject, gen = genCategory()) {
   // A requirement on its own is a search.
   if (!q.trim() && !gen) {
     els.results.replaceChildren();
+    showSortNote([], sortKey(), term);
     showWelcome(term);
     markSources(term);
     setStatus(outageNote(term));
@@ -449,11 +462,37 @@ async function runSearch(q, term, subject, gen = genCategory()) {
   } catch (error) {
     if (requestId !== latestRequest) return;
     els.results.replaceChildren();
+    showSortNote([], sortKey(), term);
     setStatus(error instanceof ApiError ? error.message : "Something went wrong. Try again.", "error");
     if (!(error instanceof ApiError)) console.error(error);
   } finally {
     if (requestId === latestRequest) setBusy(false);
   }
+}
+
+// Which snapshot each order needs. Earliest start time needs neither.
+const SORT_SOURCE = {
+  rating: "ratings",
+  difficulty: "ratings",
+  seats: "seats",
+};
+
+const SORT_UNKNOWN = {
+  rating: "too few ratings to rank",
+  difficulty: "too few ratings to rank",
+  seats: "no seat count",
+  start: "no meeting time",
+};
+
+/** The tail the sort cannot place, counted rather than left unexplained. */
+function showSortNote(entries, sort, term) {
+  const n = view === "list" ? unknownSections(entries, sort, term) : 0;
+  // Not "at the end": an unplaceable section sits at the end of its own block,
+  // and that block is placed by whatever its other sections score.
+  els.sortNote.textContent = n
+    ? `${n} section${n === 1 ? "" : "s"} the sort could not place: ${SORT_UNKNOWN[sort]}.`
+    : "";
+  els.sortNote.hidden = !n;
 }
 
 /** Names the snapshots that were asked for and did not arrive. Empty if none did. */
@@ -481,12 +520,20 @@ function markSources(term) {
   els.filters.rating.disabled = ratings;
   els.filters.ratedOnly.disabled = ratings;
   els.filters.hideFull.disabled = seats;
+
+  // The orders read the same two snapshots the filters do. Left on, a sort with
+  // nothing to read leaves the page in relevance order and blames every section
+  // on screen for being unplaceable. #63.
+  const dead = { ratings, seats };
+  for (const option of els.sort.options) option.disabled = Boolean(dead[SORT_SOURCE[option.value]]);
+  if (dead[SORT_SOURCE[els.sort.value]]) els.sort.value = "";
 }
 
 /** Re-render from the last search. Filters never refetch. */
 function paint(term = els.term.value) {
   markSources(term);
   if (!lastResult) {
+    showSortNote([], sortKey(), term);
     // Nothing to describe yet, but a dead snapshot still has to be named and a
     // term that loaded has to clear the note. Only on the landing screen: a
     // search that failed owns the status line and keeps it.
@@ -500,8 +547,10 @@ function paint(term = els.term.value) {
   const p = applyFilters(lastResult.primary, filters);
   const r = applyFilters(lastResult.related, filters);
 
-  const primary = p.entries;
-  const related = r.entries;
+  const sort = sortKey();
+  const primary = sortEntries(p.entries, sort, term);
+  const related = sortEntries(r.entries, sort, term);
+  showSortNote([...primary, ...related], sort, term);
   // Count what the filters removed from everything on the page, not just from
   // the primary results, or the note understates its own effect.
   const hiddenSections = p.hiddenSections + r.hiddenSections;
@@ -532,7 +581,7 @@ function paint(term = els.term.value) {
       els.results.append(note);
     }
   } else {
-    renderResults(els.results, { primary, related }, term);
+    renderResults(els.results, { primary, related }, term, sort);
   }
   resetDetail();
 
@@ -663,6 +712,12 @@ async function init() {
   els.viewCal.addEventListener("click", () => setView("calendar"));
 
   els.filters.addEventListener("change", () => {
+    syncUrl(els.query.value, els.term.value);
+    paint();
+  });
+
+  // Sorting hides nothing, so it leaves showHidden alone.
+  els.sort.addEventListener("change", () => {
     syncUrl(els.query.value, els.term.value);
     paint();
   });
