@@ -62,9 +62,10 @@ let latestRequest = 0;
 // pane needs the real objects, not text scraped back out of the DOM.
 let sectionIndex = new Map();
 let currentEntries = [];
-// The unfiltered result of the last search, so changing a filter re-renders
-// rather than refetching, plus the query it ran with, since a repaint has to
-// quote that and not whatever is sitting in the box by then.
+// The unfiltered result of the last search, tagged with the term it was fetched
+// for, so changing a filter re-renders rather than refetching, plus the query it
+// ran with, since a repaint has to quote that and not whatever is sitting in the
+// box by then.
 let lastResult = null;
 let lastQuery = "";
 // The last search the subject dropdown produced, so switching term re-runs it
@@ -395,8 +396,12 @@ function applySelection(row) {
   row.setAttribute("aria-current", "true");
 
   const link = sectionLink(row.dataset.classNumber);
+  // The term these rows were fetched for, not the one in the selector, which can
+  // already have moved on while the next search is still running. Read once, so
+  // the redraw below cannot land on a different term than the first paint.
+  const term = lastResult?.term ?? els.term.value;
   const draw = () => renderDetail({
-    ...found, term: els.term.value, entries: currentEntries, formatDate, shareUrl: link,
+    ...found, term, entries: currentEntries, formatDate, shareUrl: link,
   });
   showDetail(draw());
   history.replaceState(null, "", link);
@@ -570,11 +575,20 @@ async function runSearch(q, term, subject, gen = genCategory()) {
   }
   // A requirement on its own is a search.
   if (!q.trim() && !gen) {
+    // Supersede any search still in flight: it was started for whichever term
+    // was selected then. Its finally checks the id, so the busy flag comes off here.
+    const requestId = ++latestRequest;
+    setBusy(false);
     clearLastSearch();
     showSortNote([], sortKey(), term);
     showWelcome(term);
     markSources(term);
     setStatus(outageNote(term));
+    // The section count and the date on that line come from this term's seat
+    // snapshot, which the first visit to a term has not loaded yet.
+    Promise.allSettled([loadRatings(), loadSeats(term)]).then(() => {
+      if (requestId === latestRequest) showWelcome(term);
+    });
     return;
   }
   els.welcome.hidden = true;
@@ -589,11 +603,13 @@ async function runSearch(q, term, subject, gen = genCategory()) {
     const [{ courses, totalItems }] = await Promise.all([
       searchAllPages({ q, term, subject, genCategory: gen }),
       loadRatings().catch(() => null),
+      // Seats are per term since #48, so this term's snapshot has to be in hand
+      // before the paint, or the first view after a switch shows none.
       loadSeats(term).catch(() => null),
       loadTrend(term),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
-    lastResult = { ...filterCourses(courses, q), totalItems };
+    lastResult = { ...filterCourses(courses, q), totalItems, term };
     lastQuery = q.trim();
     paint(term);
   } catch (error) {
@@ -681,6 +697,16 @@ function paint(term = els.term.value) {
     // term that loaded has to clear the note. Only on the landing screen: a
     // search that failed owns the status line and keeps it.
     if (!els.welcome.hidden) setStatus(outageNote(term));
+    return;
+  }
+
+  // Class numbers are reused across terms, so repainting these against the new
+  // term's snapshot finds a real seat row and draws a full section as open. The
+  // `??` keeps a result written without the key from blanking every search.
+  if ((lastResult.term ?? term) !== term) {
+    clearLastSearch();
+    showSortNote([], sortKey(), term);
+    setStatus("");
     return;
   }
 
@@ -997,14 +1023,12 @@ async function init() {
 
   els.term.addEventListener("change", () => {
     if (isLoaded()) { fillSubjects(); fillNumbers(); }
-    // Seats are per term since #48, so the new term has to arrive before the
-    // repaint, or the first view after a switch shows none. Repaint on failure
-    // too, or the controls keep describing the term we just left.
-    Promise.all([loadSeats(els.term.value), loadTrend(els.term.value)])
-      .catch(() => {})
-      .then(() => paint());
     syncUrl(els.query.value, els.term.value);
-    if (els.query.value.trim() || genCategory()) rerunSearch();
+    // Re-run either way, and let runSearch own the snapshot wait. Repainting
+    // only when the box had something in it left the previous term's rows on
+    // screen under the new term's heading, and an empty box goes through the
+    // welcome branch, which re-marks the controls for the new term.
+    rerunSearch();
   });
 
   els.welcome.addEventListener("click", (event) => {
