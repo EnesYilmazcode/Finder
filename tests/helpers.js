@@ -1,4 +1,5 @@
-// Loading real snapshots into the real modules.
+// Shared test harness: real snapshots into the real modules, and a reader for
+// the rules a stylesheet declares.
 //
 // ratings.js and seats.js hold their data in module-level state that only
 // loadRatings/loadSeats can fill, and both fill it from fetch. Rather than
@@ -7,14 +8,22 @@
 
 import { RATINGS, SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
 
-/** Swap in a fetch that serves fixtures by URL. Returns a restore function. */
+/**
+ * Swap in a fetch that serves fixtures by URL. Returns a restore function.
+ *
+ * `routes` is a URL-keyed map of JSON bodies, or a function returning a whole
+ * Response-like object, which is what the seat snapshotter's tests need: text
+ * bodies and the 403s and 404s Barrett really answers with.
+ */
 export function stubFetch(routes) {
   const original = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    const key = String(url);
-    if (!(key in routes)) throw new Error(`unexpected fetch: ${key}`);
-    return { ok: true, status: 200, json: async () => routes[key] };
-  };
+  const serve = typeof routes === "function"
+    ? routes
+    : (key) => {
+        if (!(key in routes)) throw new Error(`unexpected fetch: ${key}`);
+        return { ok: true, status: 200, json: async () => routes[key] };
+      };
+  globalThis.fetch = async (url) => serve(String(url));
   return () => { globalThis.fetch = original; };
 }
 
@@ -50,4 +59,32 @@ export async function withRatings(data = RATINGS, suffix = "") {
     restore();
   }
   return mod;
+}
+
+/**
+ * Reader for the declarations a stylesheet makes about a selector, keyed by
+ * property. Several rules can name one selector, so they are merged in source
+ * order the way the cascade would at equal specificity.
+ *
+ * A rule inside a media or container block is not reachable from the whole
+ * sheet, since the block's own prelude reads as the selector. Pass the inside
+ * of that block as `source` to read those.
+ */
+export function cssRules(source, where = "the stylesheet") {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = css.split("}")
+    .filter((block) => block.includes("{"))
+    .map((block) => ({
+      selectors: block.slice(0, block.indexOf("{")).split(",").map((s) => s.trim()),
+      body: block.slice(block.indexOf("{") + 1),
+    }));
+
+  return function rule(selector) {
+    const matching = rules.filter((r) => r.selectors.includes(selector));
+    if (!matching.length) throw new Error(`no ${selector} rule in ${where}`);
+    return Object.fromEntries(matching.flatMap((r) => r.body
+      .split(";")
+      .map((d) => [d.slice(0, d.indexOf(":")).trim(), d.slice(d.indexOf(":") + 1).trim()])
+      .filter(([prop, value]) => prop && value)));
+  };
 }

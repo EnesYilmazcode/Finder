@@ -7,9 +7,11 @@
 //
 // Usage: node scripts/fetch-ratings.mjs
 
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { countRefusal, refusalMessage } from "./guards.mjs";
 
 const ENDPOINT = "https://www.ratemyprofessors.com/graphql";
 
@@ -33,9 +35,8 @@ const PAGE_DELAY_MS = 300;
 const MAX_ATTEMPTS = 3;
 const MAX_PAGES = 200; // stops a broken cursor from looping forever
 
-// ~7.3k Ohio State professors have at least one rating. Anything far below that means
-// upstream changed shape or started rate limiting, and writing it would silently gut
-// the file the site reads.
+// ~7.3k Ohio State professors have at least one rating. This is only the first-run
+// backstop: what the run is really held to is the count already committed.
 const MIN_EXPECTED = 5000;
 
 const OUT_PATH = join(dirname(dirname(fileURLToPath(import.meta.url))), "data", "ratings.json");
@@ -112,6 +113,21 @@ function normalize(node) {
   };
 }
 
+// What the last run wrote. Missing or unreadable means a first run, not an error.
+async function previousCount(path = OUT_PATH) {
+  try {
+    return JSON.parse(await readFile(path, "utf8")).professors?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+// Every reason not to write this run. Apart from main so a test can hold it to
+// the file that is really committed.
+async function writeRefusals(count, path = OUT_PATH) {
+  return [countRefusal("rated professors", count, MIN_EXPECTED, await previousCount(path))];
+}
+
 async function main() {
   const professors = new Map(); // keyed by legacyId; paging can repeat an edge
   let after;
@@ -144,10 +160,10 @@ async function main() {
 
   console.log(`fetched ${professors.size} of ${resultCount}, ${fresh.length} of them rated`);
 
-  if (fresh.length < MIN_EXPECTED) {
+  const refusal = refusalMessage(await writeRefusals(fresh.length));
+  if (refusal) {
     console.error(
-      `Refusing to write: got ${fresh.length} rated professors, expected at least ${MIN_EXPECTED}. ` +
-        `Upstream reported resultCount ${resultCount}. Leaving ${OUT_PATH} untouched.`
+      `Refusing to write ${OUT_PATH}. Upstream reported resultCount ${resultCount}.\n${refusal}`
     );
     process.exit(1);
   }
@@ -162,7 +178,7 @@ async function main() {
 
   // No fetch timestamp on purpose: it would change every night and defeat the
   // commit-only-when-changed check. The commit date already records when it ran.
-  const json = JSON.stringify(snapshot, null, 2) + "\n";
+  const json = JSON.stringify(snapshot, null, 0) + "\n";
 
   await mkdir(dirname(OUT_PATH), { recursive: true });
   const tmp = `${OUT_PATH}.tmp`;
@@ -172,7 +188,12 @@ async function main() {
   console.log(`Wrote ${records.length} professors to ${OUT_PATH} (${json.length} bytes)`);
 }
 
-main().catch((error) => {
-  console.error(`fetch-ratings failed: ${error.message}`);
-  process.exit(1);
-});
+// Exported so a test can drive the write gate without fetching the roster.
+export { previousCount, writeRefusals };
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main().catch((error) => {
+    console.error(`fetch-ratings failed: ${error.message}`);
+    process.exit(1);
+  });
+}
