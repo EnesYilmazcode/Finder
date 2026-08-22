@@ -1,7 +1,7 @@
 // The right pane. Everything here already exists in memory by the time a
 // section is selected, so nothing fetches.
 
-import { formatWhen, formatUnits, instructorsOf } from "./format.js";
+import { formatWhen, formatUnits, instructorsOf, sectionFlags } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { seatsFor, seatsUpdated } from "./seats.js";
 import { isIndividualStudy } from "./rank.js";
@@ -110,6 +110,13 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
     }
   } else if (people.length === 1) {
     wrap.append(el("p", "d-note", "No RateMyProfessors ratings. Their name links to a search."));
+  }
+
+  const flags = sectionFlags(section);
+  if (flags.length) {
+    const worth = block("Worth knowing");
+    for (const flag of flags) worth.append(el("p", "d-note", flag.detail));
+    wrap.append(worth);
   }
 
   const seats = seatsFor(section.classNumber, term);

@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf } from "../js/format.js";
-import { meeting, person, section } from "./fixtures.js";
+import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf, sectionFlags } from "../js/format.js";
+import { meeting, person, section, taught } from "./fixtures.js";
 
 const DASH = "\u2013";
 
@@ -109,4 +109,97 @@ test("instructorsOf survives missing meetings and missing instructors", () => {
   assert.deepEqual(instructorsOf({ classNumber: 1005 }), []);
   assert.deepEqual(instructorsOf(null), []);
   assert.deepEqual(instructorsOf({ meetings: [{ startTime: "9:00 AM" }] }), []);
+});
+
+const labels = (s) => sectionFlags(s).map((f) => f.label);
+
+test("sectionFlags says nothing about an ordinary section", () => {
+  assert.deepEqual(sectionFlags(taught(1001, ["monday"], "9:00 AM", "9:55 AM", ["Paolo Bucci"])), []);
+});
+
+test("sectionFlags reads consent as a code, not as a boolean", () => {
+  assert.deepEqual(labels(section(1001, { consent: "I" })), ["Permission required"]);
+  assert.match(sectionFlags(section(1001, { consent: "I" }))[0].detail, /cannot register for this one yourself/);
+  assert.deepEqual(labels(section(1002, { consent: "D" })), ["Permission required"]);
+  assert.deepEqual(labels(section(1003, { consent: false })), []);
+});
+
+test("sectionFlags flags every career that is not the undergraduate one", () => {
+  assert.deepEqual(labels(section(1001, { career: "GRAD" })), ["Graduate"]);
+  assert.deepEqual(labels(section(1002, { career: "UGRD" })), []);
+  // Law, dentistry and optometry are careers too, and an undergraduate cannot
+  // register for those either.
+  assert.deepEqual(labels(section(1003, { career: "LAW" })), ["Law"]);
+  assert.match(sectionFlags(section(1003, { career: "LAW" }))[0].detail, /law career/);
+  assert.deepEqual(labels(section(1004, { career: "DENT" })), ["Dentistry"]);
+  // A code nobody has seen yet is still worth saying out loud.
+  assert.deepEqual(labels(section(1005, { career: "XYZ" })), ["Not undergraduate"]);
+});
+
+test("sectionFlags flags a section with no primary instructor", () => {
+  const ta = section(1001, {
+    meetings: [meeting(["monday"], "9:00 AM", "9:55 AM", [person("Sam Kim", { role: "TA" })])],
+  });
+  assert.deepEqual(labels(ta), ["TA-taught"]);
+  assert.match(sectionFlags(ta)[0].detail, /teaching assistant/);
+
+  // GY and GR are not teaching assistants, so the chip must not call them one.
+  const grad = section(1002, {
+    meetings: [meeting(["monday"], "9:00 AM", "9:55 AM", [person("Mehr Bindra", { role: "GY" })])],
+  });
+  assert.deepEqual(labels(grad), ["No primary instructor"]);
+  assert.match(sectionFlags(grad)[0].detail, /primary instructor/);
+  assert.doesNotMatch(sectionFlags(grad)[0].detail, /teaching assistant/);
+
+  // One PI among the assistants is a professor's section like any other.
+  const both = section(1003, {
+    meetings: [meeting(["monday"], "9:00 AM", "9:55 AM",
+      [person("Sam Kim", { role: "TA" }), person("Paolo Bucci")])],
+  });
+  assert.deepEqual(labels(both), []);
+});
+
+test("sectionFlags does not read an empty instructor list as a missing professor", () => {
+  assert.deepEqual(labels(section(1001)), []);
+});
+
+test("sectionFlags treats only a hard zero waitlist as news", () => {
+  assert.deepEqual(labels(section(1001, { waitlistCapacity: 0 })), ["No waitlist"]);
+  assert.match(sectionFlags(section(1001, { waitlistCapacity: 0 }))[0].detail, /nothing to join/);
+  // 999 is the API's stand-in for unbounded.
+  assert.deepEqual(labels(section(1002, { waitlistCapacity: 999 })), []);
+  assert.deepEqual(labels(section(1003, { waitlistCapacity: 40 })), []);
+});
+
+test("sectionFlags flags a session that is not the full term", () => {
+  const short = section(1001, { sessionCode: "7W1", sessionDescription: "Session 1" });
+  assert.deepEqual(labels(short), ["Not full term"]);
+  assert.match(sectionFlags(short)[0].detail, /Session 1/);
+  assert.deepEqual(labels(section(1002, { sessionCode: "1" })), []);
+});
+
+test("sectionFlags leaves a full summer term alone", () => {
+  // Summer has no session "1". Its full term is "1S", and the eight-week and
+  // four-week sessions run inside it.
+  assert.deepEqual(labels(section(1001, { sessionCode: "1S", sessionDescription: "Summer Term" })), []);
+  const half = section(1002, { sessionCode: "8W2", sessionDescription: "8-week Session 2" });
+  assert.deepEqual(labels(half), ["Not full term"]);
+  assert.match(sectionFlags(half)[0].detail, /8-week Session 2/);
+});
+
+test("sectionFlags ranks registration blockers first", () => {
+  const s = section(1001, {
+    consent: "I",
+    career: "GRAD",
+    waitlistCapacity: 0,
+    sessionCode: "7W2",
+    sessionDescription: "Session 2",
+    meetings: [meeting(["monday"], "9:00 AM", "9:55 AM", [person("Sam Kim", { role: "TA" })])],
+  });
+  assert.deepEqual(sectionFlags(s).map((f) => f.key), ["consent", "career", "assistant", "waitlist", "session"]);
+});
+
+test("sectionFlags survives a section carrying none of the fields", () => {
+  assert.deepEqual(sectionFlags({ classNumber: 1001 }), []);
+  assert.deepEqual(sectionFlags(null), []);
 });

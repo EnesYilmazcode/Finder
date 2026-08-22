@@ -18,6 +18,13 @@ export function section(classNumber, opts = {}) {
     component: opts.component ?? "Lecture",
     instructionMode: opts.instructionMode ?? "In Person",
     meetings: opts.meetings ?? [],
+    // Defaults are what the live API returns for an ordinary Autumn or Spring
+    // section.
+    career: opts.career ?? "UGRD",
+    consent: opts.consent ?? false,
+    waitlistCapacity: opts.waitlistCapacity ?? 999,
+    sessionCode: opts.sessionCode ?? "1",
+    sessionDescription: opts.sessionDescription ?? "Regular Academic Term",
   };
 }
 
