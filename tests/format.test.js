@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf, isOnlineMeeting } from "../js/format.js";
+import { buildingOf, formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf, isOnlineMeeting } from "../js/format.js";
 import { meeting, onlineMeeting, person, section } from "./fixtures.js";
 
 const DASH = "\u2013";
@@ -48,6 +48,13 @@ test("formatWhen says so when there is nothing to say", () => {
 test("formatWhen keeps whichever half it has", () => {
   assert.equal(formatWhen(meeting(["tuesday"])), "Tu");
   assert.equal(formatWhen(meeting([], "9:00 AM")), "9:00a");
+});
+
+test("buildingOf prefers the short name OSU puts on the row", () => {
+  assert.equal(buildingOf(meeting([], null, null, [], { buildingDescriptionShort: "DL 266", facilityDescription: "Dreese Laboratories 266" })), "DL 266");
+  assert.equal(buildingOf(meeting([], null, null, [], { facilityDescription: "Dreese Laboratories 266" })), "Dreese Laboratories 266");
+  assert.equal(buildingOf(meeting([])), "");
+  assert.equal(buildingOf(null), "");
 });
 
 test("isOnlineMeeting reads the building fields, not the mode", () => {

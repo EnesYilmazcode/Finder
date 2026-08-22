@@ -22,7 +22,9 @@ export function formatWhen(meeting) {
   return [days, time].filter(Boolean).join(" ");
 }
 
-function buildingOf(meeting) {
+// Exported so a caller keying on the room uses the same field order the
+// online check does.
+export function buildingOf(meeting) {
   return meeting?.buildingDescriptionShort || meeting?.facilityDescriptionShort || meeting?.facilityDescription || "";
 }
 

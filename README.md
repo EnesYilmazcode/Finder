@@ -151,9 +151,12 @@ That block is only the part a search waits on. Opening the page is 24 requests
 across two hosts, counted in Chrome against a local copy with the cache
 cleared: 23 files from this repo and the term list from `content.osu.edu`. The
 23 are the HTML, two stylesheets, three font files, thirteen modules, the
-ratings snapshot, two seat files and a favicon that is not there. The live page
-adds one more, the page-view ping to the analytics worker, which local runs
-skip.
+ratings snapshot, two seat files and the favicon. The live page adds one more,
+the page-view ping to the analytics worker, which local runs skip.
+
+The share card is not one of them. `og.png` is fetched by whatever is unfurling
+the link and `apple-touch-icon.png` by iOS when someone saves the site to a home
+screen, so neither costs a visitor anything.
 
 None of them go to Google. The three families are woff2 files in
 `assets/fonts/`, served with everything else.
@@ -180,7 +183,7 @@ committed, and leave the old file in place. `FORCE_WRITE=1`, or the force input
 on the workflow, writes it anyway, which is how a real shrink gets shipped. A
 file that failed to parse is refused either way.
 
-`npm test` runs 232 tests through `node --test`, with nothing installed.
+`npm test` runs 238 tests through `node --test`, with nothing installed.
 
 ## Repo layout
 
@@ -205,7 +208,7 @@ js/
 scripts/              the three snapshot jobs
 data/                 the snapshots, committed
 docs/                 what OSU's API and Barrett's schedule get wrong
-tests/                232 tests, zero dependencies
+tests/                238 tests, zero dependencies
 wireframes/           three layouts considered first
 analytics/            the page-view counter, a Cloudflare Worker
 stats/                the page that reads the counter
