@@ -1,11 +1,13 @@
 import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
-import { loadRatings, topRated, ratedCount, profileUrl } from "./ratings.js";
-import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount } from "./seats.js";
+import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
+import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
+import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
 import { applyFilters, isActive, DEFAULTS } from "./filters.js";
 import { renderCalendar } from "./calendar.js";
+import { formatCoverage } from "./format.js";
 import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
 
 const els = {
@@ -38,6 +40,10 @@ const els = {
 };
 
 let terms = [];
+let termsError = "";
+// A search refused while the term list was still in flight, held whole. The
+// pickers are live in that window, so a bare query would replay unscoped.
+let queued = null;
 let latestRequest = 0;
 
 // Class number to its section and course, rebuilt on every render. The detail
@@ -53,8 +59,8 @@ let lastResult = null;
 // a typed subject is still a guess. The query rides along so an edited box
 // stops matching it.
 let pickedSearch = null;
-let showHidden = false;
 let view = "list";
+let courseCodesTried = false;
 
 function dayStates() {
   const required = [];
@@ -93,7 +99,7 @@ function readFilters() {
     avoid: avoided,
     from: data.get("from") ?? "",
     to: data.get("to") ?? "",
-    rating: data.get("rating") ?? "",
+    rating: els.filters.rating.value,
     hideFull: els.filters.hideFull.checked,
     hideOnline: els.filters.hideOnline.checked,
     ratedOnly: els.filters.ratedOnly.checked,
@@ -114,6 +120,22 @@ function writeFilters(params) {
   els.filters.hideFull.checked = params.get("hideFull") === "1";
   els.filters.hideOnline.checked = params.get("hideOnline") === "1";
   els.filters.ratedOnly.checked = params.get("ratedOnly") === "1";
+}
+
+/**
+ * The one way filters come off, so the rail, the status line and the URL can
+ * never describe a set that is no longer on screen.
+ *
+ * The contract for anything added after this: whatever readFilters() reads has
+ * to be resettable here. els.filters.reset() reaches only what lives in the
+ * form, and filter state has already started escaping it.
+ */
+function clearFilters() {
+  els.filters.reset();
+  for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
+  // Filter state that lives outside the form is reset here.
+  syncUrl(els.query.value, els.term.value);
+  paint();
 }
 
 /**
@@ -256,7 +278,23 @@ function selectSection(row) {
   // Selection is state, not just colour, so it is exposed rather than implied.
   row.setAttribute("aria-current", "true");
 
-  showDetail(renderDetail({ ...found, term: els.term.value, entries: currentEntries, formatDate }));
+  const draw = () => renderDetail({ ...found, term: els.term.value, entries: currentEntries, formatDate });
+  showDetail(draw());
+
+  // The course codes behind "52 of 147 ratings are for CSE 2221" are their own file,
+  // fetched on the first section opened instead of at startup. Redrawing the body
+  // rather than calling showDetail again leaves focus where it is. One attempt per
+  // page load either way, because a missing snapshot will not appear on the next click.
+  if (courseCodesTried) return;
+  const opened = row.dataset.classNumber;
+  loadRatingCourses()
+    .then(() => {
+      if (opened === els.results.querySelector(".is-selected")?.dataset.classNumber) {
+        els.detailBody.replaceChildren(draw());
+      }
+    })
+    .catch((error) => console.warn("rating course codes unavailable", error))
+    .finally(() => { courseCodesTried = true; });
 }
 
 function closeDetail() {
@@ -311,7 +349,7 @@ function showWelcome(term) {
   const sections = seatsSectionCount(term);
   const bits = [termName(term)];
   if (sections) bits.push(`${sections.toLocaleString()} sections`);
-  if (seatsUpdated(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
+  if (seatsTerm(term) && seatsUpdated(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
   els.wStats.textContent = bits.join(" · ");
 
   const best = topRated();
@@ -349,11 +387,22 @@ function showWelcome(term) {
   );
 }
 
-async function runSearch(q, term, subject) {
+async function runSearch(q, term, subject, genCategory) {
+  if (!term) {
+    // Reachable since #80 moved the listeners above the term request. Hold the
+    // call for init to run rather than search without a term.
+    if (termsError) setStatus(termsError, "error");
+    else if (q.trim()) {
+      queued = { q, subject, genCategory };
+      setStatus("Still loading terms. Your search will run when they arrive.");
+    }
+    return;
+  }
   if (!q.trim()) {
     els.results.replaceChildren();
     showWelcome(term);
-    setStatus("");
+    markSources(term);
+    setStatus(outageNote(term));
     return;
   }
   els.welcome.hidden = true;
@@ -365,14 +414,14 @@ async function runSearch(q, term, subject) {
     // Ratings must be in hand before rendering, or instructors draw unrated and
     // never redraw. Awaited alongside the search rather than before it, so the
     // cost is the slower of the two and only on the first search.
-    const [{ courses }] = await Promise.all([
+    const [{ courses, totalItems }] = await Promise.all([
       searchAllPages({ q, term, subject }),
       loadRatings().catch(() => null),
       loadSeats(term).catch(() => null),
+      loadTrend(term),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
-    lastResult = filterCourses(courses, q);
-    showHidden = false;
+    lastResult = { ...filterCourses(courses, q), totalItems };
     paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
@@ -384,16 +433,49 @@ async function runSearch(q, term, subject) {
   }
 }
 
+/** Names the snapshots that were asked for and did not arrive. Empty if none did. */
+function outageNote(term) {
+  const ratings = ratingsFailed();
+  const dead = [];
+  if (ratings) dead.push("instructor ratings");
+  if (seatsFailed(term)) dead.push("seat counts");
+  if (!dead.length) return "";
+  // Ratings feed two of the three controls and seats one, so the count follows
+  // the ratings file rather than how many files died.
+  const off = ratings ? "filters that need them are" : "filter that needs them is";
+  return `Could not load ${dead.join(" and ")}, so the ${off} off.`;
+}
+
+/**
+ * Turn off the controls whose snapshot never arrived.
+ *
+ * Left on they filter against nothing, which either empties the page or does
+ * nothing at all, and both look like the student's own choice.
+ */
+function markSources(term) {
+  const ratings = ratingsFailed();
+  const seats = seatsFailed(term);
+  els.filters.rating.disabled = ratings;
+  els.filters.ratedOnly.disabled = ratings;
+  els.filters.hideFull.disabled = seats;
+}
+
 /** Re-render from the last search. Filters never refetch. */
 function paint(term = els.term.value) {
-  if (!lastResult) return;
+  markSources(term);
+  if (!lastResult) {
+    // Nothing to describe yet, but a dead snapshot still has to be named and a
+    // term that loaded has to clear the note. Only on the landing screen: a
+    // search that failed owns the status line and keeps it.
+    if (!els.welcome.hidden) setStatus(outageNote(term));
+    return;
+  }
   const filters = readFilters();
   const active = isActive(filters);
   els.clear.hidden = !active;
 
-  const blank = { entries: [], hiddenSections: 0, hiddenCourses: 0 };
-  const p = showHidden ? { ...blank, entries: lastResult.primary } : applyFilters(lastResult.primary, filters);
-  const r = showHidden ? { ...blank, entries: lastResult.related } : applyFilters(lastResult.related, filters);
+  const p = applyFilters(lastResult.primary, filters);
+  const r = applyFilters(lastResult.related, filters);
 
   const primary = p.entries;
   const related = r.entries;
@@ -442,19 +524,24 @@ function paint(term = els.term.value) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Show them anyway";
-    button.addEventListener("click", () => { showHidden = true; paint(term); });
+    // Clearing rather than overriding is what keeps the rail, the status line
+    // and the URL from describing a set that is no longer on screen.
+    button.addEventListener("click", clearFilters);
     note.append(button);
     els.results.append(note);
   }
 
+  const outage = outageNote(term);
+  const withOutage = (line) => (outage ? `${line} ${outage}` : line);
+
   if (!primary.length) {
     // Careful not to claim everything went when related courses may still be
     // on screen underneath this message.
-    setStatus(
+    setStatus(withOutage(
       isActive(filters)
         ? `No sections match your filters in ${termName(term)}. Loosen one, or clear them.`
         : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`
-    );
+    ));
     return;
   }
 
@@ -463,7 +550,11 @@ function paint(term = els.term.value) {
   // Barrett refreshes once a day, so the numbers are dated, and during a
   // registration window that distinction matters.
   const dated = seatsTerm(term) && seatsUpdated(term) ? ` Seats as of ${formatDate(seatsUpdated(term))}.` : "";
-  setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`);
+  const counts = `${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`;
+  // The counts describe the fetch, not the filters, so this stays put when
+  // filters hide rows: the search really did read only part of the answer.
+  const coverage = formatCoverage(lastResult);
+  setStatus(withOutage(coverage ? `${counts} ${coverage}` : counts));
 }
 
 function formatDate(iso) {
@@ -481,6 +572,7 @@ async function init() {
   // Start the ratings download early so the first search rarely waits on it.
   loadRatings().catch((error) => console.warn("ratings unavailable", error));
   loadSeats(els.term.value).catch((error) => console.warn("seats unavailable", error));
+  loadTrend(els.term.value);
 
   const params = new URLSearchParams(location.search);
   setBusy(false);
@@ -492,30 +584,12 @@ async function init() {
   // leaving all five chips announcing as "Mo" when it failed.
   writeFilters(params);
 
-  try {
-    terms = await fetchTerms();
-  } catch (error) {
-    setStatus(error instanceof ApiError ? error.message : "Could not load terms.", "error");
-    return;
-  }
+  const initialQuery = params.get("q") ?? "";
+  els.query.value = initialQuery;
+  if (initialQuery.trim()) reflectQuery(initialQuery);
 
-  if (!terms.length) {
-    setStatus("Ohio State is not listing any searchable terms right now.", "error");
-    return;
-  }
-
-  els.term.replaceChildren(
-    ...terms.map((t) => {
-      const option = document.createElement("option");
-      option.value = t.code;
-      option.textContent = t.name;
-      return option;
-    })
-  );
-  const wanted = params.get("term");
-  els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
-  els.term.disabled = false;
-
+  // Also before the network: with no submit handler registered yet, Enter is a
+  // plain browser navigation that eats the query, which is what #80 measured.
   for (const field of [els.subject, els.number]) {
     field.addEventListener("focus", ensureCourses);
   }
@@ -538,7 +612,6 @@ async function init() {
   els.viewCal.addEventListener("click", () => setView("calendar"));
 
   els.filters.addEventListener("change", () => {
-    showHidden = false;
     syncUrl(els.query.value, els.term.value);
     paint();
   });
@@ -547,18 +620,11 @@ async function init() {
     const button = event.target.closest(".f-day");
     if (!button) return;
     setDayState(button, NEXT_STATE[button.dataset.state] ?? "require");
-    showHidden = false;
     syncUrl(els.query.value, els.term.value);
     paint();
   });
 
-  els.clear.addEventListener("click", () => {
-    els.filters.reset();
-    for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
-    showHidden = false;
-    syncUrl(els.query.value, els.term.value);
-    paint();
-  });
+  els.clear.addEventListener("click", clearFilters);
 
   els.railToggle.addEventListener("click", () => {
     openRail(els.app.dataset.rail !== "open");
@@ -598,8 +664,11 @@ async function init() {
   els.term.addEventListener("change", () => {
     if (isLoaded()) { fillSubjects(); fillNumbers(); }
     // Seats are per term since #48, so the new term has to arrive before the
-    // repaint, or the first view after a switch shows none.
-    loadSeats(els.term.value).then(() => paint()).catch(() => {});
+    // repaint, or the first view after a switch shows none. Repaint on failure
+    // too, or the controls keep describing the term we just left.
+    Promise.all([loadSeats(els.term.value), loadTrend(els.term.value)])
+      .catch(() => {})
+      .then(() => paint());
     syncUrl(els.query.value, els.term.value);
     const q = els.query.value;
     if (q.trim()) runSearch(q, els.term.value, pickedSearch?.q === q ? pickedSearch.subject : null);
@@ -614,17 +683,47 @@ async function init() {
     runSearch(button.dataset.q, els.term.value);
   });
 
-  const initialQuery = params.get("q") ?? "";
-  els.query.value = initialQuery;
-  if (initialQuery.trim()) {
-    reflectQuery(initialQuery);
-    runSearch(initialQuery, els.term.value);
+  try {
+    terms = await fetchTerms();
+  } catch (error) {
+    termsError = error instanceof ApiError ? error.message : "Could not load terms.";
+    setStatus(termsError, "error");
+    return;
   }
+
+  if (!terms.length) {
+    termsError = "Ohio State is not listing any searchable terms right now.";
+    setStatus(termsError, "error");
+    return;
+  }
+
+  els.term.replaceChildren(
+    ...terms.map((t) => {
+      const option = document.createElement("option");
+      option.value = t.code;
+      option.textContent = t.name;
+      return option;
+    })
+  );
+  const wanted = params.get("term");
+  els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
+  els.term.disabled = false;
+  // A picker opened before this point filled itself from an empty term, and
+  // setting the value in code fires no change event to refill it.
+  if (isLoaded()) { fillSubjects(); fillNumbers(); }
+
+  // A search asked for while the terms were loading was refused, not dropped.
+  const pending = queued ?? { q: initialQuery };
+  if (pending.q.trim()) runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
   else {
     // Ratings and seats are already in flight; fill the landing screen once
     // they land rather than showing an empty frame in the meantime.
     setStatus("");
-    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => showWelcome(els.term.value));
+    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => {
+      markSources(els.term.value);
+      setStatus(outageNote(els.term.value));
+      showWelcome(els.term.value);
+    });
   }
 }
 

@@ -8,16 +8,23 @@
 // The snapshot is one file per term plus a small index, and a term is fetched
 // when it is asked for. All three terms at once would be 154 KB gzipped on the
 // eager path, before anything renders, to carry two terms most visitors never
-// select. Loading one is 17 to 69 KB and a switch pays for itself once.
+// select. Loading one is 17 to 79 KB and a switch pays for itself once.
 
 let index = null;
 let indexLoading = null;
+let indexFailed = false;
 
 // Term code to that term's snapshot. Seats are only ever read out of this map
 // under the key asked for, so a term that has not loaded reads as unknown and
 // can never pick up another term's numbers.
 const loaded = new Map();
 const loadingTerms = new Map();
+// Terms whose file was asked for and did not arrive. Per term, so one dead
+// file does not condemn a term that loaded fine.
+const failedTerms = new Set();
+
+// Term code to that term's link index, built from the snapshot on first ask.
+const links = new Map();
 
 async function getJson(url) {
   const response = await fetch(url);
@@ -47,9 +54,11 @@ export async function loadSeats(term, url = "data/seats.json") {
     // one is never fetched twice.
     indexLoading ??= getJson(url).catch((error) => {
       indexLoading = null;
+      indexFailed = true;
       throw error;
     });
     index = await indexLoading;
+    indexFailed = false;
   }
 
   const key = String(term ?? "");
@@ -61,7 +70,8 @@ export async function loadSeats(term, url = "data/seats.json") {
   let pending = loadingTerms.get(key);
   if (!pending) {
     pending = getJson(`${dirOf(url)}${entry.file}`)
-      .then((snapshot) => loaded.set(key, snapshot))
+      .then((snapshot) => { loaded.set(key, snapshot); failedTerms.delete(key); })
+      .catch((error) => { failedTerms.add(key); throw error; })
       .finally(() => loadingTerms.delete(key));
     loadingTerms.set(key, pending);
   }
@@ -91,6 +101,15 @@ export function seatsStatus(term) {
   if (loadingTerms.has(key)) return "loading";
   if (!index) return indexLoading ? "loading" : "unknown";
   return entryFor(key) ? "unknown" : "missing";
+}
+
+/**
+ * True when this term's seats were asked for and did not arrive, so nothing
+ * can be said about how full anything is. A term the index does not list is an
+ * answer, not a failure, and reads false here.
+ */
+export function seatsFailed(term) {
+  return indexFailed || failedTerms.has(String(term ?? ""));
 }
 
 /** The term code once its seats are loaded and readable, or null. */
@@ -141,6 +160,55 @@ export function seatsFor(classNumber, term) {
     waitlist,
     full: limit > 0 && enrolled >= limit,
   };
+}
+
+// Both directions of a term's packages, built once per term. The snapshot
+// stores each one parent first, which is where the direction lives. A section
+// can sit under two parents, so the child side is a list.
+function linksFor(term) {
+  if (links.has(term)) return links.get(term);
+  const snapshot = loaded.get(term);
+  if (!snapshot) return null;
+
+  const enrolls = new Map();
+  const enrolledBy = new Map();
+  for (const group of snapshot.groups ?? []) {
+    const [parent, ...children] = (group ?? []).map(String);
+    if (!parent || !children.length) continue;
+    enrolledBy.set(parent, children);
+    for (const child of children) {
+      if (!enrolls.has(child)) enrolls.set(child, []);
+      enrolls.get(child).push(parent);
+    }
+  }
+
+  const built = { enrolls, enrolledBy };
+  links.set(term, built);
+  return built;
+}
+
+/**
+ * The rest of the registration one section belongs to, or null.
+ *
+ * `enrolls` is what signing up for this section also signs you up for, and
+ * `enrolledBy` is the sections that sign you up for this one. OSU's own API
+ * cannot answer this: every CSE 2221 section claims the same partner, so
+ * Barrett's autoenroll column is the pairing Finder reads.
+ *
+ * Null is unknown, exactly as in seatsFor. A term still loading, a snapshot
+ * written before groups existed, and a section Barrett names no partner for all
+ * read the same, because none of them is evidence that a section stands alone.
+ */
+export function linkedTo(classNumber, term) {
+  const key = String(classNumber ?? "");
+  const built = key ? linksFor(String(term ?? "")) : null;
+  if (!built) return null;
+
+  const enrolls = built.enrolls.get(key) ?? [];
+  const enrolledBy = built.enrolledBy.get(key) ?? [];
+  if (!enrolls.length && !enrolledBy.length) return null;
+  // Copies, as in seatsFor: these arrays are the cached index itself.
+  return { enrolls: [...enrolls], enrolledBy: [...enrolledBy] };
 }
 
 /**

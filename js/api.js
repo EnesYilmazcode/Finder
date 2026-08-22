@@ -6,6 +6,8 @@ const TIMEOUT_MS = 12000;
 // Relevance is the upstream default and it reshuffles between identical
 // requests. Catalog order does not. See docs/osu-api.md.
 const SORT = "catalogNumber";
+// Broad queries saturate totalItems here instead of counting it. See docs/osu-api.md.
+export const RESULT_CAP = 10000;
 
 export class ApiError extends Error {
   constructor(message, { status = null, cause = null } = {}) {
@@ -103,10 +105,11 @@ export function defaultTerm(terms, date = new Date()) {
 /**
  * Search classes. Returns { totalItems, totalPages, page, courses }.
  *
- * `sort` and `subject` are both real upstream parameters, documented in
- * docs/osu-api.md. `subject` has to be lowercase: `subject=CSE` returns zero.
+ * `sort`, `subject` and `gen-categories` are all real upstream parameters,
+ * documented in docs/osu-api.md. `subject` has to be lowercase: `subject=CSE`
+ * returns zero.
  */
-export async function searchClasses({ q, term, page = 1, sort, subject }) {
+export async function searchClasses({ q, term, page = 1, sort, subject, genCategory }) {
   if (!term) throw new ApiError("Pick a term before searching.");
   const data = await getJson("/classes/search", {
     q: q ?? "",
@@ -115,6 +118,9 @@ export async function searchClasses({ q, term, page = 1, sort, subject }) {
     p: page,
     sort,
     subject,
+    // Sending it empty is not the same as leaving it off: `gen-categories=`
+    // returns zero.
+    "gen-categories": genCategory || undefined,
   });
   return {
     totalItems: data?.totalItems ?? 0,
@@ -174,10 +180,10 @@ function pickedScope(raw, subject) {
  * when the answer does not fit, the relevance pass runs as well and both are
  * merged. rank.js dedupes by class number, so the extra page is free coverage.
  */
-export async function searchAllPages({ q, term, maxPages = 5, subject }) {
+export async function searchAllPages({ q, term, maxPages = 5, subject, genCategory }) {
   const picked = pickedScope(q, subject);
   const scope = picked ?? subjectScope(q);
-  let params = scope ? { q: scope.q, subject: scope.subject } : { q };
+  let params = scope ? { q: scope.q, subject: scope.subject, genCategory } : { q, genCategory };
 
   let first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
 
@@ -185,7 +191,7 @@ export async function searchAllPages({ q, term, maxPages = 5, subject }) {
   // subject code. Nothing matches a subject that is not offered. A picked code
   // is not a guess, so zero results there are real.
   if (scope && !picked && first.totalItems === 0) {
-    params = { q };
+    params = { q, genCategory };
     first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
   }
 

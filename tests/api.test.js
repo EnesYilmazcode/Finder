@@ -250,3 +250,33 @@ test("a guessed subject that finds nothing still falls back to free text", async
   assert.equal(calls[1].searchParams.get("q"), "Mathur 2153");
   assert.ok(!calls[1].searchParams.has("subject"));
 });
+
+// The signature carries three parameters added by three branches, and
+// destructuring drops an unknown one without a word, so each is pinned at the
+// wire rather than at the call.
+test("searchAllPages sends every scope it was handed", async () => {
+  const calls = capture({ data: { totalItems: 2, totalPages: 1, courses: [] } });
+  await searchAllPages({ q: "MATH", term: "1268", subject: "math", genCategory: "GEN Theme: Sustainability" });
+
+  assert.equal(calls[0].searchParams.get("subject"), "math");
+  assert.equal(calls[0].searchParams.get("q"), "", "a picked code moves out of q");
+  assert.equal(calls[0].searchParams.get("gen-categories"), "GEN Theme: Sustainability");
+});
+
+test("searchAllPages leaves off a scope nobody picked", async () => {
+  const calls = capture({ data: { totalItems: 2, totalPages: 1, courses: [] } });
+  await searchAllPages({ q: "Smith", term: "1268" });
+
+  assert.equal(calls[0].searchParams.has("subject"), false);
+  assert.equal(calls[0].searchParams.has("gen-categories"), false);
+});
+
+// A picked code is not a guess, so an empty answer is the answer. The keyword
+// fallback would silently widen a browse the student chose.
+test("searchAllPages does not retry unscoped after a picked subject finds nothing", async () => {
+  const calls = capture({ data: { totalItems: 0, totalPages: 0, courses: [] } });
+  await searchAllPages({ q: "", term: "1268", subject: "arab" });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].searchParams.get("subject"), "arab");
+});
