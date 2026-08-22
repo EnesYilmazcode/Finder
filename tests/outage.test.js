@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { DEFAULTS, applyFilters } from "../js/filters.js";
 import { loadRatings, ratingsFailed } from "../js/ratings.js";
 import { loadSeats, seatsFailed } from "../js/seats.js";
-import { entry, taught, SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
+import { entry, onlineMeeting, person, section, taught, SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
 import { stubFetch } from "./helpers.js";
 
 // An empty route table rejects every URL, which is what a blocked file does.
@@ -57,9 +57,11 @@ test("a minimum rating hides nothing when ratings never loaded", () => {
 });
 
 test("a dead ratings file does not disarm the filters that do not use it", () => {
+  // hideOnline judges the meeting's room since #84, not the mode string.
   const online = entry("CSE", "2231", "Software II", [
-    taught(3001, ["monday"], "9:00 AM", "9:55 AM", ["Nobody Here"], {
-      instructionMode: "Distance Learning - Online",
+    section(3001, {
+      instructionMode: "Distance Learning",
+      meetings: [onlineMeeting(["monday"], "9:00 AM", "9:55 AM", [person("Nobody Here")])],
     }),
   ]);
   assert.equal(applyFilters([online], filters({ hideOnline: true })).entries.length, 0);

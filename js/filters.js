@@ -1,7 +1,7 @@
 // Client-side filtering over results already fetched. No filter triggers a
 // network request, so dragging a time slider does not hammer OSU.
 
-import { instructorsOf } from "./format.js";
+import { instructorsOf, isOnlineMeeting } from "./format.js";
 import { ratingFor, ratingsFailed } from "./ratings.js";
 import { seatsFor } from "./seats.js";
 
@@ -43,7 +43,11 @@ function sectionDays(section) {
  * sections from anyone who touched a slider.
  */
 function keepSection(section, filters) {
-  if (filters.hideOnline && /online/i.test(section.instructionMode ?? "")) return false;
+  // Online-ness lives on the meeting, not on the mode. See #84.
+  if (filters.hideOnline) {
+    const meetings = section.meetings ?? [];
+    if (meetings.length && meetings.every((m) => isOnlineMeeting(m))) return false;
+  }
 
   if (filters.hideFull) {
     const seats = seatsFor(section.classNumber, filters.term);
