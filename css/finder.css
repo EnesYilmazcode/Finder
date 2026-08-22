@@ -224,6 +224,7 @@ body {
 .teacher-name,
 .section-when,
 .section-where,
+.section-also,
 .section-who { overflow-wrap: break-word; }
 
 .course-code {
@@ -267,6 +268,7 @@ body {
 .section-when { font-size: 0.95rem; }
 
 .section-where,
+.section-also,
 .section-who {
   grid-column: 2;
   color: var(--mute);

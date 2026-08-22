@@ -117,6 +117,26 @@ export function instructorsOf(section) {
 }
 
 /**
+ * A section's meetings with the API's repeats dropped.
+ *
+ * Upstream lists the same pattern once per room label it holds for the class.
+ * CSE 2112 class 8823 comes back with ten meetings that describe three, and
+ * CHEM 8893 class 24426 with eight that describe one.
+ *
+ * The room half of the key is buildingOf(), so two meetings that would print
+ * the same line are one meeting. See #84.
+ */
+export function distinctMeetings(section) {
+  const seen = new Set();
+  return (section?.meetings ?? []).filter((meeting) => {
+    const key = `${formatWhen(meeting)}|${buildingOf(meeting)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
  * A section's attributes on top of its course's, deduped on name and value.
  *
  * Both arrays arrive on every response and they are not copies of each other:

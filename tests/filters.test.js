@@ -135,6 +135,15 @@ test("regression #62: a floor on start reads past the first meeting too", () => 
   assert.equal(applyFilters([reversed], filters({ from: "720" })).entries.length, 0);
 });
 
+// #62 and #82 answered this differently and #62's loop is the one that landed:
+// a meeting with no start is skipped whole, so its end is not read either.
+test("an end time with no start is not judged on time at all", () => {
+  const dangling = entry("CHEM", "1110", "Lab", [section(6004, {
+    meetings: [meeting(["monday"], null, "8:00 PM", [])],
+  })]);
+  assert.equal(applyFilters([dangling], filters({ to: "720" })).entries.length, 1);
+});
+
 test("parseBusy reads the URL form", () => {
   assert.deepEqual(parseBusy("TuTh-575-655"), { days: ["tuesday", "thursday"], start: 575, end: 655 });
   assert.deepEqual(parseBusy("mo-480-540"), { days: ["monday"], start: 480, end: 540 });

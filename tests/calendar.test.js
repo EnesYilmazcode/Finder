@@ -96,7 +96,7 @@ test("a missing end time falls back to a 55 minute class", () => {
   assert.equal(slots[0].end, 955);
 });
 
-test("buildSlots picks the first meeting that has both a day and a time", () => {
+test("a meeting with no day of the week cannot be placed on the grid", () => {
   const entries = [
     entry("CSE", "2321", "Foundations 1", [
       section(1001, {
@@ -107,9 +107,50 @@ test("buildSlots picks the first meeting that has both a day and a time", () => 
       }),
     ]),
   ];
-  const { slots } = buildSlots(entries, TERM);
+  const { slots, unscheduled } = buildSlots(entries, TERM);
   assert.equal(slots.length, 1);
   assert.equal(slots[0].start, 900);
+  assert.equal(unscheduled.length, 0, "the section is on the grid, so it is not also listed as unscheduled");
+});
+
+// Regression, #82. Class 15671 in Autumn 2026 meets Tu 8:00a-10:55a in CE 310
+// and again Th 4:10p-5:05p in MP 1040, and only the Tuesday half was drawn.
+test("regression #82: every meeting of a section gets its own slot", () => {
+  const entries = [
+    entry("CHEM", "1110", "Elementary Chemistry", [
+      section(1001, {
+        meetings: [
+          meeting(["tuesday"], "8:00 AM", "10:55 AM", [person("Mehr Bindra")]),
+          meeting(["thursday"], "4:10 PM", "5:05 PM", [person("Laurenda Lamboni")]),
+        ],
+      }),
+    ]),
+  ];
+  const { slots, unscheduled } = buildSlots(entries, TERM);
+  assert.deepEqual(
+    slots.map((s) => [s.days.join(","), s.start, s.end]),
+    [["tuesday", 480, 655], ["thursday", 970, 1025]]
+  );
+  for (const slot of slots) assert.equal(slot.items.length, 1);
+  assert.equal(unscheduled.length, 0);
+});
+
+// Regression, #82. MUSIC 2203.04 section 19215 meets MoWeFr 4:10p-5:05p in two
+// Weigel rooms at once, which is two meetings for one block on the grid.
+test("regression #82: a section meeting twice in the same hour is listed once", () => {
+  const entries = [
+    entry("MUSIC", "2203.04", "Men's Glee Club", [
+      section(1001, {
+        meetings: [
+          meeting(MWF, "4:10 PM", "5:05 PM", [person("Robert James Ward")], { buildingDescriptionShort: "WG 174" }),
+          meeting(MWF, "4:10 PM", "5:05 PM", [person("Robert James Ward")], { buildingDescriptionShort: "WG 100A" }),
+        ],
+      }),
+    ]),
+  ];
+  const { slots } = buildSlots(entries, TERM);
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].items.length, 1);
 });
 
 test("each item carries the seats for its own section", () => {

@@ -6,7 +6,7 @@
 // enrollment figure per course and repeats it onto every section, so rendering
 // it per section would tell students a full section is open. See #13.
 
-import { formatWhen, formatPlace, formatUnits, instructorsOf, attributeLabel, courseBadges, sectionBadges, sectionFlags } from "./format.js";
+import { formatWhen, formatPlace, formatUnits, instructorsOf, distinctMeetings, attributeLabel, courseBadges, sectionBadges, sectionFlags } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
 import { linkedTo, seatsFor, unreachable } from "./seats.js";
 import { openedOn } from "./trend.js";
@@ -153,7 +153,8 @@ export function renderSection(section, term) {
   li.tabIndex = 0;
   li.setAttribute("role", "button");
   li.dataset.classNumber = String(section.classNumber ?? "");
-  const meeting = section.meetings?.[0] ?? null;
+  const meetings = distinctMeetings(section);
+  const meeting = meetings[0] ?? null;
 
   li.append(el("span", "section-number", section.classNumber ?? ""));
 
@@ -163,6 +164,11 @@ export function renderSection(section, term) {
   li.append(when);
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
+
+  // See #82.
+  for (const extra of meetings.slice(1)) {
+    li.append(el("span", "section-also", `${formatWhen(extra)} · ${formatPlace(extra, section)}`));
+  }
 
   // A row is scanned rather than read, so it carries the two that change a
   // decision most and the pane spells out the rest. One strip and one cap: the

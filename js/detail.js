@@ -2,7 +2,7 @@
 // thing not already in memory when a section is selected, and app.js redraws
 // the body once they land.
 
-import { formatWhen, formatUnits, instructorsOf, attributesOf, attributeLabel, sectionFlags, trendLabel } from "./format.js";
+import { formatWhen, formatUnits, instructorsOf, distinctMeetings, attributesOf, attributeLabel, sectionFlags, trendLabel } from "./format.js";
 import { ratingFor, searchUrl, profileUrl, ratingSpread, courseShare } from "./ratings.js";
 import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { trendFor } from "./trend.js";
@@ -278,11 +278,15 @@ export function renderDetail({ section, course, term, entries, formatDate, share
     wrap.append(partners("Register through one of these", linked.enrolledBy, term, entries));
   }
 
-  const meeting = section.meetings?.[0] ?? null;
   const meets = block("Meets");
-  meets.append(row("When", formatWhen(meeting)));
-  const room = meeting?.buildingDescription || meeting?.facilityDescription;
-  if (room) meets.append(row("Room", room));
+  // The [null] keeps a section with nothing scheduled printing Time to be
+  // announced. See #82.
+  const meetings = distinctMeetings(section);
+  for (const meeting of meetings.length ? meetings : [null]) {
+    meets.append(row("When", formatWhen(meeting)));
+    const room = meeting?.buildingDescription || meeting?.facilityDescription;
+    if (room) meets.append(row("Room", room));
+  }
   if (section.instructionMode) meets.append(row("Mode", section.instructionMode));
   if (section.startDate && section.endDate) meets.append(row("Runs", `${section.startDate} to ${section.endDate}`));
   wrap.append(meets);
