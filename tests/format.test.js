@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatDays, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf } from "../js/format.js";
+import { formatDays, dayCodes, busyLabel, formatTime, formatWhen, formatPlace, formatUnits, instructorsOf } from "../js/format.js";
 import { meeting, person, section } from "./fixtures.js";
 
 const DASH = "\u2013";
@@ -20,6 +20,17 @@ test("formatDays is empty for no days and for no meeting", () => {
   assert.equal(formatDays(meeting([])), "");
   assert.equal(formatDays(null), "");
   assert.equal(formatDays(undefined), "");
+});
+
+test("dayCodes abbreviates a plain list of days in week order", () => {
+  assert.equal(dayCodes(["thursday", "tuesday"]), "TuTh");
+  assert.equal(dayCodes([]), "");
+});
+
+test("busyLabel reads like the section rows", () => {
+  assert.equal(busyLabel({ days: ["tuesday", "thursday"], start: 575, end: 655 }), `TuTh 9:35a${DASH}10:55a`);
+  // 1440 is the midnight that ends the day, not the one that starts it.
+  assert.equal(busyLabel({ days: ["monday"], start: 720, end: 1440 }), `Mo 12:00p${DASH}12:00a`);
 });
 
 test("formatTime drops the space and the m", () => {
