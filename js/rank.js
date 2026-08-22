@@ -117,6 +117,10 @@ export function filterCourses(entries, rawQuery) {
   // student who really did want CSE 4193 can still reach it.
   if (!pool.length) return { primary: ranked.slice(0, 25), related: ranked.slice(25), reason: "ranked" };
 
+  // Nothing typed means nothing to rank, so cutting at 25 would bury most of a
+  // requirement browse under "related" and then report 25 as the whole answer.
+  if (!parsed.tokens.length) return { primary: pool, related: setAside, reason: "all" };
+
   // An exact subject plus number is unambiguous. Answer the question asked.
   if (parsed.subject && parsed.number) {
     const exact = pool.filter(

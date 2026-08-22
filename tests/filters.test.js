@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULTS, toMinutes, isActive, applyFilters } from "../js/filters.js";
-import { entry, section, taught } from "./fixtures.js";
+import { DEFAULTS, toMinutes, isActive, applyFilters, parseBusy, formatBusy } from "../js/filters.js";
+import { entry, meeting, onlineMeeting, section, taught } from "./fixtures.js";
 import { withRatings, withSeats } from "./helpers.js";
 
 // filters.js reads seats and ratings through the shared module state, so the
@@ -18,8 +18,8 @@ const filters = (over = {}) => ({ ...DEFAULTS, term: TERM, ...over });
 const morning = taught(1001, ["monday", "wednesday", "friday"], "9:10 AM", "10:05 AM", ["Diana Ikenberry Kline"]);
 const evening = taught(1002, ["tuesday", "thursday"], "6:30 PM", "7:50 PM", ["Nobody Here"]);
 const online = section(5003, {
-  instructionMode: "Distance Learning - Online",
-  meetings: [],
+  instructionMode: "Distance Learning",
+  meetings: [onlineMeeting()],
 });
 const arranged = section(5004, { meetings: [] });
 
@@ -57,6 +57,7 @@ test("isActive is false for the defaults", () => {
 
 test("isActive notices any one filter", () => {
   assert.equal(isActive(filters({ days: ["monday"] })), true);
+  assert.equal(isActive(filters({ busy: [{ days: ["monday"], start: 540, end: 600 }] })), true);
   assert.equal(isActive(filters({ from: "540" })), true);
   assert.equal(isActive(filters({ to: "1020" })), true);
   assert.equal(isActive(filters({ rating: "4" })), true);
@@ -107,10 +108,164 @@ test("a section with no end time is judged on its start", () => {
   assert.equal(applyFilters([open], filters({ to: "500" })).entries.length, 0);
 });
 
-test("hideOnline drops only what the instruction mode says is online", () => {
+// A lecture and its lab, which is what the first-meeting-only rule got wrong.
+const split = section(6001, {
+  meetings: [
+    meeting(["monday", "wednesday"], "9:00 AM", "9:55 AM", []),
+    meeting(["friday"], "6:00 PM", "8:00 PM", []),
+  ],
+});
+const splitCourse = () => entry("BIOLOGY", "2105", "Lab", [split]);
+
+test("regression #62: a time window judges every meeting, not just the first", () => {
+  // The Friday lab runs to 8:00 pm, so this section does not end by noon. The
+  // old rule read the 9:55 am lecture, the first meeting listed, and kept it.
+  assert.equal(applyFilters([splitCourse()], filters({ to: "720" })).entries.length, 0);
+});
+
+test("regression #62: a floor on start reads past the first meeting too", () => {
+  // Mirrored: the API lists the 2:00 pm lecture first, so reading only that hid
+  // an 8:00 am lab from "starts no earlier than noon".
+  const reversed = entry("CHEM", "1110", "Lab", [section(6002, {
+    meetings: [
+      meeting(["monday"], "2:00 PM", "3:00 PM", []),
+      meeting(["friday"], "8:00 AM", "9:00 AM", []),
+    ],
+  })]);
+  assert.equal(applyFilters([reversed], filters({ from: "720" })).entries.length, 0);
+});
+
+// #62 and #82 answered this differently and #62's loop is the one that landed:
+// a meeting with no start is skipped whole, so its end is not read either.
+test("an end time with no start is not judged on time at all", () => {
+  const dangling = entry("CHEM", "1110", "Lab", [section(6004, {
+    meetings: [meeting(["monday"], null, "8:00 PM", [])],
+  })]);
+  assert.equal(applyFilters([dangling], filters({ to: "720" })).entries.length, 1);
+});
+
+test("parseBusy reads the URL form", () => {
+  assert.deepEqual(parseBusy("TuTh-575-655"), { days: ["tuesday", "thursday"], start: 575, end: 655 });
+  assert.deepEqual(parseBusy("mo-480-540"), { days: ["monday"], start: 480, end: 540 });
+  assert.deepEqual(parseBusy("MoWeFr-780-825").days, ["monday", "wednesday", "friday"]);
+});
+
+test("parseBusy returns null rather than guessing", () => {
+  for (const junk of ["", "  ", null, undefined, "TuTh", "Xx-1-2", "Tut-1-2", "TuTh-655-575",
+                      "TuTh-575-575", "TuTh-0-1441", "TuTh:575-655"]) {
+    assert.equal(parseBusy(junk), null, `${junk} should not parse`);
+  }
+});
+
+test("formatBusy writes days in week order", () => {
+  // app.js hands formatBusy the days in whatever order they were clicked.
+  assert.equal(formatBusy({ days: ["thursday", "tuesday"], start: 575, end: 655 }), "TuTh-575-655");
+  assert.deepEqual(parseBusy(formatBusy(parseBusy("ThTu-575-655"))), parseBusy("TuTh-575-655"));
+});
+
+test("a busy block drops the sections that collide with it", () => {
+  // Busy TuTh 6:00 pm to 7:00 pm, which is inside the evening section.
+  const { entries, hiddenSections } = applyFilters(
+    [course()],
+    filters({ busy: [{ days: ["tuesday", "thursday"], start: 1080, end: 1140 }] })
+  );
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [1001, 5003, 5004]);
+  assert.equal(hiddenSections, 1);
+});
+
+test("a busy block only judges the days it covers", () => {
+  // The same hour, but on a day the evening section does not meet.
+  const { entries } = applyFilters(
+    [course()],
+    filters({ busy: [{ days: ["monday"], start: 1080, end: 1140 }] })
+  );
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [1001, 1002, 5003, 5004]);
+});
+
+test("a busy block is half open, so touching edges are not a clash", () => {
+  // The morning section runs 9:10 to 10:05 on MoWeFr.
+  const before = filters({ busy: [{ days: ["monday"], start: 480, end: 550 }] });
+  const after = filters({ busy: [{ days: ["monday"], start: 605, end: 700 }] });
+  assert.ok(applyFilters([course()], before).entries[0].sections.some((s) => s.classNumber === 1001));
+  assert.ok(applyFilters([course()], after).entries[0].sections.some((s) => s.classNumber === 1001));
+
+  const across = filters({ busy: [{ days: ["monday"], start: 549, end: 551 }] });
+  assert.ok(!applyFilters([course()], across).entries[0].sections.some((s) => s.classNumber === 1001));
+});
+
+test("a busy block checks every meeting of a section", () => {
+  // Busy Friday evening, which only the second meeting runs into.
+  const { entries } = applyFilters(
+    [splitCourse()],
+    filters({ busy: [{ days: ["friday"], start: 1140, end: 1200 }] })
+  );
+  assert.equal(entries.length, 0);
+});
+
+test("unknown meeting patterns never fail a busy block", () => {
+  const { entries } = applyFilters(
+    [course()],
+    filters({ busy: [{ days: ["monday", "tuesday", "wednesday", "thursday", "friday"], start: 0, end: 1440 }] })
+  );
+  assert.deepEqual(
+    entries[0].sections.map((s) => s.classNumber),
+    [5003, 5004],
+    "an online and an arranged section have no time to judge"
+  );
+});
+
+test("a section with no end time still clashes with a block it starts inside", () => {
+  const open = entry("CSE", "1", "T", [taught(7002, ["monday"], "9:00 AM", null, ["Someone"])]);
+  const inside = filters({ busy: [{ days: ["monday"], start: 540, end: 600 }] });
+  const outside = filters({ busy: [{ days: ["monday"], start: 600, end: 660 }] });
+  assert.equal(applyFilters([open], inside).entries.length, 0);
+  assert.equal(applyFilters([open], outside).entries.length, 1);
+});
+
+test("a meeting with no time never fails a time filter or a busy block", () => {
+  // A lecture at a known hour plus a "Time to be announced" second meeting.
+  const partial = entry("CSE", "3901", "Lab", [section(6003, {
+    meetings: [
+      meeting(["monday"], "9:00 AM", "10:00 AM", []),
+      meeting(["friday"], null, null, []),
+    ],
+  })]);
+  assert.equal(applyFilters([partial], filters({ from: "540", to: "660" })).entries.length, 1);
+  assert.equal(
+    applyFilters([partial], filters({ busy: [{ days: ["friday"], start: 0, end: 1440 }] })).entries.length,
+    1
+  );
+});
+
+test("regression #84: hideOnline drops a section OSU marks ONLINE", () => {
+  // The mode never carries the word "online". The old version of this test
+  // only passed because its fixture invented a mode that did.
   const { entries, hiddenSections } = applyFilters([course()], filters({ hideOnline: true }));
   assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [1001, 1002, 5004]);
   assert.equal(hiddenSections, 1);
+});
+
+test("hideOnline leaves an arranged section alone", () => {
+  // 5004 has no meetings, so there is nothing to judge it on.
+  const { entries } = applyFilters([course()], filters({ hideOnline: true }));
+  assert.ok(entries[0].sections.some((s) => s.classNumber === 5004));
+});
+
+test("hideOnline keeps a hybrid that still meets in a room", () => {
+  // Hybrid Delivery mixes online and in person meetings. You still have to
+  // show up for the in person half, so it is not an online section.
+  const hybrid = entry("CSE", "2231", "Software II", [
+    section(6001, {
+      instructionMode: "Hybrid Delivery",
+      meetings: [
+        onlineMeeting(["monday"]),
+        meeting(["wednesday"], "1:00 PM", "1:55 PM", [], { buildingDescriptionShort: "DL 266" }),
+      ],
+    }),
+  ]);
+  const { entries, hiddenSections } = applyFilters([hybrid], filters({ hideOnline: true }));
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [6001]);
+  assert.equal(hiddenSections, 0);
 });
 
 test("hideFull drops a full section and keeps one with no seat data", () => {
@@ -119,6 +274,72 @@ test("hideFull drops a full section and keeps one with no seat data", () => {
   assert.ok(kept.includes(1001), "an open section stays");
   assert.ok(!kept.includes(1002), "a full section goes");
   assert.ok(kept.includes(5003) && kept.includes(5004), "unknown seats never fail the filter");
+});
+
+// Regression, #67. Barrett's autoenroll column says 1010 also puts you in
+// 1002, and 1002 is full, so nobody can take 1010's nineteen free seats.
+// Live equivalent in the 2026-08-20 snapshot: AEDECON 2005 lab 30779 reads
+// 17/20 while the lecture it enrolls you into, 30778, is 40/40.
+test("regression #67: hideFull drops a section whose registration includes a full one", () => {
+  const linked = entry("CSE", "2221", "Software I", [
+    taught(1010, ["tuesday"], "1:00 PM", "2:20 PM", ["Nobody Here"]),
+  ]);
+  const { entries, hiddenSections } = applyFilters([linked], filters({ hideFull: true }));
+  assert.equal(entries.length, 0, "a lab you cannot register for is not an open section");
+  assert.equal(hiddenSections, 1);
+});
+
+test("a lecture is not full because one of its recitations is", () => {
+  // 1001 is reached through 1011, which is full, and 1012, which is not.
+  // Treating the package as one undirected blob would hide the lecture and
+  // every other recitation with it.
+  const lecture = entry("MATH", "1151", "Calculus I", [
+    taught(1001, ["monday"], "8:00 AM", "8:55 AM", ["Diana Ikenberry Kline"]),
+    taught(1012, ["tuesday"], "8:00 AM", "8:55 AM", ["Nobody Here"]),
+  ]);
+  const { entries } = applyFilters([lecture], filters({ hideFull: true }));
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [1001, 1012]);
+});
+
+// Regression, #67, the other direction. 1020 reads 44/46 and both recitations
+// that lead into it are 22/22, which is all 44 of its students, so there is no
+// way left to register. Live equivalent: MATH 1125 lecture 18027.
+test("regression #67: hideFull drops a lecture whose every way in is full", () => {
+  const lecture = entry("MATH", "1125", "Precalculus", [
+    taught(1020, ["monday"], "9:00 AM", "9:55 AM", ["Nobody Here"]),
+  ]);
+  const { entries, hiddenSections } = applyFilters([lecture], filters({ hideFull: true }));
+  assert.equal(entries.length, 0);
+  assert.equal(hiddenSections, 1);
+});
+
+test("a lecture holding more students than its labs explain stays", () => {
+  // 1030 is 107/126 and its one listed lab accounts for 21 of those, so Barrett
+  // is not naming every way in and hiding the lecture would be a guess. Live
+  // equivalent: MECHENG 4870 lecture 6243, 107/126 over a single 21/21 lab.
+  const lecture = entry("MECHENG", "4870", "Design", [
+    taught(1030, ["monday"], "9:00 AM", "9:55 AM", ["Nobody Here"]),
+  ]);
+  assert.equal(applyFilters([lecture], filters({ hideFull: true })).entries.length, 1);
+});
+
+test("a way in with no published capacity is not a full one", () => {
+  // 1041 is full but 1042 publishes no capacity, so whether 1040 can still be
+  // reached is unknown. This is what keeps MATH 1151 lecture 17826 on screen:
+  // two of its six recitations have no capacity in Barrett.
+  const lecture = entry("MATH", "1151", "Calculus I", [
+    taught(1040, ["monday"], "9:00 AM", "9:55 AM", ["Nobody Here"]),
+  ]);
+  assert.equal(applyFilters([lecture], filters({ hideFull: true })).entries.length, 1);
+});
+
+test("no seat data of its own does not save a section under a full one", () => {
+  // 1014 publishes no capacity, so nothing is known about its own seats, but
+  // 1002 is 40/40 and registering for 1014 means registering for 1002.
+  const lab = entry("CSE", "2221", "Software I", [
+    taught(1014, ["friday"], "1:00 PM", "2:20 PM", ["Nobody Here"]),
+  ]);
+  assert.equal(applyFilters([lab], filters({ hideFull: true })).entries.length, 0);
 });
 
 test("hideFull hides nothing when the term does not match the snapshot", () => {
@@ -187,4 +408,32 @@ test("applyFilters does not mutate the entries it was given", () => {
   const entries = [course()];
   applyFilters(entries, filters({ days: ["monday"] }));
   assert.equal(entries[0].sections.length, 4);
+});
+
+test("hideConsent drops the sections that need permission", () => {
+  const gated = entry("PSYCH", "7893", "Seminar", [
+    section(6001, { consent: "I" }),
+    section(6002, { consent: "D" }),
+    section(6003),
+  ]);
+  const { entries, hiddenSections } = applyFilters([gated], filters({ hideConsent: true }));
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [6003]);
+  assert.equal(hiddenSections, 2);
+});
+
+test("undergradOnly drops every career that is not the undergraduate one", () => {
+  const mixed = entry("CSE", "5911", "Capstone", [
+    section(6101, { career: "GRAD" }),
+    section(6102, { career: "UGRD" }),
+    section(6103, { career: "LAW" }),
+  ]);
+  const { entries, hiddenSections } = applyFilters([mixed], filters({ undergradOnly: true }));
+  assert.deepEqual(entries[0].sections.map((s) => s.classNumber), [6102]);
+  assert.equal(hiddenSections, 2);
+});
+
+test("the two new checkboxes count as active filters", () => {
+  assert.equal(isActive(filters({ hideConsent: true })), true);
+  assert.equal(isActive(filters({ undergradOnly: true })), true);
+  assert.equal(isActive(filters()), false);
 });
