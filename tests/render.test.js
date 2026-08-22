@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { groupByInstructor, renderCourse, renderSection, sortSections } from "../js/render.js";
-import { attr, entry, section, taught, TREND } from "./fixtures.js";
+import { attr, entry, meeting, section, taught, TREND } from "./fixtures.js";
 import { setupDom } from "./dom.js";
 import { withRatings, withSeats, withTrend } from "./helpers.js";
 
@@ -187,6 +187,42 @@ test("the row carries the first two flags and the pane takes the rest", () => {
     li.children.map((node) => node.className),
     ["section-number", "section-when", "section-where", "flags", "seat-cell"]
   );
+});
+
+// Regression, #82. Class 15613 meets Fr 11:10a in CE 310 and again Mo 8:00a in
+// EL 2002, and the row named only the Friday half.
+test("regression #82: a second meeting gets its own line on the row", () => {
+  setupDom();
+  const li = renderSection(section(1001, {
+    meetings: [
+      meeting(["friday"], "11:10 AM", "2:05 PM", [], { buildingDescriptionShort: "CE 310" }),
+      meeting(["monday"], "8:00 AM", "8:55 AM", [], { buildingDescriptionShort: "EL 2002" }),
+    ],
+  }), "1268");
+  assert.equal(li.querySelector(".section-where").textContent, "CE 310");
+  assert.deepEqual(
+    li.querySelectorAll(".section-also").map((node) => node.textContent),
+    ["Mo 8:00a–8:55a · EL 2002"]
+  );
+  // The extra sits under the line it belongs to, ahead of the seat cell, or the
+  // grid slides the seat count onto the Monday meeting's row.
+  assert.deepEqual(
+    li.children.map((node) => node.className),
+    ["section-number", "section-when", "section-where", "section-also", "seat-cell"]
+  );
+});
+
+// The API lists one pattern once per room label it holds, so a repeat is not a
+// second meeting. CSE 2112 class 8823 sends ten of them for one Tuesday class.
+test("regression #82: a pattern repeated per room label is one line", () => {
+  setupDom();
+  const li = renderSection(section(1002, {
+    meetings: [
+      meeting(["tuesday"], "2:20 PM", "3:40 PM", [], { buildingDescriptionShort: "BE 120", buildingDescription: "Baker Systems 120" }),
+      meeting(["tuesday"], "2:20 PM", "3:40 PM", [], { buildingDescriptionShort: "BE 120", buildingDescription: "Baker Systems 470" }),
+    ],
+  }), "1268");
+  assert.equal(li.querySelectorAll(".section-also").length, 0);
 });
 
 // #65 feeding #68's strip. A fee and an honors marking are chips of the same

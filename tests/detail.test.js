@@ -196,6 +196,33 @@ test("the Meets block reads the meeting, the room, the mode and the dates", () =
   ]);
 });
 
+// Regression, #82. Class 15613 meets Fr 11:10a in Celeste Lab and again Mo
+// 8:00a in Evans Lab, and the pane printed only the Friday half.
+test("regression #82: the Meets block reads every meeting a section holds", () => {
+  const target = section(1001, {
+    meetings: [
+      meeting(["friday"], "11:10 AM", "2:05 PM", [], { buildingDescriptionShort: "CE 310", buildingDescription: "Celeste Lab 310" }),
+      meeting(["monday"], "8:00 AM", "8:55 AM", [], { buildingDescriptionShort: "EL 2002", buildingDescription: "Evans Lab 2002" }),
+      // The same Friday line under the API's other label for the room.
+      meeting(["friday"], "11:10 AM", "2:05 PM", [], { buildingDescriptionShort: "CE 310", buildingDescription: "Celeste Laboratory 310" }),
+    ],
+  });
+  assert.deepEqual(rows(blockNamed(pane(target), "Meets")), [
+    ["When", "Fr 11:10a–2:05p", ""],
+    ["Room", "Celeste Lab 310", ""],
+    ["When", "Mo 8:00a–8:55a", ""],
+    ["Room", "Evans Lab 2002", ""],
+    ["Mode", "In Person", ""],
+  ]);
+});
+
+test("regression #82: a section with nothing scheduled still says so", () => {
+  assert.deepEqual(rows(blockNamed(pane(section(1002)), "Meets")), [
+    ["When", "Time to be announced", ""],
+    ["Mode", "In Person", ""],
+  ]);
+});
+
 test("the instructor's other sections come from the results, minus the thesis listings", () => {
   const teaching = taught(1001, MWF, "9:00 AM", "9:55 AM", ["Diana Ikenberry Kline"]);
   const other = taught(1012, MWF, "1:00 PM", "1:55 PM", ["Diana Ikenberry Kline"]);
