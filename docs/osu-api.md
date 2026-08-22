@@ -302,7 +302,10 @@ Sweeping the API instead, one pass over the eight `catalog-number` buckets, foun
 RADIOLG, SWAHILI, URDU). That sweep was in relevance order, so it was lossy for
 the reason below. So the script uses all three: Barrett as a seed, a sweep
 per term, and the subject codes already in the last `courses.json`. A candidate
-that is not offered costs one request and is dropped.
+that is not offered costs two requests, because one empty response is also what
+a dropped pass looks like. If the last `courses.json` had courses for it, the run
+refuses to write rather than dropping it, and `FORCE_WRITE=1` accepts the drop
+once the retirement is real.
 
 ### Sorting fixes the paging
 

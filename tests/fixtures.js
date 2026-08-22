@@ -117,3 +117,88 @@ function prof(legacyId, firstName, lastName, avgRating, numRatings) {
     wouldTakeAgainPercent: null,
   };
 }
+
+// Barrett's plain text schedule, for the tests that exercise
+// scripts/fetch-seats.mjs. The parser reads fixed columns, so a section line is
+// built at the positions docs/barrett-schedule.md records rather than retyped,
+// and tests/fetch-seats.test.js pins the builder against lines from a live file.
+
+export const BARRETT_COLUMNS =
+  "                       class#    (autoenrolls)                                enrld/limit/+wait";
+
+// A term Barrett has not published yet carries this between the title and the
+// column header, which is two more header lines than a published term has.
+export const BARRETT_BANNER =
+  "#####  DRAFT: pre-publication information; classes shown here are subject to change #####";
+
+// One Barrett subject file, three real AVIATN section lines from term 1268 as
+// published on 2026-08-20. The columns are load bearing, so this is verbatim.
+export const BARRETT_SUBJECT = [
+  "AVIATN         1268 (Autumn 2026)         updated: 20-Aug-2026",
+  "",
+  "                       class#    (autoenrolls)                                enrld/limit/+wait",
+  "",
+  "  AVIATN 1000.01         10132 B                                      ONLINE      36/99       {7W2} C.Roby, S.Pritchard",
+  "",
+  "  AVIATN 1000.02         10133 B                                      ONLINE      20/99       {7W2} C.Roby, S.Pritchard (SI)",
+  "",
+  "  AVIATN 1000.03         10134 B                                      ONLINE      11/99       {7W2} C.Roby, S.Pritchard (SI)",
+  "",
+].join("\n");
+
+const BARRETT_DAY_COLUMNS = { M: 49, T: 50, W: 51, R: 52, F: 53, S: 54, s: 55 };
+
+/** One section line. Anything left out stays blank, as it does in a real file. */
+export function barrettLine({
+  subject = "CSE",
+  catalog = "1110",
+  campus = "",
+  classNumber = "4817",
+  component = "L",
+  autoEnroll = "",
+  days = "",
+  time = "",
+  room = "",
+  enrolled = 25,
+  limit = 40,
+  waitlist = 0,
+  instructor = "",
+} = {}) {
+  const columns = new Array(94).fill(" ");
+  const put = (start, text) => { for (let i = 0; i < text.length; i++) columns[start + i] = text[i]; };
+  put(8 - subject.length, subject); // right aligned
+  put(9, catalog);
+  put(19, campus);
+  put(30 - String(classNumber).length, String(classNumber)); // right aligned
+  put(31, component);
+  put(34, autoEnroll);
+  for (const day of days) put(BARRETT_DAY_COLUMNS[day], day);
+  put(58, time);
+  put(70, room);
+  // Enrollment is right aligned on the slash, and the waitlist hangs off the end.
+  put(84 - String(enrolled).length, `${enrolled}/${limit}${waitlist ? `+${waitlist}` : ""}`);
+  return (columns.join("") + instructor).trimEnd();
+}
+
+/**
+ * One subject file. A row is either fields for barrettLine or a literal line,
+ * which is how a continuation or a trailer heading goes in.
+ *
+ * `columns` set to null drops the column header and a string replaces it, since
+ * both are layout changes the parser has to refuse rather than guess through.
+ * `gap` is the blank line every real file has under the column header.
+ */
+export function barrettFile(subject, term, rows = [], {
+  draft = false,
+  gap = true,
+  columns = BARRETT_COLUMNS,
+  termName = "Autumn 2026",
+  updated = "18-Aug-2026",
+} = {}) {
+  const lines = [`${subject.padEnd(12)}${term} (${termName})         updated: ${updated}`, ""];
+  if (draft) lines.push(BARRETT_BANNER, "");
+  if (columns) lines.push(columns);
+  if (gap) lines.push("");
+  for (const row of rows) lines.push(typeof row === "string" ? row : barrettLine({ subject, ...row }));
+  return lines.join("\n");
+}
