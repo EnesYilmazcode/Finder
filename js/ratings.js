@@ -77,7 +77,11 @@ export async function loadRatings(baseUrl = "data/ratings.json") {
     }
     index = { byKey, bySurname };
     return index;
-  })();
+  })().catch((error) => {
+    // A cached rejection would pin the failure for the life of the tab.
+    loading = null;
+    throw error;
+  });
 
   return loading;
 }
