@@ -38,6 +38,7 @@ function serve() {
 }
 
 const rows = (page) => page.all(".section").length;
+const busyChips = (page) => page.all("#f-busy-list .f-chip").map((chip) => chip.textContent);
 const note = (page) => page.el(".hidden-note");
 // Scoped through #f-days the way app.js scopes its own reads. Unscoped this
 // also counts the busy-time chips, which are a second .f-day group in the rail.
@@ -94,5 +95,33 @@ test("regression #78: showing the hidden sections clears the filters everywhere"
   assert.equal(note(page), null);
   assert.match(page.el("#status").textContent, /1 course, 4 sections/);
   assert.deepEqual([...new URLSearchParams(page.location.search)], [["q", "CSE 2221"], ["term", TERM]]);
+  restore();
+});
+
+// Regression, #62 with #78. The busy blocks live on their chips, and a chip is
+// not a form control, so els.filters.reset() cannot see one. Left out of
+// clearFilters the rail says nothing is filtered while every block is still in
+// force, and reloading the URL gives a different page than the one on screen.
+test("regression #62: clearing the filters takes the busy blocks with them", async () => {
+  const restore = serve();
+  const page = await painted();
+
+  page.all("#f-busy-days .f-day")[0].click();
+  page.el("#f-busy-start").value = "09:00";
+  page.el("#f-busy-end").value = "10:00";
+  page.el("#f-busy-add").click();
+
+  assert.deepEqual(busyChips(page), ["Mo 9:00a–10:00a"]);
+  assert.equal(rows(page), 3, "the 9:00 Monday section overlaps the block");
+  assert.match(page.location.search, /busy=Mo-540-600/);
+
+  note(page).querySelector("button").click();
+
+  assert.deepEqual(busyChips(page), []);
+  assert.deepEqual(page.all("#f-busy-days .f-day").map((chip) => chip.dataset.state), ["any", "any", "any", "any", "any"]);
+  assert.equal(page.el("#f-busy-start").value, "");
+  assert.equal(rows(page), 4);
+  assert.equal(page.el("#f-clear").hidden, true);
+  assert.doesNotMatch(page.location.search, /busy=/);
   restore();
 });

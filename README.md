@@ -39,22 +39,23 @@ equivalent piece to fail. It is a folder of files on GitHub Pages.
 |  Starts after |     5477  TuTh 4:10p   DL 357   40/40 +1  | SEATS           |
 |  Ends before  |     5478  WeFr 4:10p   DL 280   40/40 +1  | [========  ]    |
 |               |   ...                                     | Enrolled 32/40  |
-| INSTRUCTOR    |   Paolo Bucci  3.0 (147)                  | Waitlist none   |
-|  Min rating   |     5168  TuTh 8:00a   DL 357   32/40     | As of  Aug 19   |
-|  Only rated   |     5169  WeFr 8:00a   DL 280   32/40     |                 |
-|               |   ...                                     | MEETS           |
-| AVAILABILITY  |   Naomi Lynn Zweben  4.9 (44)             | TuTh 8:00a      |
-|  Hide full    |     4831  TuTh 11:30a  DL 357   41/40 +2  | Dreese Lab 357  |
-|  Hide online  |     4833  TuTh 12:40p  DL 357   40/40 +1  |                 |
-|               |                                           | ALSO TEACHES    |
-|               | > Show 6 related courses                  | ABOUT           |
+| BUSY TIMES    |   Paolo Bucci  3.0 (147)                  | Waitlist none   |
+|  TuTh 9:35a x |     5168  TuTh 8:00a   DL 357   32/40     | As of  Aug 19   |
+|               |     5169  WeFr 8:00a   DL 280   32/40     |                 |
+| INSTRUCTOR    |   ...                                     | MEETS           |
+|  Min rating   |   Naomi Lynn Zweben  4.9 (44)             | TuTh 8:00a      |
+|  Only rated   |     4831  TuTh 11:30a  DL 357   41/40 +2  | Dreese Lab 357  |
+|               |     4833  TuTh 12:40p  DL 357   40/40 +1  |                 |
+| AVAILABILITY  |                                           | ALSO TEACHES    |
+|  Hide full    | > Show 6 related courses                  | ABOUT           |
+|  Hide online  |                                           |                 |
 +---------------+-------------------------------------------+-----------------+
 ```
 
 On a phone the filters move behind a Filters button and the right pane
 takes over the screen, so you get the same three panes one at a time.
 
-- **Filters.** Days, time window, minimum rating, hide full, hide online.
+- **Filters.** Days, time window, busy times, minimum rating, hide full, hide online.
 - **Middle.** The same sections as a list by instructor, or on a week grid.
 - **Right pane.** Rating, difficulty, take-again, seats, room, description.
 

@@ -5,7 +5,8 @@ import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratin
 import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
-import { applyFilters, isActive, DEFAULTS } from "./filters.js";
+import { applyFilters, isActive, parseBusy, formatBusy, DEFAULTS } from "./filters.js";
+import { busyLabel } from "./format.js";
 import { renderCalendar } from "./calendar.js";
 import { formatCoverage } from "./format.js";
 import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
@@ -21,6 +22,12 @@ const els = {
   detailBack: document.querySelector("#detail-back"),
   filters: document.querySelector("#filters"),
   days: document.querySelector("#f-days"),
+  busyDays: document.querySelector("#f-busy-days"),
+  busyStart: document.querySelector("#f-busy-start"),
+  busyEnd: document.querySelector("#f-busy-end"),
+  busyAdd: document.querySelector("#f-busy-add"),
+  busyList: document.querySelector("#f-busy-list"),
+  busyHint: document.querySelector("#f-busy-hint"),
   sort: document.querySelector("#f-sort"),
   sortNote: document.querySelector("#f-sort-note"),
   subject: document.querySelector("#p-subject"),
@@ -98,6 +105,70 @@ function setDayState(button, state) {
   button.setAttribute("aria-label", `${day}: ${said}`);
 }
 
+// Busy blocks are chips in the rail, never clicks on the calendar. A clickable
+// grid reads as an invitation to mark the overlaps too, and marking overlaps is
+// a schedule builder. Finder searches, it does not plan.
+
+const BUSY_HINT = els.busyHint.textContent;
+
+function setBusyDay(button, busy) {
+  button.dataset.state = busy ? "busy" : "any";
+  button.setAttribute("aria-pressed", String(busy));
+}
+
+/** Blocks are read back off their chips, the way day states are read off theirs. */
+function busyBlocks() {
+  return [...els.busyList.querySelectorAll(".f-chip")].map((chip) => parseBusy(chip.dataset.busy)).filter(Boolean);
+}
+
+/** Two ways of writing the same block, "TuTh" and "ThTu", are one chip. */
+function uniqueBlocks(blocks) {
+  return [...new Map(blocks.map((b) => [formatBusy(b), b])).values()];
+}
+
+function renderBusy(blocks) {
+  els.busyList.replaceChildren(...uniqueBlocks(blocks).map((block) => {
+    const label = busyLabel(block);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "f-chip";
+    chip.dataset.busy = formatBusy(block);
+    chip.textContent = label;
+    chip.setAttribute("aria-label", `Remove busy time ${label}`);
+    const item = document.createElement("li");
+    item.append(chip);
+    return item;
+  }));
+}
+
+/** "09:35" from a time field to minutes past midnight. */
+function fieldMinutes(value) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value ?? "");
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function resetBusyFields() {
+  for (const button of els.busyDays.querySelectorAll(".f-day")) setBusyDay(button, false);
+  els.busyStart.value = "";
+  els.busyEnd.value = "";
+  els.busyHint.textContent = BUSY_HINT;
+}
+
+function addBusy() {
+  const days = [...els.busyDays.querySelectorAll('.f-day[data-state="busy"]')].map((b) => b.dataset.day);
+  const start = fieldMinutes(els.busyStart.value);
+  const end = fieldMinutes(els.busyEnd.value);
+  if (!days.length || start == null || end == null || start >= end) {
+    els.busyHint.textContent = "Pick at least one day, and a start before the end.";
+    return;
+  }
+
+  renderBusy([...busyBlocks(), { days, start, end }]);
+  resetBusyFields();
+  syncUrl(els.query.value, els.term.value);
+  paint();
+}
+
 function readFilters() {
   const data = new FormData(els.filters);
   const { required, avoided } = dayStates();
@@ -105,6 +176,7 @@ function readFilters() {
     ...DEFAULTS,
     days: required,
     avoid: avoided,
+    busy: busyBlocks(),
     from: data.get("from") ?? "",
     to: data.get("to") ?? "",
     rating: els.filters.rating.value,
@@ -128,6 +200,7 @@ function writeFilters(params) {
     const day = button.dataset.day;
     setDayState(button, required.includes(day) ? "require" : avoided.includes(day) ? "avoid" : "any");
   }
+  renderBusy(params.getAll("busy").map(parseBusy).filter(Boolean));
   els.filters.from.value = params.get("from") ?? "";
   els.filters.to.value = params.get("to") ?? "";
   els.filters.rating.value = params.get("rating") ?? "";
@@ -153,8 +226,11 @@ function writeFilters(params) {
 function clearFilters() {
   els.filters.reset();
   for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
-  // Filter state that lives outside the form is reset here.
+  // Filter state that lives outside the form is reset here. reset() clears the
+  // two busy time fields, but the blocks themselves live on their chips.
   els.sort.value = "";
+  renderBusy([]);
+  resetBusyFields();
   syncUrl(els.query.value, els.term.value);
   paint();
 }
@@ -357,6 +433,8 @@ function syncUrl(q, term) {
   url.searchParams.delete("noday");
   for (const day of f.days) url.searchParams.append("day", day);
   for (const day of f.avoid) url.searchParams.append("noday", day);
+  url.searchParams.delete("busy");
+  for (const block of f.busy) url.searchParams.append("busy", formatBusy(block));
   for (const [key, value] of [["from", f.from], ["to", f.to], ["rating", f.rating], ["sort", sortKey()]]) {
     if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
   }
@@ -717,12 +795,40 @@ async function init() {
   els.viewList.addEventListener("click", () => setView("list"));
   els.viewCal.addEventListener("click", () => setView("calendar"));
 
-  els.filters.addEventListener("change", () => {
+  els.filters.addEventListener("change", (event) => {
+    // The busy fields are not a filter until Add is pressed.
+    if (event.target.closest("#f-busy")) return;
     syncUrl(els.query.value, els.term.value);
     paint();
   });
 
-  // Sorting hides nothing, so it leaves showHidden alone.
+  els.busyAdd.addEventListener("click", addBusy);
+
+  // Enter in a busy field adds. Making Add a submit button would do this for
+  // free, but it would also make it the default button for the whole rail.
+  for (const field of [els.busyStart, els.busyEnd]) {
+    field.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addBusy();
+    });
+  }
+
+  els.busyDays.addEventListener("click", (event) => {
+    const button = event.target.closest(".f-day");
+    if (button) setBusyDay(button, button.dataset.state !== "busy");
+  });
+
+  els.busyList.addEventListener("click", (event) => {
+    const chip = event.target.closest(".f-chip");
+    if (!chip) return;
+    const item = chip.closest("li");
+    (item.nextElementSibling?.querySelector(".f-chip") ?? els.busyAdd).focus();
+    item.remove();
+    syncUrl(els.query.value, els.term.value);
+    paint();
+  });
+
   els.sort.addEventListener("change", () => {
     syncUrl(els.query.value, els.term.value);
     paint();
