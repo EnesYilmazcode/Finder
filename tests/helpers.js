@@ -7,7 +7,7 @@
 // it, these helpers serve a fixture over a stubbed fetch and let the real
 // loaders run.
 
-import { RATINGS, SEATS_INDEX, SEATS_TERMS, TREND } from "./fixtures.js";
+import { RATINGS, RATING_COURSES, SEATS_INDEX, SEATS_TERMS, TREND } from "./fixtures.js";
 
 /**
  * Swap in a fetch that serves fixtures by URL. Returns a restore function.
@@ -104,6 +104,20 @@ export async function withRatings(data = RATINGS, suffix = "") {
   const restore = stubFetch({ "ratings.json": data });
   try {
     await mod.loadRatings("ratings.json");
+  } finally {
+    restore();
+  }
+  return mod;
+}
+
+/**
+ * Add the course-code snapshot to an instance that already has ratings. Separate
+ * because the site fetches it separately, and the pane renders before it lands.
+ */
+export async function withRatingCourses(mod, data = RATING_COURSES) {
+  const restore = stubFetch({ "ratings-courses.json": data });
+  try {
+    await mod.loadRatingCourses("ratings-courses.json");
   } finally {
     restore();
   }

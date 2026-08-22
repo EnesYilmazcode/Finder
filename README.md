@@ -73,8 +73,9 @@ EARLIER TODAY   These two sites refuse to answer a web page, so a computer
    ratemyprofessors.com  ->  data/ratings.json       every rated OSU professor
    asc.ohio-state.edu    ->  data/seats-1268.json    Autumn 2026 seat counts
 
-                a third file, data/courses.json, is
-                rebuilt the same way once a week
+                data/ratings-courses.json rides along
+                with the ratings, and data/courses.json
+                is rebuilt the same way once a week
                               |
                               v
                    committed to the repo, then served
@@ -122,6 +123,26 @@ suffixes, so OSU's "Diana Ikenberry Kline" finds RateMyProfessors' "Diana
 Kline". When two professors share a first and last name the lookup returns
 nothing rather than picking one, because a wrong rating is worse than no
 rating.
+
+### An average hides two things a student needs
+
+A 3.0 can be a pile of threes or two camps that never met, and it can be
+earned in a course nobody on screen is taking. The detail pane draws the
+five per-score counts as a bar, and says how many of the ratings name the
+course you are looking at. Paolo Bucci, pulled on August 21: his 3.0 is
+32 ones and 38 fives, and 52 of his 147 ratings are for CSE 2221.
+
+Those course names are free text raters typed, so "CSE 2221", "cse2221",
+"CS2221" and "COMPUTERSCIENCE2221" all count, and so does a bare "2221"
+unless the same professor also wrote that number under another subject, in
+which case it is too ambiguous to give to either. The pre-semester CSE 321
+never counts, because nothing says the old number is the new course. OSU
+writes 23% of its catalog as "1110.01", which no rater types, so those
+match on the 1110 and the line says 1110 back.
+
+The counts live in `data/ratings-courses.json`, 151 KB gzipped and read
+only by the detail pane, so it is fetched when you open the first section
+rather than when the page loads.
 
 ## What one search does
 

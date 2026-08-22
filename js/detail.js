@@ -1,8 +1,9 @@
-// The right pane. Everything here already exists in memory by the time a
-// section is selected, so nothing fetches.
+// The right pane. Nothing here fetches. The course codes it reads are the one
+// thing not already in memory when a section is selected, and app.js redraws
+// the body once they land.
 
 import { formatWhen, formatUnits, instructorsOf, trendLabel } from "./format.js";
-import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
+import { ratingFor, searchUrl, profileUrl, ratingSpread, courseShare } from "./ratings.js";
 import { linkedTo, seatsFor, seatsUpdated } from "./seats.js";
 import { trendFor } from "./trend.js";
 import { isIndividualStudy } from "./rank.js";
@@ -34,6 +35,25 @@ function figure(value, label, tone) {
   if (value == null) number.classList.add("is-none");
   wrap.append(number, el("div", "d-cap", label));
   return wrap;
+}
+
+function spreadBar({ counts, total }) {
+  const bar = el("div", "spread");
+  bar.setAttribute("role", "img");
+  bar.setAttribute("aria-label", counts.map((n, i) => `${n} rated ${i + 1}`).join(", "));
+  counts.forEach((n, i) => {
+    const segment = el("i", `s${i + 1}`);
+    segment.style.width = `${(n / total) * 100}%`;
+    segment.title = `${n} rated ${i + 1}`;
+    bar.append(segment);
+  });
+  return bar;
+}
+
+function scopeLine({ matched, total, code }) {
+  return matched === 0
+    ? `None of the ${total} ratings name ${code}.`
+    : `${matched} of ${total} ratings ${matched === 1 ? "is" : "are"} for ${code}.`;
 }
 
 function instructorHeading(people) {
@@ -147,6 +167,16 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
       figs.append(figure(`${Math.round(rating.wouldTakeAgainPercent)}%`, "take again"));
     }
     wrap.append(figs);
+
+    const spread = ratingSpread(rating);
+    if (spread) {
+      wrap.append(spreadBar(spread));
+      wrap.append(el("div", "d-cap spread-cap", "1 to 5, left to right"));
+    }
+    // Null while data/ratings-courses.json is still on its way. app.js redraws.
+    const share = courseShare(rating, course);
+    if (share) wrap.append(el("p", "d-note", scopeLine(share)));
+
     if (rating.numRatings < 5) {
       wrap.append(el("p", "d-note", `Only ${rating.numRatings} ratings, so treat this as thin evidence.`));
     }

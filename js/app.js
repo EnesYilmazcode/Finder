@@ -1,7 +1,7 @@
 import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
-import { loadRatings, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
+import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
 import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
@@ -50,6 +50,7 @@ let currentEntries = [];
 let lastResult = null;
 let showHidden = false;
 let view = "list";
+let courseCodesTried = false;
 
 function dayStates() {
   const required = [];
@@ -250,7 +251,23 @@ function selectSection(row) {
   // Selection is state, not just colour, so it is exposed rather than implied.
   row.setAttribute("aria-current", "true");
 
-  showDetail(renderDetail({ ...found, term: els.term.value, entries: currentEntries, formatDate }));
+  const draw = () => renderDetail({ ...found, term: els.term.value, entries: currentEntries, formatDate });
+  showDetail(draw());
+
+  // The course codes behind "52 of 147 ratings are for CSE 2221" are their own file,
+  // fetched on the first section opened instead of at startup. Redrawing the body
+  // rather than calling showDetail again leaves focus where it is. One attempt per
+  // page load either way, because a missing snapshot will not appear on the next click.
+  if (courseCodesTried) return;
+  const opened = row.dataset.classNumber;
+  loadRatingCourses()
+    .then(() => {
+      if (opened === els.results.querySelector(".is-selected")?.dataset.classNumber) {
+        els.detailBody.replaceChildren(draw());
+      }
+    })
+    .catch((error) => console.warn("rating course codes unavailable", error))
+    .finally(() => { courseCodesTried = true; });
 }
 
 function closeDetail() {
