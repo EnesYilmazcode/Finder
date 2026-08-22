@@ -1,9 +1,9 @@
 // Client-side filtering over results already fetched. No filter triggers a
 // network request, so dragging a time slider does not hammer OSU.
 
-import { instructorsOf } from "./format.js";
-import { ratingFor } from "./ratings.js";
-import { seatsFor } from "./seats.js";
+import { instructorsOf, isOnlineMeeting, sectionFlags } from "./format.js";
+import { ratingFor, ratingsFailed } from "./ratings.js";
+import { seatsFor, unreachable } from "./seats.js";
 
 const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -16,6 +16,8 @@ export const DEFAULTS = {
   hideFull: false,
   hideOnline: false,
   ratedOnly: false,
+  hideConsent: false,
+  undergradOnly: false,
 };
 
 /** "8:00 am" to minutes past midnight. Returns null when unparseable. */
@@ -43,15 +45,34 @@ function sectionDays(section) {
  * sections from anyone who touched a slider.
  */
 function keepSection(section, filters) {
-  if (filters.hideOnline && /online/i.test(section.instructionMode ?? "")) return false;
+  // Online-ness lives on the meeting, not on the mode. See #84.
+  if (filters.hideOnline) {
+    const meetings = section.meetings ?? [];
+    if (meetings.length && meetings.every((m) => isOnlineMeeting(m))) return false;
+  }
+
+  // Read through the flags rather than the fields, so a checkbox hides exactly
+  // the sections that were carrying the matching chip.
+  if (filters.hideConsent || filters.undergradOnly) {
+    const keys = sectionFlags(section).map((f) => f.key);
+    if (filters.hideConsent && keys.includes("consent")) return false;
+    if (filters.undergradOnly && keys.includes("career")) return false;
+  }
 
   if (filters.hideFull) {
-    const seats = seatsFor(section.classNumber, filters.term);
-    if (seats?.full) return false;
+    if (seatsFor(section.classNumber, filters.term)?.full) return false;
+    // A section with seats nobody can register for is no more use than a full
+    // one. The package rule lives in seats.js so the row and the detail pane
+    // answer this the same way. #67.
+    if (unreachable(section.classNumber, filters.term)) return false;
   }
 
   const people = instructorsOf(section);
-  if (filters.ratedOnly && !people.some((p) => ratingFor(p.name))) return false;
+  // A snapshot that never arrived is not a verdict on anybody. Judged against
+  // the empty index every instructor reads as unrated, so rated-only emptied
+  // the page and the status line blamed the student's own filters. #85. The
+  // minimum rating needs no such guard: it already ignores anyone unrated.
+  if (filters.ratedOnly && !ratingsFailed() && !people.some((p) => ratingFor(p.name))) return false;
 
   if (filters.rating) {
     // Unrated is unknown, not bad. Seeding this at -1 made every unrated
@@ -88,7 +109,8 @@ function keepSection(section, filters) {
 export function isActive(filters) {
   return Boolean(
     filters.days.length || filters.avoid.length || filters.from || filters.to || filters.rating ||
-    filters.hideFull || filters.hideOnline || filters.ratedOnly
+    filters.hideFull || filters.hideOnline || filters.ratedOnly ||
+    filters.hideConsent || filters.undergradOnly
   );
 }
 
