@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mountApp, until } from "./dom.js";
+import { mountApp, until, settle } from "./dom.js";
 import { stubFetch } from "./helpers.js";
-import { RATINGS, SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
+import { RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught } from "./fixtures.js";
 
 // init() runs on import, so the only way to see what first paint waits on is to
 // give app.js a page and hold one answer back. Everything stubbed below is
@@ -15,6 +15,13 @@ const TERM_NAMES = { "1268": "Autumn 2026", "1262": "Spring 2026" };
 const TERMS = {
   data: { data: Object.entries(TERM_NAMES).map(([strm, descr]) => ({ strm, descr })) },
 };
+
+// One course, so the count on the status line says which screen wrote it.
+const COURSES = [
+  entry("CSE", "2221", "Software 1", [
+    taught(1001, ["monday", "wednesday", "friday"], "9:00 AM", "9:55 AM", ["Stephen Gomori"]),
+  ]),
+];
 
 // Read off the fixture, never a literal: the index is shared and its section
 // counts move whenever a branch edits the snapshot.
@@ -143,4 +150,46 @@ test("a term's seats that die after the index still reach the note", async (t) =
   );
   assert.equal(page.el("#f-full").disabled, true, "the filter with no snapshot stayed live");
   assert.doesNotMatch(page.el("#w-stats").textContent, /seats as of/, "a term with no seats still dated them");
+});
+
+// Regression, #58. Neither describe above is superseded by a later search, so a
+// welcome example clicked while the term's own seat file was still on the wire
+// used to bring the landing screen back over the finished results: the sections
+// and the status line were intact, underneath it.
+test("a welcome example clicked before the term's seats land keeps the results", async (t) => {
+  let release;
+  let landed = false;
+  const arrives = new Promise((resolve) => { release = () => { landed = true; resolve(); }; });
+  const restore = stubFetch(new Map([
+    [TERMS_URL, TERMS],
+    ["data/ratings.json", RATINGS],
+    ["data/ratings-courses.json", RATING_COURSES],
+    ["data/seats.json", SEATS_INDEX],
+    ["data/seats-1268.json", SEATS_TERMS["1268"]],
+    ["data/trend-1268.json", { ok: false, status: 404, json: async () => null }],
+    [/\/classes\/search/, { data: { totalItems: 1, totalPages: 1, courses: COURSES } }],
+  ]));
+  // Held at the fetch, not in the body: the index answers and fills the landing
+  // screen while this term's own file is still in flight, which is the window.
+  const served = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url) === "data/seats-1268.json") await arrives;
+    return served(url);
+  };
+  t.after(() => { release(); restore(); });
+
+  const page = await mountApp();
+  await until(() => page.el("#welcome").hidden === false, "the welcome screen to paint");
+  assert.equal(landed, false, "the term's seats landed before the click, so nothing raced");
+
+  page.el(".w-example").click();
+  assert.equal(page.el("#welcome").hidden, true, "the search never took the screen");
+
+  release();
+  await until(() => page.all(".section").length > 0, "the results");
+  await settle(10);
+
+  assert.equal(page.el("#welcome").hidden, true, "the landing screen came back over the results");
+  assert.equal(page.all(".section").length, 1, "the results left the screen");
+  assert.match(page.el("#status").textContent, /^1 course, 1 sections in Autumn 2026\./);
 });

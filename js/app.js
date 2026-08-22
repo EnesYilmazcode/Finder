@@ -1094,7 +1094,12 @@ async function init() {
     // are started but not waited on.
     setStatus(staleGen ? `Finder has no requirement called ${staleGen}. Pick one under Fulfills.` : "");
     const term = els.term.value;
+    // A search started while these are in flight owns all three lines below and
+    // may have moved the term, so a late describe puts the landing screen back
+    // over finished results and marks the controls for the term it left.
+    const requestId = latestRequest;
     const describe = () => {
+      if (requestId !== latestRequest) return;
       markSources(term);
       if (!staleGen) setStatus(outageNote(term));
       showWelcome(term);
