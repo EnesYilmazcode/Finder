@@ -98,6 +98,10 @@ function render(data) {
   $('stamp').textContent = `Updated ${new Date(data.generated).toLocaleString()}. Counts can lag by up to two minutes.`;
   $('status').hidden = true;
   $('main').hidden = false;
+
+  // Long ranges scroll, and their oldest days are the empty ones, so open on
+  // the newest bars. After the unhide, or there is no width to scroll yet.
+  $('chart').scrollLeft = $('chart').scrollWidth;
 }
 
 async function load(days) {

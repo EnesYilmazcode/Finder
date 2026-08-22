@@ -6,6 +6,12 @@ on:
     # busiest scheduling window and get delayed.
     - cron: "20 7 * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Write even when the run comes back far short of what is committed"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -25,19 +31,21 @@ jobs:
           node-version: "22"
 
       - name: Fetch ratings
+        env:
+          FORCE_WRITE: ${{ inputs.force && '1' || '' }}
         run: node scripts/fetch-ratings.mjs
 
       - name: Commit if changed
         run: |
           # --porcelain rather than git diff so a first run, where the file is not
           # tracked yet, still counts as a change.
-          if [ -z "$(git status --porcelain -- data/ratings.json)" ]; then
-            echo "No change in data/ratings.json, nothing to commit."
+          if [ -z "$(git status --porcelain -- data/ratings.json data/ratings-courses.json)" ]; then
+            echo "No change in the ratings snapshot, nothing to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/ratings.json
+          git add data/ratings.json data/ratings-courses.json
           git commit -m "Update RateMyProfessors snapshot"
           # The scheduled run and a manual dispatch can overlap, and the branch may have
           # moved on while the fetch was running.

@@ -1,12 +1,12 @@
-// The wiring in app.js, driven through the stub document in dom.js. Nothing
-// here touches the network: fetch answers the terms endpoint, the search
-// endpoint and both seat snapshots from fixtures.
+// What app.js does when the term changes under a search. Driven through the
+// shared document in dom.js. Nothing here touches the network: fetch answers
+// the terms endpoint, the search endpoint and both seat snapshots from fixtures.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mountApp, until, DomEvent } from "./dom.js";
-import { meeting, person, section } from "./fixtures.js";
+import { fire, mountApp, settle, until } from "./dom.js";
+import { RATING_COURSES, meeting, person, section } from "./fixtures.js";
 
 const AUTUMN = "1268";
 const SPRING = "1262";
@@ -59,6 +59,8 @@ function serve({ slow = null, fails = null } = {}) {
       if (slow?.term === term) await slow.promise;
       if (fails === term) return { ok: false, status: 429, json: async () => ({}) };
       body = { data: { totalItems: 1, totalPages: 1, courses: COURSES[term] ?? [] } };
+    } else if (url.includes("ratings-courses.json")) {
+      body = RATING_COURSES;
     } else if (url.includes("ratings.json")) {
       body = { school: {}, count: 0, professors: [] };
     } else {
@@ -92,24 +94,21 @@ function detailValue(page, label) {
 }
 
 async function searched(page) {
-  return until(() => page.el("#results").querySelectorAll(".section").length > 0);
-}
-
-/**
- * Give a pending paint time to land. The predicate is positive on purpose, so a
- * failure names the rows that turned up instead of timing out on an absence.
- */
-async function quiet(page) {
-  await until(() => sectionNumbers(page).length > 0, 100);
+  await until(() => page.el("#results").querySelectorAll(".section").length > 0, "the first search to render");
 }
 
 function switchTerm(page, term) {
   page.el("#term").value = term;
-  page.el("#term").dispatchEvent(new DomEvent("change"));
+  fire(page.el("#term"), "change");
+}
+
+function changeFilter(page, name) {
+  page.el("#filters")[name].checked = true;
+  fire(page.el("#filters"), "change");
 }
 
 function clickSection(page, classNumber) {
-  page.el("#results").dispatchEvent(new DomEvent("click", rowFor(page, classNumber)));
+  fire(rowFor(page, classNumber), "click");
 }
 
 // Regression, #89. The term handler repainted unconditionally but only
@@ -117,12 +116,12 @@ function clickSection(page, classNumber) {
 // the old term's sections on screen with the new term's seats under them.
 test("regression #89: switching term drops sections fetched for the old one", async () => {
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve() });
-  assert.ok(await searched(page), "the first search rendered");
+  await searched(page);
   assert.deepEqual(seatsOn(page, 5477), { text: "40/40+1", state: "full" }, "Autumn 5477 is full");
 
   page.el("#q").value = "";
   switchTerm(page, SPRING);
-  await quiet(page);
+  await settle();
 
   assert.deepEqual(sectionNumbers(page), [], "Autumn's rows are gone rather than repainted");
   assert.equal(page.el("#status").textContent, "", "no count claimed for a term nothing was fetched for");
@@ -133,14 +132,13 @@ test("regression #89: switching term drops sections fetched for the old one", as
 // why the guard sits in paint() rather than in the term handler.
 test("regression #89: a filter change cannot bring the old term's rows back", async () => {
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve() });
-  assert.ok(await searched(page), "the first search rendered");
+  await searched(page);
 
   page.el("#q").value = "";
   switchTerm(page, SPRING);
-  await quiet(page);
+  await settle();
 
-  page.el("#filters").hideOnline.checked = true;
-  page.el("#filters").dispatchEvent(new DomEvent("change"));
+  changeFilter(page, "hideOnline");
   assert.deepEqual(sectionNumbers(page), [], "still nothing from Autumn");
 });
 
@@ -148,15 +146,14 @@ test("regression #89: a filter change cannot bring the old term's rows back", as
 // in paint() agrees with them and cannot be what stops the repaint.
 test("regression #89: switching away and back does not restore the first term's rows", async () => {
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve() });
-  assert.ok(await searched(page), "the first search rendered");
+  await searched(page);
 
   page.el("#q").value = "";
   switchTerm(page, SPRING);
   switchTerm(page, AUTUMN);
-  await quiet(page);
+  await settle();
 
-  page.el("#filters").hideOnline.checked = true;
-  page.el("#filters").dispatchEvent(new DomEvent("change"));
+  changeFilter(page, "hideOnline");
   assert.deepEqual(sectionNumbers(page), [], "an empty box shows the landing screen, not the last search");
   assert.equal(page.el("#welcome").hidden, false, "and it is not painted over");
 });
@@ -167,12 +164,12 @@ test("regression #89: switching away and back does not restore the first term's 
 test("regression #89: a search still in flight when the term changes never paints", async () => {
   const autumn = holdTerm(AUTUMN);
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve({ slow: autumn }) });
-  assert.ok(await until(() => page.el("#status").textContent === "Searching..."), "the search started");
+  await until(() => page.el("#status").textContent === "Searching...", "the search to start");
 
   page.el("#q").value = "";
   switchTerm(page, SPRING);
   autumn.release();
-  await quiet(page);
+  await settle();
 
   assert.deepEqual(sectionNumbers(page), [], "the search that landed late did not paint");
   assert.equal(page.el("#welcome").hidden, false, "the landing screen is still up");
@@ -184,15 +181,14 @@ test("regression #89: a search still in flight when the term changes never paint
 test("regression #89: a filter change while the new term loads drops the old rows", async () => {
   const spring = holdTerm(SPRING);
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve({ slow: spring }) });
-  assert.ok(await searched(page), "the first search rendered");
+  await searched(page);
 
   switchTerm(page, SPRING);
-  page.el("#filters").hideOnline.checked = true;
-  page.el("#filters").dispatchEvent(new DomEvent("change"));
+  changeFilter(page, "hideOnline");
   assert.deepEqual(sectionNumbers(page), [], "Autumn's rows were not repainted against Spring");
 
   spring.release();
-  assert.ok(await until(() => sectionNumbers(page).includes("3101")), "and Spring's own section still arrives");
+  await until(() => sectionNumbers(page).includes("3101"), "Spring's own section to arrive");
   assert.deepEqual(seatsOn(page, 3101), { text: "12/40", state: "open" });
 });
 
@@ -201,7 +197,7 @@ test("regression #89: a filter change while the new term loads drops the old row
 test("regression #89: the detail pane reads seats for the term its section came from", async () => {
   const spring = holdTerm(SPRING);
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve({ slow: spring }) });
-  assert.ok(await searched(page), "the first search rendered");
+  await searched(page);
 
   switchTerm(page, SPRING);
   clickSection(page, 5477);
@@ -209,6 +205,12 @@ test("regression #89: the detail pane reads seats for the term its section came 
   assert.equal(detailValue(page, "Enrolled"), "40 / 40", "Autumn's count for an Autumn section");
   assert.equal(detailValue(page, "Waitlist"), "1 waiting");
   assert.equal(detailValue(page, "As of"), "Aug 18");
+
+  // #69 redraws the pane once the rating course codes land. Reading the term
+  // lazily there would repaint Spring's seats into an Autumn section a beat
+  // after the assertions above passed.
+  await settle();
+  assert.equal(detailValue(page, "Enrolled"), "40 / 40", "the deferred redraw switched terms under the pane");
   spring.release();
 });
 
@@ -216,24 +218,23 @@ test("regression #89: the detail pane reads seats for the term its section came 
 // drop and must not wipe the only explanation for an empty pane.
 test("regression #89: a failed search for the new term does not bring the old rows back", async () => {
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve({ fails: SPRING }) });
-  assert.ok(await searched(page), "the first search rendered");
+  await searched(page);
 
   switchTerm(page, SPRING);
-  assert.ok(await until(() => page.el("#status").dataset.kind === "error"), "Spring's search failed");
+  await until(() => page.el("#status").dataset.kind === "error", "Spring's search to fail");
   const message = page.el("#status").textContent;
 
-  page.el("#filters").hideOnline.checked = true;
-  page.el("#filters").dispatchEvent(new DomEvent("change"));
+  changeFilter(page, "hideOnline");
   assert.deepEqual(sectionNumbers(page), [], "no Autumn rows under a Spring error");
   assert.equal(page.el("#status").textContent, message, "and the error is still the one thing on screen");
 });
 
 test("the term guard leaves results fetched for the term on screen alone", async () => {
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve() });
-  assert.ok(await searched(page), "the first search rendered");
+  await searched(page);
 
   switchTerm(page, SPRING);
-  await until(() => sectionNumbers(page).includes("3101"));
+  await until(() => sectionNumbers(page).includes("3101"), "Spring's own section to arrive");
 
   assert.deepEqual(sectionNumbers(page), ["3101"], "Spring's own section, not Autumn's");
   assert.deepEqual(seatsOn(page, 3101), { text: "12/40", state: "open" });
