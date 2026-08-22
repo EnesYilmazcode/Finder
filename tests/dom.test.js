@@ -25,11 +25,11 @@ const COURSES = [
 const TERMS = { data: { data: [{ strm: TERM, descr: "Autumn 2026" }] } };
 
 /** RegExp and predicate keys, since both API calls carry a varying query string. */
-function serve() {
+function serve({ ratings = RATINGS, seats = SEATS_TERMS[TERM] } = {}) {
   return stubFetch(new Map([
-    ["data/ratings.json", RATINGS],
+    ["data/ratings.json", ratings],
     ["data/seats.json", SEATS_INDEX],
-    [`data/seats-${TERM}.json`, SEATS_TERMS[TERM]],
+    [`data/seats-${TERM}.json`, seats],
     [/searchableTermsV2/, { data: TERMS.data }],
     [(url) => url.includes("/classes/search"), { data: { totalItems: 2, totalPages: 1, courses: COURSES } }],
   ]));
@@ -58,6 +58,30 @@ test("a second mount starts its own app rather than hitting the import cache", a
   await until(() => rows(page).length > 0, "the results of a typed search");
 
   assert.deepEqual(rows(page), ["1001", "1002"]);
+  restore();
+});
+
+// The seam 79, 85 and 89 assert into. `?mount=` alone stops at app.js, which
+// names its own imports as bare specifiers, so without the resolve hook both
+// mounts share one js/ratings.js and one js/seats.js: the second inherits the
+// first's dead ratings and the first's seat numbers, and passes having fetched
+// neither.
+test("a second mount starts js/ from cold rather than from the first mount's caches", async () => {
+  const snapshot = (enrolled) => ({ term: TERM, sections: { 1001: [enrolled, 40, 0] } });
+  let asked = 0;
+
+  let restore = serve({ ratings: { ok: false, status: 503 }, seats: snapshot(30) });
+  const first = await mountApp({ query: "CSE 2221", term: TERM });
+  await until(() => rows(first).length > 0, "the first mount's results");
+  assert.equal(first.el(".seats").textContent, "30/40");
+  restore();
+
+  restore = serve({ ratings: () => { asked++; return RATINGS; }, seats: snapshot(7) });
+  const second = await mountApp({ query: "CSE 2221", term: TERM });
+  await until(() => rows(second).length > 0, "the second mount's results");
+
+  assert.ok(asked > 0, "the second mount asks again for the snapshot the first one failed");
+  assert.equal(second.el(".seats").textContent, "7/40", "and reads its own seat snapshot");
   restore();
 });
 

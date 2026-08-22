@@ -10,6 +10,7 @@
 // single assertion ran.
 
 import { readFileSync } from "node:fs";
+import { register } from "node:module";
 
 const INDEX = new URL("../index.html", import.meta.url);
 const PAGE = "https://enesyilmazcode.github.io/Finder/";
@@ -490,6 +491,30 @@ export function setupDom(html = INDEX, { query = "", term = "", url = PAGE } = {
   };
 }
 
+/**
+ * Carry a mount's `?mount=` onto everything that mount imports.
+ *
+ * Without this the suffix reaches app.js and stops there, since app.js names
+ * its own imports as bare specifiers. Every mount in a file then shares one
+ * warm js/ratings.js and js/seats.js, and the second test inherits the first
+ * test's loaded index and failed flags without fetching anything, which reads
+ * as a pass.
+ *
+ * A resolve hook rather than a reset export per module, because the graph is
+ * what is being copied and not a list someone has to keep current: a module
+ * added to js/ later forks with the rest and nobody edits this file. Only a
+ * parent already carrying the suffix propagates it, so a bare `../js/seats.js`
+ * import stays on the shared instance, which is what helpers.js and the
+ * pure-module suites read.
+ */
+const PROPAGATE_MOUNT = `
+export async function resolve(specifier, context, nextResolve) {
+  const resolved = await nextResolve(specifier, context);
+  const mount = /[?]mount=\\d+$/.exec(context.parentURL ?? "");
+  if (!mount || !resolved.url.startsWith("file:") || resolved.url.includes("?")) return resolved;
+  return { ...resolved, url: resolved.url + mount[0], shortCircuit: true };
+}`;
+
 let mounts = 0;
 
 /**
@@ -497,16 +522,15 @@ let mounts = 0;
  *
  * The `?mount=` suffix gives each mount its own copy of app.js, which holds the
  * search state at module level and runs init() on import, so a second bare
- * import is a cache hit that never starts.
- *
- * It does not reach app.js's own imports, which are bare specifiers, so
- * js/seats.js and js/ratings.js stay shared and stay warm. Measured: mount 1
- * fetches ratings.json, seats.json, the term list and seats-1268.json; mount 2
- * fetches the term list alone. A second test that holds a seat or ratings route
- * open therefore holds a route nothing asks for, and passes having exercised
- * nothing. Name a term or a URL the earlier mount did not load.
+ * import is a cache hit that never starts. The resolve hook above extends that
+ * to everything app.js imports, so a mount also gets its own js/ratings.js,
+ * js/seats.js and js/courses.js, cold. Two mounts in one file are independent:
+ * fail a snapshot in the first and the second still fetches it.
  */
 export async function mountApp({ query = "", term = "", fetch, html = INDEX, url = PAGE } = {}) {
+  // Registered on first use, so a file that only calls setupDom never starts
+  // the loader thread.
+  if (!mounts) register(`data:text/javascript,${encodeURIComponent(PROPAGATE_MOUNT)}`);
   const page = setupDom(html, { query, term, url });
   if (fetch) globalThis.fetch = fetch;
   await import(`../js/app.js?mount=${++mounts}`);
