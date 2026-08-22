@@ -44,8 +44,8 @@ let latestRequest = 0;
 // pane needs the real objects, not text scraped back out of the DOM.
 let sectionIndex = new Map();
 let currentEntries = [];
-// The unfiltered result of the last search, so changing a filter re-renders
-// rather than refetching.
+// The unfiltered result of the last search, tagged with the term it was
+// fetched for, so changing a filter re-renders rather than refetching.
 let lastResult = null;
 let showHidden = false;
 let view = "list";
@@ -249,7 +249,10 @@ function selectSection(row) {
   // Selection is state, not just colour, so it is exposed rather than implied.
   row.setAttribute("aria-current", "true");
 
-  showDetail(renderDetail({ ...found, term: els.term.value, entries: currentEntries, formatDate }));
+  // The term these rows were fetched for, not the one in the selector, which
+  // can already have moved on while the next search is still running.
+  const term = lastResult?.term ?? els.term.value;
+  showDetail(renderDetail({ ...found, term, entries: currentEntries, formatDate }));
 }
 
 function closeDetail() {
@@ -344,9 +347,21 @@ function showWelcome(term) {
 
 async function runSearch(q, term) {
   if (!q.trim()) {
+    // Supersede any search still in flight: it was started for whichever term
+    // was selected then. Its finally checks the id, so the busy flag comes off here.
+    const requestId = ++latestRequest;
+    setBusy(false);
+    // Nothing is left on screen to repaint from, so a later filter or view
+    // change must not be able to bring the last search back. See #89.
+    lastResult = null;
     els.results.replaceChildren();
     showWelcome(term);
     setStatus("");
+    // The section count and the date on that line come from this term's seat
+    // snapshot, which the first visit to a term has not loaded yet.
+    Promise.allSettled([loadRatings(), loadSeats(term)]).then(() => {
+      if (requestId === latestRequest) showWelcome(term);
+    });
     return;
   }
   els.welcome.hidden = true;
@@ -361,15 +376,20 @@ async function runSearch(q, term) {
     const [{ courses }] = await Promise.all([
       searchAllPages({ q, term }),
       loadRatings().catch(() => null),
+      // Seats are per term since #48, so this term's snapshot has to be in hand
+      // before the paint, or the first view after a switch shows none.
       loadSeats(term).catch(() => null),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
-    lastResult = filterCourses(courses, q);
+    lastResult = { ...filterCourses(courses, q), term };
     showHidden = false;
     paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
     els.results.replaceChildren();
+    // The rows this search replaced are gone from the screen, so drop them here
+    // too rather than let a filter change repaint them under the error.
+    lastResult = null;
     setStatus(error instanceof ApiError ? error.message : "Something went wrong. Try again.", "error");
     if (!(error instanceof ApiError)) console.error(error);
   } finally {
@@ -383,6 +403,16 @@ function paint(term = els.term.value) {
   const filters = readFilters();
   const active = isActive(filters);
   els.clear.hidden = !active;
+
+  // Class numbers are reused across terms, so repainting these against the new
+  // term's snapshot finds a real seat row and draws a full section as open. See #89.
+  if (lastResult.term !== term) {
+    lastResult = null;
+    els.results.replaceChildren();
+    resetDetail();
+    setStatus("");
+    return;
+  }
 
   const blank = { entries: [], hiddenSections: 0, hiddenCourses: 0 };
   const p = showHidden ? { ...blank, entries: lastResult.primary } : applyFilters(lastResult.primary, filters);
@@ -590,11 +620,10 @@ async function init() {
 
   els.term.addEventListener("change", () => {
     if (isLoaded()) { fillSubjects(); fillNumbers(); }
-    // Seats are per term since #48, so the new term has to arrive before the
-    // repaint, or the first view after a switch shows none.
-    loadSeats(els.term.value).then(() => paint()).catch(() => {});
     syncUrl(els.query.value, els.term.value);
-    if (els.query.value.trim()) runSearch(els.query.value, els.term.value);
+    // Search either way. The old handler only repainted on an empty box, which
+    // left the previous term's rows on screen.
+    runSearch(els.query.value, els.term.value);
   });
 
   els.welcome.addEventListener("click", (event) => {
