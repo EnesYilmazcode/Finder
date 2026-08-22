@@ -93,6 +93,10 @@ test("loadRatings caches, so a second call does not fetch again", async () => {
   assert.equal(again.bySurname.get("reed").length, 2);
 });
 
+test("a snapshot that loaded does not read as failed", () => {
+  assert.equal(ratings.ratingsFailed(), false);
+});
+
 test("the RateMyProfessors links point at Ohio State", () => {
   assert.equal(
     searchUrl("Paolo Bucci"),
