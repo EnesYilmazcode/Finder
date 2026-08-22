@@ -8,7 +8,8 @@
 
 import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
-import { seatsFor } from "./seats.js";
+import { linkedTo, seatsFor, unreachable } from "./seats.js";
+import { openedOn } from "./trend.js";
 import { orderBy } from "./sort.js";
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
@@ -114,6 +115,21 @@ function renderTeacher(group) {
   return nodes;
 }
 
+// Only the parent direction goes on a row. A lecture can have three dozen labs
+// under it, and listing those here would bury the section itself, so the detail
+// pane takes that side.
+function renderLinked(parent, term) {
+  const seats = seatsFor(parent, term);
+  const node = el("span", "linked", seats ? `with ${parent} ${seats.enrolled}/${seats.limit}` : `with ${parent}`);
+  if (seats) node.dataset.state = seats.full ? "full" : "open";
+
+  const note = `Registering for this also registers you for ${parent}.`;
+  node.title = seats
+    ? `${note} That one is ${seats.enrolled} enrolled of ${seats.limit}${seats.full ? ", so this section cannot be registered" : ""}.`
+    : note;
+  return node;
+}
+
 export function renderSection(section, term) {
   const li = el("li", "section");
   // Selecting a section is the primary action in the three-pane layout, so the
@@ -132,6 +148,12 @@ export function renderSection(section, term) {
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
 
+  // Everything the third column holds goes in one cell, so a later row extra
+  // added to the grid cannot slide the seat count onto somebody else's line.
+  const seatCell = el("span", "seat-cell");
+
+  const linked = linkedTo(section.classNumber, term);
+
   // Absent means unknown, never zero. A section with no snapshot row simply
   // shows nothing rather than implying it is empty.
   const seats = seatsFor(section.classNumber, term);
@@ -142,8 +164,30 @@ export function renderSection(section, term) {
     node.title = seats.full
       ? `Full. ${seats.enrolled} enrolled of ${seats.limit}${seats.waitlist ? `, ${seats.waitlist} waiting` : ""}.`
       : `${seats.enrolled} enrolled of ${seats.limit}.`;
-    li.append(node);
+
+    // Barrett rebuilds once a day, so this is a night's difference, not a seat
+    // anyone is holding open. Never on a full row: seats and trend are two
+    // fetches and can skew by a night, and 99 of the 248 sections that opened
+    // on 2026-08-19 were full again the next night. Never on a row "hide full"
+    // drops either, since the seats it opened cannot be registered. #67.
+    const opened = !seats.full && !unreachable(section.classNumber, term)
+      ? openedOn(section.classNumber, term)
+      : null;
+    if (opened) {
+      const mark = el("span", "opened", "opened");
+      mark.title = `Full in the previous snapshot, open in the one from ${opened}.`;
+      node.append(mark);
+    }
+    seatCell.append(node);
   }
+
+  // A lab with seats left is not open if the lecture it enrolls you into is
+  // full, and that lecture is nowhere else on the row.
+  for (const parent of linked?.enrolls ?? []) {
+    seatCell.append(renderLinked(parent, term));
+  }
+
+  if (seatCell.childNodes.length) li.append(seatCell);
 
   return li;
 }
@@ -182,7 +226,7 @@ export function renderCourse({ course, sections }, term, sort = "") {
   return article;
 }
 
-export function renderResults(container, { primary, related }, term, sort = "") {
+export function renderResults(container, { primary, related, openRelated }, term, sort = "") {
   const nodes = primary.map((entry) => renderCourse(entry, term, sort));
 
   if (related?.length) {

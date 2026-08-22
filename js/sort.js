@@ -4,7 +4,7 @@
 import { instructorsOf } from "./format.js";
 import { toMinutes } from "./filters.js";
 import { ratingFor } from "./ratings.js";
-import { seatsFor } from "./seats.js";
+import { linkedTo, seatsFor, unreachable } from "./seats.js";
 
 const AGGREGATES = {
   rating: { of: bestRating, order: "desc" },
@@ -59,13 +59,37 @@ function lowestDifficulty(sections) {
   return found.length ? Math.min(...found) : null;
 }
 
+function freeSeats(classNumber, term) {
+  const seats = seatsFor(classNumber, term);
+  // An over-enrolled section has no seats left, not negative seats.
+  return seats ? Math.max(0, seats.limit - seats.enrolled) : null;
+}
+
+/**
+ * The seats a student can actually take in one section, which is the scarcest
+ * link in the registration it belongs to.
+ *
+ * "Has seats" is one rule, and it lives in seats.js. A lab with 19 free under a
+ * full lecture used to sort to the top of the page carrying its own chip saying
+ * nobody can register for it. #67.
+ */
+function packageSeats(classNumber, term) {
+  const own = freeSeats(classNumber, term);
+  if (own == null) return null;
+  if (unreachable(classNumber, term)) return 0;
+  let least = own;
+  for (const partner of linkedTo(classNumber, term)?.enrolls ?? []) {
+    const free = freeSeats(partner, term);
+    if (free != null && free < least) least = free;
+  }
+  return least;
+}
+
 function mostSeatsLeft(sections, term) {
   let best = null;
   for (const section of sections) {
-    const seats = seatsFor(section.classNumber, term);
-    if (!seats) continue;
-    // An over-enrolled section has no seats left, not negative seats.
-    const left = Math.max(0, seats.limit - seats.enrolled);
+    const left = packageSeats(section.classNumber, term);
+    if (left == null) continue;
     if (best == null || left > best) best = left;
   }
   return best;

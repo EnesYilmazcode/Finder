@@ -66,6 +66,19 @@ test("a full or over-enrolled section has no seats left rather than negative one
   assert.equal(sortValue([overCap], "seats", TERM), 0);
 });
 
+// Regression, #63 with #67. "This section has seats" is one rule and it lives in
+// seats.js. Reading seatsFor alone put a lab with 19 free at the top of the page
+// carrying its own chip saying nobody can register for it.
+test("seats behind a full partner do not count, and a package is worth its scarcest link", () => {
+  const at = (n) => taught(n, MWF, "8:00 AM", "8:55 AM", ["Timothy Long"]);
+  // 1010 has 19 of its own under the 40/40 lecture 1002.
+  assert.equal(sortValue([at(1010)], "seats", TERM), 0);
+  // 1020 has 2 of its own and both of its listed ways in are full.
+  assert.equal(sortValue([at(1020)], "seats", TERM), 0);
+  // 1012 has 14 of its own, but taking one takes one of the lecture's last 10.
+  assert.equal(sortValue([at(1012)], "seats", TERM), 10);
+});
+
 test("a section the seat snapshot does not cover is unknown, not full", () => {
   assert.equal(sortValue([unlisted], "seats", TERM), null);
   // No published capacity is the same kind of unknown, and seatsFor already
