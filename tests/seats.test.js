@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { withSeats } from "./helpers.js";
+import { SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
 
 // Both terms loaded, so the cross-term guard can be tested for real rather
 // than by the absence of data.
@@ -79,6 +80,20 @@ test("seatsTerm and seatsUpdated answer per term", () => {
   assert.equal(seats.seatsUpdated("1262"), "2026-04-27");
 });
 
+// tests/contract.test.js holds the shipped snapshot to this, but nothing held
+// the fixture to it, and the two halves are read by different functions: the
+// landing screen counts sections off the index while every row comes from the
+// term file. #58 puts that count on screen before the term file has landed.
+test("the index counts the sections its term file actually holds", () => {
+  assert.deepEqual(SEATS_INDEX.terms.map((t) => t.term).sort(), Object.keys(SEATS_TERMS).sort(),
+    "the index and the term files have to be about the same terms");
+  for (const { term } of SEATS_INDEX.terms) {
+    assert.equal(seats.seatsSectionCount(term), Object.keys(SEATS_TERMS[term].sections).length,
+      `term ${term} does not hold what the index says`);
+  }
+  assert.equal(seats.seatsSectionCount("9999"), 0, "a term with no entry counts nothing, rather than throwing");
+});
+
 test("regression #23: the same class number resolves per term, never across", () => {
   // 1001 exists in both fixtures with different numbers, so a cross-term leak
   // would show up as the wrong figure rather than as missing data.
@@ -94,12 +109,62 @@ test("a term the index does not list is settled, not pending", () => {
   assert.equal(seats.seatsFor("1001", "9999"), null);
 });
 
+// #67. Barrett's autoenroll column is what Finder pairs on, because OSU's own
+// API gives all 22 CSE 2221 sections the same autoEnrollSection1, which would
+// mean eleven lectures sharing one lab.
+test("linkedTo reads a package in both directions", () => {
+  // 1010 is a lab under lecture 1002.
+  assert.deepEqual(seats.linkedTo("1010", "1268"), { enrolls: ["1002"], enrolledBy: [] });
+  assert.deepEqual(seats.linkedTo("1002", "1268"), { enrolls: [], enrolledBy: ["1010", "1013", "1014"] });
+});
+
+test("linkedTo keeps a lecture's recitations apart from each other", () => {
+  // The two recitations are alternatives, not partners. Flattening the package
+  // into one undirected group would make each of them the other's partner.
+  assert.deepEqual(seats.linkedTo("1001", "1268").enrolledBy, ["1011", "1012", "1013"]);
+  assert.deepEqual(seats.linkedTo("1011", "1268"), { enrolls: ["1001"], enrolledBy: [] });
+});
+
+test("linkedTo carries both parents when Barrett names two", () => {
+  assert.deepEqual(seats.linkedTo("1013", "1268").enrolls, ["1001", "1002"]);
+});
+
+test("linkedTo accepts numbers, and answers per term", () => {
+  assert.deepEqual(seats.linkedTo(1010, 1268).enrolls, ["1002"]);
+  assert.equal(seats.linkedTo("1010", "1262"), null, "Spring has no groups of its own");
+});
+
+test("an absent link is unknown, not a section that stands alone", () => {
+  assert.equal(seats.linkedTo("1003", "1268"), null, "Barrett names no partner");
+  assert.equal(seats.linkedTo("9999", "1268"), null);
+  assert.equal(seats.linkedTo(undefined, "1268"), null);
+  assert.equal(seats.linkedTo("1010", null), null);
+});
+
+test("what linkedTo hands back is not the cached index", () => {
+  seats.linkedTo("1002", "1268").enrolledBy.push("9999");
+  assert.deepEqual(seats.linkedTo("1002", "1268").enrolledBy, ["1010", "1013", "1014"]);
+});
+
+test("linkedTo reads null from a snapshot written before groups existed", async () => {
+  // Every committed snapshot is like this until the nightly job runs again.
+  const older = await withSeats(["1262"], "?no-groups");
+  assert.equal(older.seatsFor("2001", "1262").full, true, "the same file still has seats");
+  assert.equal(older.linkedTo("2001", "1262"), null);
+});
+
 test("nothing is known before a snapshot is loaded", async () => {
   const fresh = await import("../js/seats.js?unloaded");
   assert.equal(fresh.seatsTerm("1268"), null);
   assert.equal(fresh.seatsUpdated("1268"), null);
   assert.equal(fresh.seatsFor("1001", "1268"), null);
   assert.equal(fresh.seatsStatus("1268"), "unknown", "not loaded is not the same as not published");
+  assert.equal(fresh.seatsFailed("1268"), false, "never tried is not the same as failed");
+});
+
+test("a term the index does not list is not a failure", () => {
+  assert.equal(seats.seatsFailed("1268"), false);
+  assert.equal(seats.seatsFailed("9999"), false, "Barrett publishing nothing is an answer");
 });
 
 test("loadSeats caches, so a second call does not fetch again", async () => {

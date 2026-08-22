@@ -10,3 +10,9 @@ scratch/
 
 # Wrangler local state for the analytics worker.
 .wrangler/
+
+# Browser verification writes a probe page, and sometimes a capture to feed it,
+# next to the real page so the relative paths resolve. stats/ is served by
+# Pages, so a stray probe left there would ship.
+probe*.html
+probe*.json
