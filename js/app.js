@@ -450,6 +450,15 @@ function closeDetail() {
   (selected ?? els.results).focus();
 }
 
+// Focus collapses to the body when a control removes itself, which drops a
+// keyboard user past the whole rail to the end of the document. Collapsed, an
+// open detail pane is covering the results, so the pane on screen takes it
+// instead. Never called from paint(): an ordinary filter change should leave
+// focus where it is.
+function focusResults() {
+  (collapsed.matches && els.app.dataset.view === "detail" ? els.detail : els.results).focus();
+}
+
 // The status element is never removed or hidden, only its text changes. A live
 // region that was hidden when content arrived usually goes unannounced.
 function setStatus(message, kind = "info") {
@@ -747,7 +756,7 @@ function paint(term = els.term.value) {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = "See them in list view";
-      button.addEventListener("click", () => setView("list"));
+      button.addEventListener("click", () => { setView("list"); focusResults(); });
       note.append(button);
       els.results.append(note);
     }
@@ -775,7 +784,7 @@ function paint(term = els.term.value) {
     button.textContent = "Show them anyway";
     // Clearing rather than overriding is what keeps the rail, the status line
     // and the URL from describing a set that is no longer on screen.
-    button.addEventListener("click", clearFilters);
+    button.addEventListener("click", () => { clearFilters(); focusResults(); });
     note.append(button);
     els.results.append(note);
   }
@@ -842,6 +851,7 @@ function openLinked(classNumber, term) {
       // and the URL describing the set on screen. clearFilters repaints.
       if (offer === "list") setView("list");
       else clearFilters();
+      focusResults();
     });
     note.append(button);
   }
@@ -976,7 +986,7 @@ async function init() {
     paint();
   });
 
-  els.clear.addEventListener("click", clearFilters);
+  els.clear.addEventListener("click", () => { clearFilters(); focusResults(); });
 
   els.railToggle.addEventListener("click", () => {
     openRail(els.app.dataset.rail !== "open");
@@ -1042,6 +1052,7 @@ async function init() {
     reflectQuery(button.dataset.q);
     syncUrl(button.dataset.q, els.term.value);
     rerunSearch();
+    focusResults();
   });
 
   try {
