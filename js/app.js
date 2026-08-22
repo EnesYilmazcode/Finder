@@ -1,13 +1,17 @@
-import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
+import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } from "./api.js";
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
-import { loadRatings, topRated, ratedCount, profileUrl } from "./ratings.js";
-import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount } from "./seats.js";
+import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
+import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
+import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
-import { applyFilters, isActive, DEFAULTS } from "./filters.js";
+import { applyFilters, isActive, parseBusy, formatBusy, DEFAULTS } from "./filters.js";
+import { busyLabel } from "./format.js";
 import { renderCalendar } from "./calendar.js";
+import { formatCoverage } from "./format.js";
 import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
 import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } from "./deeplink.js";
+import { isSortKey, sortEntries, unknownSections } from "./sort.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -19,8 +23,17 @@ const els = {
   detailBack: document.querySelector("#detail-back"),
   filters: document.querySelector("#filters"),
   days: document.querySelector("#f-days"),
+  busyDays: document.querySelector("#f-busy-days"),
+  busyStart: document.querySelector("#f-busy-start"),
+  busyEnd: document.querySelector("#f-busy-end"),
+  busyAdd: document.querySelector("#f-busy-add"),
+  busyList: document.querySelector("#f-busy-list"),
+  busyHint: document.querySelector("#f-busy-hint"),
+  sort: document.querySelector("#f-sort"),
+  sortNote: document.querySelector("#f-sort-note"),
   subject: document.querySelector("#p-subject"),
   number: document.querySelector("#p-number"),
+  gen: document.querySelector("#p-gen"),
   subjectList: document.querySelector("#subject-list"),
   numberList: document.querySelector("#number-list"),
   hint: document.querySelector("#p-hint"),
@@ -39,6 +52,10 @@ const els = {
 };
 
 let terms = [];
+let termsError = "";
+// A search refused while the term list was still in flight, held whole. The
+// pickers are live in that window, so a bare query would replay unscoped.
+let queued = null;
 let latestRequest = 0;
 
 // Class number to its section and course, rebuilt on every render. The detail
@@ -46,13 +63,23 @@ let latestRequest = 0;
 let sectionIndex = new Map();
 let currentEntries = [];
 // The unfiltered result of the last search, so changing a filter re-renders
-// rather than refetching.
+// rather than refetching, plus the query it ran with, since a repaint has to
+// quote that and not whatever is sitting in the box by then.
 let lastResult = null;
-let showHidden = false;
+let lastQuery = "";
+// The last search the subject dropdown produced, so switching term re-runs it
+// scoped rather than dropping back to the keyword search. Not read back off
+// the picker, because reflectQuery fills that same box from a typed query and
+// a typed subject is still a guess. The query rides along so an edited box
+// stops matching it.
+let pickedSearch = null;
 let view = "list";
 // A section named by the URL. Applied on the next paint and then forgotten, so
 // changing a filter later does not drag the pane back to it.
 let pendingClass = "";
+let courseCodesTried = false;
+// A `gen` link built before Ohio State reworded the category it names.
+let staleGen = null;
 
 function dayStates() {
   const required = [];
@@ -82,6 +109,70 @@ function setDayState(button, state) {
   button.setAttribute("aria-label", `${day}: ${said}`);
 }
 
+// Busy blocks are chips in the rail, never clicks on the calendar. A clickable
+// grid reads as an invitation to mark the overlaps too, and marking overlaps is
+// a schedule builder. Finder searches, it does not plan.
+
+const BUSY_HINT = els.busyHint.textContent;
+
+function setBusyDay(button, busy) {
+  button.dataset.state = busy ? "busy" : "any";
+  button.setAttribute("aria-pressed", String(busy));
+}
+
+/** Blocks are read back off their chips, the way day states are read off theirs. */
+function busyBlocks() {
+  return [...els.busyList.querySelectorAll(".f-chip")].map((chip) => parseBusy(chip.dataset.busy)).filter(Boolean);
+}
+
+/** Two ways of writing the same block, "TuTh" and "ThTu", are one chip. */
+function uniqueBlocks(blocks) {
+  return [...new Map(blocks.map((b) => [formatBusy(b), b])).values()];
+}
+
+function renderBusy(blocks) {
+  els.busyList.replaceChildren(...uniqueBlocks(blocks).map((block) => {
+    const label = busyLabel(block);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "f-chip";
+    chip.dataset.busy = formatBusy(block);
+    chip.textContent = label;
+    chip.setAttribute("aria-label", `Remove busy time ${label}`);
+    const item = document.createElement("li");
+    item.append(chip);
+    return item;
+  }));
+}
+
+/** "09:35" from a time field to minutes past midnight. */
+function fieldMinutes(value) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value ?? "");
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function resetBusyFields() {
+  for (const button of els.busyDays.querySelectorAll(".f-day")) setBusyDay(button, false);
+  els.busyStart.value = "";
+  els.busyEnd.value = "";
+  els.busyHint.textContent = BUSY_HINT;
+}
+
+function addBusy() {
+  const days = [...els.busyDays.querySelectorAll('.f-day[data-state="busy"]')].map((b) => b.dataset.day);
+  const start = fieldMinutes(els.busyStart.value);
+  const end = fieldMinutes(els.busyEnd.value);
+  if (!days.length || start == null || end == null || start >= end) {
+    els.busyHint.textContent = "Pick at least one day, and a start before the end.";
+    return;
+  }
+
+  renderBusy([...busyBlocks(), { days, start, end }]);
+  resetBusyFields();
+  syncUrl(els.query.value, els.term.value);
+  paint();
+}
+
 function readFilters() {
   const data = new FormData(els.filters);
   const { required, avoided } = dayStates();
@@ -89,14 +180,21 @@ function readFilters() {
     ...DEFAULTS,
     days: required,
     avoid: avoided,
+    busy: busyBlocks(),
     from: data.get("from") ?? "",
     to: data.get("to") ?? "",
-    rating: data.get("rating") ?? "",
+    rating: els.filters.rating.value,
     hideFull: els.filters.hideFull.checked,
     hideOnline: els.filters.hideOnline.checked,
     ratedOnly: els.filters.ratedOnly.checked,
+    hideConsent: els.filters.hideConsent.checked,
+    undergradOnly: els.filters.undergradOnly.checked,
     term: els.term.value,
   };
+}
+
+function sortKey() {
+  return isSortKey(els.sort.value) ? els.sort.value : "";
 }
 
 function writeFilters(params) {
@@ -106,12 +204,39 @@ function writeFilters(params) {
     const day = button.dataset.day;
     setDayState(button, required.includes(day) ? "require" : avoided.includes(day) ? "avoid" : "any");
   }
+  renderBusy(params.getAll("busy").map(parseBusy).filter(Boolean));
   els.filters.from.value = params.get("from") ?? "";
   els.filters.to.value = params.get("to") ?? "";
   els.filters.rating.value = params.get("rating") ?? "";
   els.filters.hideFull.checked = params.get("hideFull") === "1";
   els.filters.hideOnline.checked = params.get("hideOnline") === "1";
   els.filters.ratedOnly.checked = params.get("ratedOnly") === "1";
+  els.filters.hideConsent.checked = params.get("hideConsent") === "1";
+  els.filters.undergradOnly.checked = params.get("undergradOnly") === "1";
+  // A select set to a value it has no option for shows nothing at all, so an
+  // unknown sort has to be written back as relevance.
+  const sort = params.get("sort") ?? "";
+  els.sort.value = isSortKey(sort) ? sort : "";
+}
+
+/**
+ * The one way filters come off, so the rail, the status line and the URL can
+ * never describe a set that is no longer on screen.
+ *
+ * The contract for anything added after this: whatever readFilters() reads has
+ * to be resettable here. els.filters.reset() reaches only what lives in the
+ * form, and filter state has already started escaping it.
+ */
+function clearFilters() {
+  els.filters.reset();
+  for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
+  // Filter state that lives outside the form is reset here. reset() clears the
+  // two busy time fields, but the blocks themselves live on their chips.
+  els.sort.value = "";
+  renderBusy([]);
+  resetBusyFields();
+  syncUrl(els.query.value, els.term.value);
+  paint();
 }
 
 /**
@@ -221,15 +346,20 @@ function reflectQuery(q) {
   els.number.disabled = false;
 }
 
-/** A picked subject and number becomes an ordinary search. */
+function genCategory() {
+  return els.gen.value || null;
+}
+
+/** A picked subject searches that subject, not the word. */
 function searchFromPickers() {
   const code = codeFromInput(els.subject.value);
   if (!code) return;
   const number = els.number.value.trim();
   const q = number ? `${code} ${number}` : code;
   els.query.value = q;
+  pickedSearch = { q, subject: code };
   syncUrl(q, els.term.value);
-  runSearch(q, els.term.value);
+  runSearch(q, els.term.value, code);
 }
 
 function setView(next) {
@@ -265,10 +395,27 @@ function applySelection(row) {
   row.setAttribute("aria-current", "true");
 
   const link = sectionLink(row.dataset.classNumber);
-  showDetail(renderDetail({
+  const draw = () => renderDetail({
     ...found, term: els.term.value, entries: currentEntries, formatDate, shareUrl: link,
-  }));
+  });
+  showDetail(draw());
   history.replaceState(null, "", link);
+
+  // The course codes behind "52 of 147 ratings are for CSE 2221" are their own file,
+  // fetched on the first section opened instead of at startup. Redrawing the body
+  // rather than calling showDetail again leaves focus where it is. One attempt per
+  // page load either way, because a missing snapshot will not appear on the next click.
+  if (!courseCodesTried) {
+    const opened = row.dataset.classNumber;
+    loadRatingCourses()
+      .then(() => {
+        if (opened === els.results.querySelector(".is-selected")?.dataset.classNumber) {
+          els.detailBody.replaceChildren(draw());
+        }
+      })
+      .catch((error) => console.warn("rating course codes unavailable", error))
+      .finally(() => { courseCodesTried = true; });
+  }
   return true;
 }
 
@@ -319,6 +466,8 @@ function syncUrl(q, term) {
   if (!sameSearch(url, q, term)) pendingClass = "";
   if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
   if (term) url.searchParams.set("term", term);
+  const gen = genCategory();
+  if (gen) url.searchParams.set("gen", gen); else url.searchParams.delete("gen");
 
   // Filters live in the URL so a filtered view can be shared or reloaded.
   const f = readFilters();
@@ -326,10 +475,12 @@ function syncUrl(q, term) {
   url.searchParams.delete("noday");
   for (const day of f.days) url.searchParams.append("day", day);
   for (const day of f.avoid) url.searchParams.append("noday", day);
-  for (const [key, value] of [["from", f.from], ["to", f.to], ["rating", f.rating]]) {
+  url.searchParams.delete("busy");
+  for (const block of f.busy) url.searchParams.append("busy", formatBusy(block));
+  for (const [key, value] of [["from", f.from], ["to", f.to], ["rating", f.rating], ["sort", sortKey()]]) {
     if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
   }
-  for (const key of ["hideFull", "hideOnline", "ratedOnly"]) {
+  for (const key of ["hideFull", "hideOnline", "ratedOnly", "hideConsent", "undergradOnly"]) {
     if (f[key]) url.searchParams.set(key, "1"); else url.searchParams.delete(key);
   }
   // Every caller of this has just changed the result set, and the repaint that
@@ -348,7 +499,7 @@ function showWelcome(term) {
   const sections = seatsSectionCount(term);
   const bits = [termName(term)];
   if (sections) bits.push(`${sections.toLocaleString()} sections`);
-  if (seatsUpdated(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
+  if (seatsTerm(term) && seatsUpdated(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
   els.wStats.textContent = bits.join(" · ");
 
   const best = topRated();
@@ -386,11 +537,34 @@ function showWelcome(term) {
   );
 }
 
-async function runSearch(q, term) {
-  if (!q.trim()) {
+/**
+ * Run the search the page already describes, again. Every trigger goes through
+ * here: the query box saying "MATH" does not say whether that was typed or
+ * picked, and only the memo knows.
+ */
+function rerunSearch() {
+  const q = els.query.value;
+  runSearch(q, els.term.value, pickedSearch?.q === q ? pickedSearch.subject : null);
+}
+
+async function runSearch(q, term, subject, gen = genCategory()) {
+  if (!term) {
+    // Reachable since #80 moved the listeners above the term request. Hold the
+    // call for init to run rather than search without a term.
+    if (termsError) setStatus(termsError, "error");
+    else if (q.trim() || gen) {
+      queued = { q, subject, genCategory: gen };
+      setStatus("Still loading terms. Your search will run when they arrive.");
+    }
+    return;
+  }
+  // A requirement on its own is a search.
+  if (!q.trim() && !gen) {
     els.results.replaceChildren();
+    showSortNote([], sortKey(), term);
     showWelcome(term);
-    setStatus("");
+    markSources(term);
+    setStatus(outageNote(term));
     return;
   }
   els.welcome.hidden = true;
@@ -402,18 +576,20 @@ async function runSearch(q, term) {
     // Ratings must be in hand before rendering, or instructors draw unrated and
     // never redraw. Awaited alongside the search rather than before it, so the
     // cost is the slower of the two and only on the first search.
-    const [{ courses }] = await Promise.all([
-      searchAllPages({ q, term }),
+    const [{ courses, totalItems }] = await Promise.all([
+      searchAllPages({ q, term, subject, genCategory: gen }),
       loadRatings().catch(() => null),
       loadSeats(term).catch(() => null),
+      loadTrend(term),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
-    lastResult = filterCourses(courses, q);
-    showHidden = false;
+    lastResult = { ...filterCourses(courses, q), totalItems };
+    lastQuery = q.trim();
     paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
     els.results.replaceChildren();
+    showSortNote([], sortKey(), term);
     setStatus(error instanceof ApiError ? error.message : "Something went wrong. Try again.", "error");
     if (!(error instanceof ApiError)) console.error(error);
   } finally {
@@ -421,19 +597,89 @@ async function runSearch(q, term) {
   }
 }
 
+// Which snapshot each order needs. Earliest start time needs neither.
+const SORT_SOURCE = {
+  rating: "ratings",
+  difficulty: "ratings",
+  seats: "seats",
+};
+
+const SORT_UNKNOWN = {
+  rating: "too few ratings to rank",
+  difficulty: "too few ratings to rank",
+  seats: "no seat count",
+  start: "no meeting time",
+};
+
+/** The tail the sort cannot place, counted rather than left unexplained. */
+function showSortNote(entries, sort, term) {
+  const n = view === "list" ? unknownSections(entries, sort, term) : 0;
+  // Not "at the end": an unplaceable section sits at the end of its own block,
+  // and that block is placed by whatever its other sections score.
+  els.sortNote.textContent = n
+    ? `${n} section${n === 1 ? "" : "s"} the sort could not place: ${SORT_UNKNOWN[sort]}.`
+    : "";
+  els.sortNote.hidden = !n;
+}
+
+/** Names the snapshots that were asked for and did not arrive. Empty if none did. */
+function outageNote(term) {
+  const ratings = ratingsFailed();
+  const dead = [];
+  if (ratings) dead.push("instructor ratings");
+  if (seatsFailed(term)) dead.push("seat counts");
+  if (!dead.length) return "";
+  // Ratings feed two of the three controls and seats one, so the count follows
+  // the ratings file rather than how many files died.
+  const off = ratings ? "filters that need them are" : "filter that needs them is";
+  return `Could not load ${dead.join(" and ")}, so the ${off} off.`;
+}
+
+/**
+ * Turn off the controls whose snapshot never arrived.
+ *
+ * Left on they filter against nothing, which either empties the page or does
+ * nothing at all, and both look like the student's own choice.
+ */
+function markSources(term) {
+  const ratings = ratingsFailed();
+  const seats = seatsFailed(term);
+  els.filters.rating.disabled = ratings;
+  els.filters.ratedOnly.disabled = ratings;
+  els.filters.hideFull.disabled = seats;
+  // hideConsent and undergradOnly are absent on purpose: both read fields the
+  // search response itself carries, so there is no snapshot to lose. #68.
+
+  // The orders read the same two snapshots the filters do. Left on, a sort with
+  // nothing to read leaves the page in relevance order and blames every section
+  // on screen for being unplaceable. #63.
+  const dead = { ratings, seats };
+  for (const option of els.sort.options) option.disabled = Boolean(dead[SORT_SOURCE[option.value]]);
+  if (dead[SORT_SOURCE[els.sort.value]]) els.sort.value = "";
+}
+
 /** Re-render from the last search. Filters never refetch. */
 function paint(term = els.term.value) {
-  if (!lastResult) return;
+  markSources(term);
+  if (!lastResult) {
+    showSortNote([], sortKey(), term);
+    // Nothing to describe yet, but a dead snapshot still has to be named and a
+    // term that loaded has to clear the note. Only on the landing screen: a
+    // search that failed owns the status line and keeps it.
+    if (!els.welcome.hidden) setStatus(outageNote(term));
+    return;
+  }
   const filters = readFilters();
   const active = isActive(filters);
   els.clear.hidden = !active;
 
-  const blank = { entries: [], hiddenSections: 0, hiddenCourses: 0 };
-  const p = showHidden ? { ...blank, entries: lastResult.primary } : applyFilters(lastResult.primary, filters);
-  const r = showHidden ? { ...blank, entries: lastResult.related } : applyFilters(lastResult.related, filters);
+  const p = applyFilters(lastResult.primary, filters);
+  const r = applyFilters(lastResult.related, filters);
 
-  const primary = p.entries;
-  const related = r.entries;
+  const sort = sortKey();
+  const primary = sortEntries(p.entries, sort, term);
+  const related = sortEntries(r.entries, sort, term);
+  showSortNote([...primary, ...related], sort, term);
   // Count what the filters removed from everything on the page, not just from
   // the primary results, or the note understates its own effect.
   const hiddenSections = p.hiddenSections + r.hiddenSections;
@@ -469,7 +715,7 @@ function paint(term = els.term.value) {
     // A related course stays folded away until it is asked for, so a link into
     // one has to ask for it here rather than after the render.
     const openRelated = Boolean(wanted) && hasSection(related, wanted);
-    renderResults(els.results, { primary, related, openRelated }, term);
+    renderResults(els.results, { primary, related, openRelated }, term, sort);
   }
   resetDetail();
 
@@ -486,18 +732,31 @@ function paint(term = els.term.value) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Show them anyway";
-    button.addEventListener("click", () => { showHidden = true; paint(term); });
+    // Clearing rather than overriding is what keeps the rail, the status line
+    // and the URL from describing a set that is no longer on screen.
+    button.addEventListener("click", clearFilters);
     note.append(button);
     els.results.append(note);
   }
 
+  // A dead snapshot and a link that missed both describe the page rather than
+  // what the search found, so they trail the counts.
+  const notes = [outageNote(term), missed].filter(Boolean).join(" ");
+  const withNotes = (line) => (notes ? `${line} ${notes}` : line);
+
   if (!primary.length) {
+    const gen = genCategory();
+    // Name the requirement, or an empty GE browse reads as a broken page.
+    const empty = gen
+      ? `Nothing in ${termName(term)} is listed under ${gen}${lastQuery ? ` for "${lastQuery}"` : ""}.`
+      : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`;
     // Careful not to claim everything went when related courses may still be
     // on screen underneath this message.
-    const nothing = isActive(filters)
-      ? `No sections match your filters in ${termName(term)}. Loosen one, or clear them.`
-      : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`;
-    setStatus(`${nothing}${missed ? ` ${missed}` : ""}`);
+    setStatus(withNotes(
+      isActive(filters)
+        ? `No sections match your filters in ${termName(term)}. Loosen one, or clear them.`
+        : empty
+    ));
     return;
   }
 
@@ -506,7 +765,11 @@ function paint(term = els.term.value) {
   // Barrett refreshes once a day, so the numbers are dated, and during a
   // registration window that distinction matters.
   const dated = seatsTerm(term) && seatsUpdated(term) ? ` Seats as of ${formatDate(seatsUpdated(term))}.` : "";
-  setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}${missed ? ` ${missed}` : ""}`);
+  const counts = `${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`;
+  // The counts describe the fetch, not the filters, so this stays put when
+  // filters hide rows: the search really did read only part of the answer.
+  const coverage = formatCoverage(lastResult);
+  setStatus(withNotes(coverage ? `${counts} ${coverage}` : counts));
 }
 
 /**
@@ -534,8 +797,10 @@ function openLinked(classNumber, term) {
     button.textContent = offer === "list" ? "See it in list view" : "Show it anyway";
     button.addEventListener("click", () => {
       pendingClass = classNumber;
+      // Clearing rather than overriding is what keeps the rail, the status line
+      // and the URL describing the set on screen. clearFilters repaints.
       if (offer === "list") setView("list");
-      else { showHidden = true; paint(term); }
+      else clearFilters();
     });
     note.append(button);
   }
@@ -569,30 +834,34 @@ async function init() {
   // leaving all five chips announcing as "Mo" when it failed.
   writeFilters(params);
 
-  try {
-    terms = await fetchTerms();
-  } catch (error) {
-    setStatus(error instanceof ApiError ? error.message : "Could not load terms.", "error");
-    return;
-  }
-
-  if (!terms.length) {
-    setStatus("Ohio State is not listing any searchable terms right now.", "error");
-    return;
-  }
-
-  els.term.replaceChildren(
-    ...terms.map((t) => {
+  els.gen.append(
+    ...GEN_CATEGORIES.map((name) => {
       const option = document.createElement("option");
-      option.value = t.code;
-      option.textContent = t.name;
+      option.value = name;
+      option.textContent = name;
       return option;
     })
   );
-  const wanted = params.get("term");
-  els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
-  els.term.disabled = false;
+  // An unknown value searches for nothing, so drop it and say so rather than
+  // serving the front page to someone who followed a link to a requirement.
+  const gen = params.get("gen");
+  if (GEN_CATEGORIES.includes(gen)) els.gen.value = gen;
+  else if (gen) {
+    staleGen = gen;
+    const url = new URL(location.href);
+    url.searchParams.delete("gen");
+    history.replaceState(null, "", url);
+  }
 
+  const initialQuery = params.get("q") ?? "";
+  els.query.value = initialQuery;
+  if (initialQuery.trim()) reflectQuery(initialQuery);
+  // A shared link names a section for the first paint of the search it arrived
+  // with. Not gated on the query: a Fulfills browse is a search too.
+  pendingClass = classFromParams(params);
+
+  // Also before the network: with no submit handler registered yet, Enter is a
+  // plain browser navigation that eats the query, which is what #80 measured.
   for (const field of [els.subject, els.number]) {
     field.addEventListener("focus", ensureCourses);
   }
@@ -611,11 +880,49 @@ async function init() {
     if (coursesFor(els.term.value, code).some((c) => c.number === wanted)) searchFromPickers();
   });
 
+  els.gen.addEventListener("change", () => {
+    syncUrl(els.query.value, els.term.value);
+    rerunSearch();
+  });
+
   els.viewList.addEventListener("click", () => setView("list"));
   els.viewCal.addEventListener("click", () => setView("calendar"));
 
-  els.filters.addEventListener("change", () => {
-    showHidden = false;
+  els.filters.addEventListener("change", (event) => {
+    // The busy fields are not a filter until Add is pressed.
+    if (event.target.closest("#f-busy")) return;
+    syncUrl(els.query.value, els.term.value);
+    paint();
+  });
+
+  els.busyAdd.addEventListener("click", addBusy);
+
+  // Enter in a busy field adds. Making Add a submit button would do this for
+  // free, but it would also make it the default button for the whole rail.
+  for (const field of [els.busyStart, els.busyEnd]) {
+    field.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addBusy();
+    });
+  }
+
+  els.busyDays.addEventListener("click", (event) => {
+    const button = event.target.closest(".f-day");
+    if (button) setBusyDay(button, button.dataset.state !== "busy");
+  });
+
+  els.busyList.addEventListener("click", (event) => {
+    const chip = event.target.closest(".f-chip");
+    if (!chip) return;
+    const item = chip.closest("li");
+    (item.nextElementSibling?.querySelector(".f-chip") ?? els.busyAdd).focus();
+    item.remove();
+    syncUrl(els.query.value, els.term.value);
+    paint();
+  });
+
+  els.sort.addEventListener("change", () => {
     syncUrl(els.query.value, els.term.value);
     paint();
   });
@@ -624,18 +931,11 @@ async function init() {
     const button = event.target.closest(".f-day");
     if (!button) return;
     setDayState(button, NEXT_STATE[button.dataset.state] ?? "require");
-    showHidden = false;
     syncUrl(els.query.value, els.term.value);
     paint();
   });
 
-  els.clear.addEventListener("click", () => {
-    els.filters.reset();
-    for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
-    showHidden = false;
-    syncUrl(els.query.value, els.term.value);
-    paint();
-  });
+  els.clear.addEventListener("click", clearFilters);
 
   els.railToggle.addEventListener("click", () => {
     openRail(els.app.dataset.rail !== "open");
@@ -670,7 +970,6 @@ async function init() {
   window.addEventListener("popstate", () => {
     const params = new URLSearchParams(location.search);
     writeFilters(params);
-    showHidden = false;
     clearSelection();
     pendingClass = classFromParams(params);
     paint();
@@ -688,10 +987,13 @@ async function init() {
   els.term.addEventListener("change", () => {
     if (isLoaded()) { fillSubjects(); fillNumbers(); }
     // Seats are per term since #48, so the new term has to arrive before the
-    // repaint, or the first view after a switch shows none.
-    loadSeats(els.term.value).then(() => paint()).catch(() => {});
+    // repaint, or the first view after a switch shows none. Repaint on failure
+    // too, or the controls keep describing the term we just left.
+    Promise.all([loadSeats(els.term.value), loadTrend(els.term.value)])
+      .catch(() => {})
+      .then(() => paint());
     syncUrl(els.query.value, els.term.value);
-    if (els.query.value.trim()) runSearch(els.query.value, els.term.value);
+    if (els.query.value.trim() || genCategory()) rerunSearch();
   });
 
   els.welcome.addEventListener("click", (event) => {
@@ -700,21 +1002,50 @@ async function init() {
     els.query.value = button.dataset.q;
     reflectQuery(button.dataset.q);
     syncUrl(button.dataset.q, els.term.value);
-    runSearch(button.dataset.q, els.term.value);
+    rerunSearch();
   });
 
-  const initialQuery = params.get("q") ?? "";
-  els.query.value = initialQuery;
-  if (initialQuery.trim()) {
-    pendingClass = classFromParams(params);
-    reflectQuery(initialQuery);
-    runSearch(initialQuery, els.term.value);
+  try {
+    terms = await fetchTerms();
+  } catch (error) {
+    termsError = error instanceof ApiError ? error.message : "Could not load terms.";
+    setStatus(termsError, "error");
+    return;
   }
+
+  if (!terms.length) {
+    termsError = "Ohio State is not listing any searchable terms right now.";
+    setStatus(termsError, "error");
+    return;
+  }
+
+  els.term.replaceChildren(
+    ...terms.map((t) => {
+      const option = document.createElement("option");
+      option.value = t.code;
+      option.textContent = t.name;
+      return option;
+    })
+  );
+  const wanted = params.get("term");
+  els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
+  els.term.disabled = false;
+  // A picker opened before this point filled itself from an empty term, and
+  // setting the value in code fires no change event to refill it.
+  if (isLoaded()) { fillSubjects(); fillNumbers(); }
+
+  // A search asked for while the terms were loading was refused, not dropped.
+  const pending = queued ?? { q: initialQuery };
+  if (pending.q.trim() || genCategory()) runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
   else {
     // Ratings and seats are already in flight; fill the landing screen once
     // they land rather than showing an empty frame in the meantime.
-    setStatus("");
-    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => showWelcome(els.term.value));
+    setStatus(staleGen ? `Finder has no requirement called ${staleGen}. Pick one under Fulfills.` : "");
+    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => {
+      markSources(els.term.value);
+      if (!staleGen) setStatus(outageNote(els.term.value));
+      showWelcome(els.term.value);
+    });
   }
 }
 
