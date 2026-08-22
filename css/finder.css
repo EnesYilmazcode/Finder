@@ -296,12 +296,18 @@ body {
 @media (max-width: 64rem) {
   .app {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    /* Each pane names its row: under auto placement the row a pane lands in
+       shifts with whichever pane is hidden. */
+    grid-template-rows: auto auto minmax(0, 1fr);
+    /* The pane behind the open sheet keeps its padding in a zero height row.
+       That scrolled the page 32px and a scrollbar reflowed it 15px narrower. */
+    overflow: hidden;
   }
 
   .rail {
     display: none;
     grid-column: 1;
+    grid-row: 2;
     border-right: 0;
     border-bottom: 1px solid var(--rule);
   }
@@ -326,11 +332,12 @@ body {
     color: var(--paper);
   }
 
-  .centre { grid-column: 1; }
+  .centre { grid-column: 1; grid-row: 3; }
 
   .detail {
     display: none;
     grid-column: 1;
+    grid-row: 3;
     border-left: 0;
   }
 
@@ -361,8 +368,9 @@ body {
   .section-number { grid-column: 1; }
   .section-when,
   .section-where,
-  .section-who { grid-column: 1 / -1; }
-  .seats { grid-column: 1 / -1; text-align: left; }
+  .section-also,
+  .section-who,
+  .flags { grid-column: 1 / -1; }
   .course-meta { margin-left: 0; width: 100%; white-space: normal; }
 }
 
@@ -462,8 +470,19 @@ body {
 
 /* Seat counts. Full is the state worth spotting while scanning ten sections. */
 
-.seats {
+/* One owner for the third column. Row extras land in column 2, so the seat
+   count stays on the line the section's own time and place are on. */
+.seat-cell {
   grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+
+.seats,
+.linked {
   font-family: var(--data);
   font-size: 0.78rem;
   color: var(--mute);
@@ -483,8 +502,20 @@ body {
   color: var(--open);
 }
 
+/* The section this row auto-enrolls you into. Quieter than the row's own
+   seats, since it is the other half of the registration and not this one. */
+
+.linked { font-size: 0.7rem; }
+.linked[data-state="full"] { color: var(--scarlet); }
+
 @media (max-width: 34rem) {
-  .seats { grid-column: 1 / -1; text-align: left; }
+  .seat-cell {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    align-items: flex-start;
+  }
+  .seats,
+  .linked { text-align: left; }
 }
 
 /* Selection --------------------------------------------------------------- */
@@ -658,6 +689,11 @@ body {
 
 .f-check input { accent-color: var(--scarlet); width: 0.95rem; height: 0.95rem; }
 
+/* Greyed because the snapshot behind it never arrived. A disabled checkbox
+   does not dim its own label text, so the label carries it. */
+.f-set .f-ctl:disabled,
+.f-check:has(input:disabled) { opacity: 0.5; cursor: default; }
+
 .f-clear {
   font: inherit;
   font-size: 0.8rem;
@@ -718,7 +754,7 @@ body {
 
 .cal {
   display: grid;
-  grid-template-columns: 3rem repeat(var(--cal-days), minmax(9rem, 1fr));
+  grid-template-columns: 3rem repeat(var(--cal-days), 1fr);
   /* fit-content, not auto: with a floor under the columns the grid is wider
      than a phone, and it has to say so or overflow:hidden eats the difference
      instead of handing it to .cal-scroll. */
@@ -741,7 +777,10 @@ body {
   border-bottom: 1px solid var(--rule);
 }
 
-.cal-col { border-left: 1px solid var(--rule); min-width: 0; }
+/* The floor is per column, from that day's own --cal-split, so one crowded
+   Wednesday does not widen Monday with it. A split that divides a column's
+   width is #38's squeezed name, so the floor rises with the split. */
+.cal-col { border-left: 1px solid var(--rule); min-width: calc(9rem * var(--cal-split, 1)); }
 .cal-body { position: relative; }
 .cal-line { border-bottom: 1px solid var(--sunk); }
 
@@ -774,6 +813,30 @@ body {
 
 .cal-slot.is-full { border-left-color: var(--scarlet); }
 .cal-slot.is-part { border-left-color: var(--wait); }
+
+/* Past MAX_SPLIT columns the day shares the room out instead of widening, so
+   the block can end up too narrow for all three parts of a line. The name is
+   what the grid exists to compare, so the numbers beside it go first: both are
+   still in the block's aria-label, the detail pane and the list view, and the
+   left border still carries whether the sections are full. Measured on a bare
+   MATH search in term 1268, where 12 names rendered at 0px wide without it. */
+.cal-slot { container-type: inline-size; }
+
+@container (max-width: 120px) {
+  .cal-seats { display: none; }
+}
+
+@container (max-width: 68px) {
+  .cal-rate { display: none; }
+}
+
+/* One line each, at any block width: the heights renderSlot budgets for the
+   chrome are single-line, so a wrap here silently clips an instructor. */
+.cal-time, .cal-count, .cal-more {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .cal-time, .cal-count {
   margin: 0;

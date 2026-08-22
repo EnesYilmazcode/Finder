@@ -1,8 +1,8 @@
 import { fetchTerms, defaultTerm, searchAllPages, ApiError } from "./api.js";
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
-import { loadRatings, topRated, ratedCount, profileUrl } from "./ratings.js";
-import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount } from "./seats.js";
+import { loadRatings, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
+import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
 import { applyFilters, isActive, DEFAULTS } from "./filters.js";
@@ -88,7 +88,7 @@ function readFilters() {
     avoid: avoided,
     from: data.get("from") ?? "",
     to: data.get("to") ?? "",
-    rating: data.get("rating") ?? "",
+    rating: els.filters.rating.value,
     hideFull: els.filters.hideFull.checked,
     hideOnline: els.filters.hideOnline.checked,
     ratedOnly: els.filters.ratedOnly.checked,
@@ -305,7 +305,7 @@ function showWelcome(term) {
   const sections = seatsSectionCount(term);
   const bits = [termName(term)];
   if (sections) bits.push(`${sections.toLocaleString()} sections`);
-  if (seatsUpdated(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
+  if (seatsTerm(term) && seatsUpdated(term)) bits.push(`seats as of ${formatDate(seatsUpdated(term))}`);
   els.wStats.textContent = bits.join(" · ");
 
   const best = topRated();
@@ -347,7 +347,8 @@ async function runSearch(q, term) {
   if (!q.trim()) {
     els.results.replaceChildren();
     showWelcome(term);
-    setStatus("");
+    markSources(term);
+    setStatus(outageNote(term));
     return;
   }
   els.welcome.hidden = true;
@@ -379,9 +380,43 @@ async function runSearch(q, term) {
   }
 }
 
+/** Names the snapshots that were asked for and did not arrive. Empty if none did. */
+function outageNote(term) {
+  const ratings = ratingsFailed();
+  const dead = [];
+  if (ratings) dead.push("instructor ratings");
+  if (seatsFailed(term)) dead.push("seat counts");
+  if (!dead.length) return "";
+  // Ratings feed two of the three controls and seats one, so the count follows
+  // the ratings file rather than how many files died.
+  const off = ratings ? "filters that need them are" : "filter that needs them is";
+  return `Could not load ${dead.join(" and ")}, so the ${off} off.`;
+}
+
+/**
+ * Turn off the controls whose snapshot never arrived.
+ *
+ * Left on they filter against nothing, which either empties the page or does
+ * nothing at all, and both look like the student's own choice.
+ */
+function markSources(term) {
+  const ratings = ratingsFailed();
+  const seats = seatsFailed(term);
+  els.filters.rating.disabled = ratings;
+  els.filters.ratedOnly.disabled = ratings;
+  els.filters.hideFull.disabled = seats;
+}
+
 /** Re-render from the last search. Filters never refetch. */
 function paint(term = els.term.value) {
-  if (!lastResult) return;
+  markSources(term);
+  if (!lastResult) {
+    // Nothing to describe yet, but a dead snapshot still has to be named and a
+    // term that loaded has to clear the note. Only on the landing screen: a
+    // search that failed owns the status line and keeps it.
+    if (!els.welcome.hidden) setStatus(outageNote(term));
+    return;
+  }
   const filters = readFilters();
   const active = isActive(filters);
   els.clear.hidden = !active;
@@ -442,14 +477,17 @@ function paint(term = els.term.value) {
     els.results.append(note);
   }
 
+  const outage = outageNote(term);
+  const withOutage = (line) => (outage ? `${line} ${outage}` : line);
+
   if (!primary.length) {
     // Careful not to claim everything went when related courses may still be
     // on screen underneath this message.
-    setStatus(
+    setStatus(withOutage(
       isActive(filters)
         ? `No sections match your filters in ${termName(term)}. Loosen one, or clear them.`
         : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`
-    );
+    ));
     return;
   }
 
@@ -458,7 +496,7 @@ function paint(term = els.term.value) {
   // Barrett refreshes once a day, so the numbers are dated, and during a
   // registration window that distinction matters.
   const dated = seatsTerm(term) && seatsUpdated(term) ? ` Seats as of ${formatDate(seatsUpdated(term))}.` : "";
-  setStatus(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`);
+  setStatus(withOutage(`${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`));
 }
 
 function formatDate(iso) {
@@ -594,8 +632,11 @@ async function init() {
   els.term.addEventListener("change", () => {
     if (isLoaded()) { fillSubjects(); fillNumbers(); }
     // Seats are per term since #48, so the new term has to arrive before the
-    // repaint, or the first view after a switch shows none.
-    Promise.all([loadSeats(els.term.value), loadTrend(els.term.value)]).then(() => paint()).catch(() => {});
+    // repaint, or the first view after a switch shows none. Repaint on failure
+    // too, or the controls keep describing the term we just left.
+    Promise.all([loadSeats(els.term.value), loadTrend(els.term.value)])
+      .catch(() => {})
+      .then(() => paint());
     syncUrl(els.query.value, els.term.value);
     if (els.query.value.trim()) runSearch(els.query.value, els.term.value);
   });
@@ -619,7 +660,11 @@ async function init() {
     // Ratings and seats are already in flight; fill the landing screen once
     // they land rather than showing an empty frame in the meantime.
     setStatus("");
-    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => showWelcome(els.term.value));
+    Promise.allSettled([loadRatings(), loadSeats(els.term.value)]).then(() => {
+      markSources(els.term.value);
+      setStatus(outageNote(els.term.value));
+      showWelcome(els.term.value);
+    });
   }
 }
 
