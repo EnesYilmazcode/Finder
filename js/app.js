@@ -538,6 +538,16 @@ function showWelcome(term) {
 }
 
 /**
+ * Drop the last search along with everything it put on screen. paint() repaints
+ * from lastResult, so a result left behind comes back on the next filter click.
+ */
+function clearLastSearch() {
+  lastResult = null;
+  els.results.replaceChildren();
+  resetDetail();
+}
+
+/**
  * Run the search the page already describes, again. Every trigger goes through
  * here: the query box saying "MATH" does not say whether that was typed or
  * picked, and only the memo knows.
@@ -560,7 +570,7 @@ async function runSearch(q, term, subject, gen = genCategory()) {
   }
   // A requirement on its own is a search.
   if (!q.trim() && !gen) {
-    els.results.replaceChildren();
+    clearLastSearch();
     showSortNote([], sortKey(), term);
     showWelcome(term);
     markSources(term);
@@ -588,7 +598,7 @@ async function runSearch(q, term, subject, gen = genCategory()) {
     paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
-    els.results.replaceChildren();
+    clearLastSearch();
     showSortNote([], sortKey(), term);
     setStatus(error instanceof ApiError ? error.message : "Something went wrong. Try again.", "error");
     if (!(error instanceof ApiError)) console.error(error);
@@ -661,6 +671,10 @@ function markSources(term) {
 /** Re-render from the last search. Filters never refetch. */
 function paint(term = els.term.value) {
   markSources(term);
+  const filters = readFilters();
+  // The clear button tracks the filters, not the result, so it is set before
+  // the bail below.
+  els.clear.hidden = !isActive(filters);
   if (!lastResult) {
     showSortNote([], sortKey(), term);
     // Nothing to describe yet, but a dead snapshot still has to be named and a
@@ -669,9 +683,6 @@ function paint(term = els.term.value) {
     if (!els.welcome.hidden) setStatus(outageNote(term));
     return;
   }
-  const filters = readFilters();
-  const active = isActive(filters);
-  els.clear.hidden = !active;
 
   const p = applyFilters(lastResult.primary, filters);
   const r = applyFilters(lastResult.related, filters);
