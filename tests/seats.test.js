@@ -100,6 +100,12 @@ test("nothing is known before a snapshot is loaded", async () => {
   assert.equal(fresh.seatsUpdated("1268"), null);
   assert.equal(fresh.seatsFor("1001", "1268"), null);
   assert.equal(fresh.seatsStatus("1268"), "unknown", "not loaded is not the same as not published");
+  assert.equal(fresh.seatsFailed("1268"), false, "never tried is not the same as failed");
+});
+
+test("a term the index does not list is not a failure", () => {
+  assert.equal(seats.seatsFailed("1268"), false);
+  assert.equal(seats.seatsFailed("9999"), false, "Barrett publishing nothing is an answer");
 });
 
 test("loadSeats caches, so a second call does not fetch again", async () => {

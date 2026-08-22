@@ -12,12 +12,16 @@
 
 let index = null;
 let indexLoading = null;
+let indexFailed = false;
 
 // Term code to that term's snapshot. Seats are only ever read out of this map
 // under the key asked for, so a term that has not loaded reads as unknown and
 // can never pick up another term's numbers.
 const loaded = new Map();
 const loadingTerms = new Map();
+// Terms whose file was asked for and did not arrive. Per term, so one dead
+// file does not condemn a term that loaded fine.
+const failedTerms = new Set();
 
 async function getJson(url) {
   const response = await fetch(url);
@@ -47,9 +51,11 @@ export async function loadSeats(term, url = "data/seats.json") {
     // one is never fetched twice.
     indexLoading ??= getJson(url).catch((error) => {
       indexLoading = null;
+      indexFailed = true;
       throw error;
     });
     index = await indexLoading;
+    indexFailed = false;
   }
 
   const key = String(term ?? "");
@@ -61,7 +67,8 @@ export async function loadSeats(term, url = "data/seats.json") {
   let pending = loadingTerms.get(key);
   if (!pending) {
     pending = getJson(`${dirOf(url)}${entry.file}`)
-      .then((snapshot) => loaded.set(key, snapshot))
+      .then((snapshot) => { loaded.set(key, snapshot); failedTerms.delete(key); })
+      .catch((error) => { failedTerms.add(key); throw error; })
       .finally(() => loadingTerms.delete(key));
     loadingTerms.set(key, pending);
   }
@@ -91,6 +98,15 @@ export function seatsStatus(term) {
   if (loadingTerms.has(key)) return "loading";
   if (!index) return indexLoading ? "loading" : "unknown";
   return entryFor(key) ? "unknown" : "missing";
+}
+
+/**
+ * True when this term's seats were asked for and did not arrive, so nothing
+ * can be said about how full anything is. A term the index does not list is an
+ * answer, not a failure, and reads false here.
+ */
+export function seatsFailed(term) {
+  return indexFailed || failedTerms.has(String(term ?? ""));
 }
 
 /** The term code once its seats are loaded and readable, or null. */

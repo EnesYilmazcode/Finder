@@ -656,6 +656,11 @@ body {
 
 .f-check input { accent-color: var(--scarlet); width: 0.95rem; height: 0.95rem; }
 
+/* Greyed because the snapshot behind it never arrived. A disabled checkbox
+   does not dim its own label text, so the label carries it. */
+.f-set .f-ctl:disabled,
+.f-check:has(input:disabled) { opacity: 0.5; cursor: default; }
+
 .f-clear {
   font: inherit;
   font-size: 0.8rem;
