@@ -170,7 +170,8 @@ const PROFESSORS = [
   prof(1, "Diana", "Kline", 4.2, 31, { avgDifficulty: 2.1, distribution: [1, 1, 4, 10, 15] }),
   // Nickname the query is a prefix of: OSU "Timothy Long", RMP "Tim Long".
   prof(2, "Tim", "Long", 3.4, 12, { avgDifficulty: 4.5, distribution: [1, 2, 3, 3, 3] }),
-  // Shared initial only, and the sole Gomori, so the weak rule is allowed.
+  // Shared initial only, and the sole Gomori. Being the only one is not
+  // evidence, so "Steve Gomori" must not land here.
   prof(3, "Stephen", "Gomori", 4.8, 60, { avgDifficulty: 4.0, distribution: [0, 0, 2, 8, 50] }),
   // Two real people with the same name. Never guess between them.
   prof(4, "Alan", "Reed", 2.1, 40),
@@ -193,6 +194,10 @@ const PROFESSORS = [
   // RateMyProfessors reports a missing difficulty as -1 and the snapshot stores
   // it as null, which Number() turns into a 0 nobody reported.
   prof(15, "Ada", "Nkemelu", 4.1, 20, { avgDifficulty: null }),
+  // A real two letter first name. A longer name must not claim it, and ruling
+  // it out must not hand the query to the other Wang either.
+  prof(16, "Ji", "Wang", 4.5, 9),
+  prof(17, "Jin", "Wang", 3.7, 7),
 ];
 
 // Ratings snapshot. count is derived, so adding a professor cannot leave the
