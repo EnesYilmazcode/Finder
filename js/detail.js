@@ -1,9 +1,11 @@
-// The right pane. Everything here already exists in memory by the time a
-// section is selected, so nothing fetches.
+// The right pane. Nothing here fetches. The course codes it reads are the one
+// thing not already in memory when a section is selected, and app.js redraws
+// the body once they land.
 
-import { formatWhen, formatUnits, instructorsOf } from "./format.js";
-import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
-import { seatsFor, seatsUpdated } from "./seats.js";
+import { formatWhen, formatUnits, instructorsOf, trendLabel } from "./format.js";
+import { ratingFor, searchUrl, profileUrl, ratingSpread, courseShare } from "./ratings.js";
+import { linkedTo, seatsFor, seatsUpdated } from "./seats.js";
+import { trendFor } from "./trend.js";
 import { isIndividualStudy } from "./rank.js";
 
 function el(tag, className, text) {
@@ -33,6 +35,25 @@ function figure(value, label, tone) {
   if (value == null) number.classList.add("is-none");
   wrap.append(number, el("div", "d-cap", label));
   return wrap;
+}
+
+function spreadBar({ counts, total }) {
+  const bar = el("div", "spread");
+  bar.setAttribute("role", "img");
+  bar.setAttribute("aria-label", counts.map((n, i) => `${n} rated ${i + 1}`).join(", "));
+  counts.forEach((n, i) => {
+    const segment = el("i", `s${i + 1}`);
+    segment.style.width = `${(n / total) * 100}%`;
+    segment.title = `${n} rated ${i + 1}`;
+    bar.append(segment);
+  });
+  return bar;
+}
+
+function scopeLine({ matched, total, code }) {
+  return matched === 0
+    ? `None of the ${total} ratings name ${code}.`
+    : `${matched} of ${total} ratings ${matched === 1 ? "is" : "are"} for ${code}.`;
 }
 
 function instructorHeading(people) {
@@ -83,6 +104,47 @@ function alsoTeaches(people, current, entries, term) {
   return wrap;
 }
 
+/** A partner's component, when the current results happen to carry it. */
+function componentOf(classNumber, entries) {
+  for (const entry of entries ?? []) {
+    for (const section of entry.sections) {
+      if (String(section.classNumber) === String(classNumber)) return section.component ?? "";
+    }
+  }
+  return "";
+}
+
+/** Open first, then unpublished capacity, then full. */
+function byOpenness(seats) {
+  if (!seats) return 1;
+  return seats.full ? 2 : 0;
+}
+
+/**
+ * One side of a registration package, with each partner's seats.
+ *
+ * Capped, because a lecture can have three dozen labs under it and the point is
+ * to show whether any of them is open, not to reprint the schedule. Which is
+ * also why the open ones go first: CHEM 1110 lists ten recitations in class
+ * number order and the only one with a seat left is the tenth.
+ */
+function partners(title, numbers, term, entries) {
+  const wrap = block(title);
+  const all = numbers.map((number) => ({ number, seats: seatsFor(number, term) }));
+  all.sort((a, b) => byOpenness(a.seats) - byOpenness(b.seats));
+
+  for (const { number, seats } of all.slice(0, 8)) {
+    const component = componentOf(number, entries);
+    wrap.append(row(
+      component ? `${number} · ${component}` : String(number),
+      seats ? `${seats.enrolled}/${seats.limit}` : "—",
+      seats?.full ? "is-full" : seats ? "is-open" : "is-none"
+    ));
+  }
+  if (all.length > 8) wrap.append(el("p", "d-note", `and ${all.length - 8} more`));
+  return wrap;
+}
+
 export function renderDetail({ section, course, term, entries, formatDate }) {
   const wrap = document.createDocumentFragment();
   const people = instructorsOf(section);
@@ -105,6 +167,16 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
       figs.append(figure(`${Math.round(rating.wouldTakeAgainPercent)}%`, "take again"));
     }
     wrap.append(figs);
+
+    const spread = ratingSpread(rating);
+    if (spread) {
+      wrap.append(spreadBar(spread));
+      wrap.append(el("div", "d-cap spread-cap", "1 to 5, left to right"));
+    }
+    // Null while data/ratings-courses.json is still on its way. app.js redraws.
+    const share = courseShare(rating, course);
+    if (share) wrap.append(el("p", "d-note", scopeLine(share)));
+
     if (rating.numRatings < 5) {
       wrap.append(el("p", "d-note", `Only ${rating.numRatings} ratings, so treat this as thin evidence.`));
     }
@@ -123,12 +195,33 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
     seatBlock.append(row("Enrolled", `${seats.enrolled} / ${seats.limit}`, seats.full ? "is-full" : "is-open"));
     seatBlock.append(row("Waitlist", seats.waitlist > 0 ? `${seats.waitlist} waiting` : "none",
       seats.waitlist > 0 ? "is-full" : null));
+
+    // A full section gets the waitlist series and nothing else. Its enrolment
+    // is free to move, but calling that movement "seats" under a row reading
+    // 40 / 40 would tell a student a full section is open.
+    const moved = seats.full
+      ? trendFor(section.classNumber, term, "waitlist")
+      : trendFor(section.classNumber, term);
+    if (moved) {
+      const line = row("Trend", trendLabel(moved), moved.change > 0 ? "is-full" : "is-open");
+      line.title = `${moved.points} snapshots moved between ${moved.from} and ${moved.to}.`;
+      seatBlock.append(line);
+    }
+
     const asOf = seatsUpdated(term);
     if (asOf) seatBlock.append(row("As of", formatDate ? formatDate(asOf) : asOf));
   } else {
     seatBlock.append(el("p", "d-note", "No seat data for this section."));
   }
   wrap.append(seatBlock);
+
+  const linked = linkedTo(section.classNumber, term);
+  if (linked?.enrolls.length) {
+    wrap.append(partners("Also enrolls you in", linked.enrolls, term, entries));
+  }
+  if (linked?.enrolledBy.length) {
+    wrap.append(partners("Register through one of these", linked.enrolledBy, term, entries));
+  }
 
   const meeting = section.meetings?.[0] ?? null;
   const meets = block("Meets");

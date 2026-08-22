@@ -6,6 +6,8 @@ const TIMEOUT_MS = 12000;
 // Relevance is the upstream default and it reshuffles between identical
 // requests. Catalog order does not. See docs/osu-api.md.
 const SORT = "catalogNumber";
+// Broad queries saturate totalItems here instead of counting it. See docs/osu-api.md.
+export const RESULT_CAP = 10000;
 
 export class ApiError extends Error {
   constructor(message, { status = null, cause = null } = {}) {
@@ -181,6 +183,18 @@ export function subjectScope(raw) {
 }
 
 /**
+ * Scope to a subject the caller already knows is real, like one picked out of
+ * the subject dropdown. Same request shape as subjectScope, the code moved out
+ * of `q` and into `subject`, with nothing left to guess at.
+ */
+function pickedScope(raw, subject) {
+  const code = String(subject ?? "").trim().toLowerCase();
+  if (!code) return null;
+  const tokens = String(raw ?? "").trim().split(/\s+/).filter(Boolean);
+  return { subject: code, q: tokens.filter((t) => t.toLowerCase() !== code).join(" ") };
+}
+
+/**
  * Search across several pages and merge.
  *
  * Two things upstream shape this, both measured in docs/osu-api.md.
@@ -200,15 +214,17 @@ export function subjectScope(raw) {
  * when the answer does not fit, the relevance pass runs as well and both are
  * merged. rank.js dedupes by class number, so the extra page is free coverage.
  */
-export async function searchAllPages({ q, term, maxPages = 5, genCategory }) {
-  const scope = subjectScope(q);
+export async function searchAllPages({ q, term, maxPages = 5, subject, genCategory }) {
+  const picked = pickedScope(q, subject);
+  const scope = picked ?? subjectScope(q);
   let params = scope ? { q: scope.q, subject: scope.subject, genCategory } : { q, genCategory };
 
   let first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
 
   // The subject guess was wrong, so that word was a name or a title, not a
-  // subject code. Nothing matches a subject that is not offered.
-  if (scope && first.totalItems === 0) {
+  // subject code. Nothing matches a subject that is not offered. A picked code
+  // is not a guess, so zero results there are real.
+  if (scope && !picked && first.totalItems === 0) {
     params = { q, genCategory };
     first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
   }

@@ -73,8 +73,9 @@ EARLIER TODAY   These two sites refuse to answer a web page, so a computer
    ratemyprofessors.com  ->  data/ratings.json       every rated OSU professor
    asc.ohio-state.edu    ->  data/seats-1268.json    Autumn 2026 seat counts
 
-                a third file, data/courses.json, is
-                rebuilt the same way once a week
+                data/ratings-courses.json rides along
+                with the ratings, and data/courses.json
+                is rebuilt the same way once a week
                               |
                               v
                    committed to the repo, then served
@@ -123,6 +124,26 @@ Kline". When two professors share a first and last name the lookup returns
 nothing rather than picking one, because a wrong rating is worse than no
 rating.
 
+### An average hides two things a student needs
+
+A 3.0 can be a pile of threes or two camps that never met, and it can be
+earned in a course nobody on screen is taking. The detail pane draws the
+five per-score counts as a bar, and says how many of the ratings name the
+course you are looking at. Paolo Bucci, pulled on August 21: his 3.0 is
+32 ones and 38 fives, and 52 of his 147 ratings are for CSE 2221.
+
+Those course names are free text raters typed, so "CSE 2221", "cse2221",
+"CS2221" and "COMPUTERSCIENCE2221" all count, and so does a bare "2221"
+unless the same professor also wrote that number under another subject, in
+which case it is too ambiguous to give to either. The pre-semester CSE 321
+never counts, because nothing says the old number is the new course. OSU
+writes 23% of its catalog as "1110.01", which no rater types, so those
+match on the 1110 and the line says 1110 back.
+
+The counts live in `data/ratings-courses.json`, 151 KB gzipped and read
+only by the detail pane, so it is fetched when you open the first section
+rather than when the page loads.
+
 ## What one search does
 
 ```
@@ -147,6 +168,20 @@ you type "CSE 2221" and press Enter
 Only the newest search is allowed to draw, so a slow first search can never
 paint over a fast second one.
 
+That block is only the part a search waits on. Opening the page is 24 requests
+across two hosts, counted in Chrome against a local copy with the cache
+cleared: 23 files from this repo and the term list from `content.osu.edu`. The
+23 are the HTML, two stylesheets, three font files, thirteen modules, the
+ratings snapshot, two seat files and the favicon. The live page adds one more,
+the page-view ping to the analytics worker, which local runs skip.
+
+The share card is not one of them. `og.png` is fetched by whatever is unfurling
+the link and `apple-touch-icon.png` by iOS when someone saves the site to a home
+screen, so neither costs a visitor anything.
+
+None of them go to Google. The three families are woff2 files in
+`assets/fonts/`, served with everything else.
+
 ## Run it locally
 
 No build step and no dependencies. Serve the folder over HTTP:
@@ -164,13 +199,20 @@ The snapshot scripts are Node 22:
 node scripts/fetch-seats.mjs 1268
 ```
 
-`npm test` runs 138 tests through `node --test`, with nothing installed.
+All three refuse to write a snapshot that came back far short of the one already
+committed, and leave the old file in place. `FORCE_WRITE=1`, or the force input
+on the workflow, writes it anyway, which is how a real shrink gets shipped. A
+file that failed to parse is refused either way.
+
+`npm test` runs 238 tests through `node --test`, with nothing installed.
 
 ## Repo layout
 
 ```
 index.html            the whole page
 css/finder.css        the app stylesheet, no framework
+css/fonts.css         the three families, self hosted
+assets/fonts/         the woff2 files and their licenses
 js/
   app.js              wiring, state, URL sync
   api.js              client for OSU's class API
@@ -187,7 +229,7 @@ js/
 scripts/              the three snapshot jobs
 data/                 the snapshots, committed
 docs/                 what OSU's API and Barrett's schedule get wrong
-tests/                138 tests, zero dependencies
+tests/                238 tests, zero dependencies
 wireframes/           three layouts considered first
 analytics/            the page-view counter, a Cloudflare Worker
 stats/                the page that reads the counter
