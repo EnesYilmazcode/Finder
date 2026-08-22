@@ -41,7 +41,9 @@ const els = {
 
 let terms = [];
 let termsError = "";
-let queuedQuery = "";
+// A search refused while the term list was still in flight, held whole. The
+// pickers are live in that window, so a bare query would replay unscoped.
+let queued = null;
 let latestRequest = 0;
 
 // Class number to its section and course, rebuilt on every render. The detail
@@ -363,13 +365,13 @@ function showWelcome(term) {
   );
 }
 
-async function runSearch(q, term) {
+async function runSearch(q, term, subject, genCategory) {
   if (!term) {
     // Reachable since #80 moved the listeners above the term request. Hold the
-    // query for init to run rather than search without a term.
+    // call for init to run rather than search without a term.
     if (termsError) setStatus(termsError, "error");
     else if (q.trim()) {
-      queuedQuery = q;
+      queued = { q, subject, genCategory };
       setStatus("Still loading terms. Your search will run when they arrive.");
     }
     return;
@@ -696,8 +698,8 @@ async function init() {
   if (isLoaded()) { fillSubjects(); fillNumbers(); }
 
   // A search asked for while the terms were loading was refused, not dropped.
-  const pending = queuedQuery || initialQuery;
-  if (pending.trim()) runSearch(pending, els.term.value);
+  const pending = queued ?? { q: initialQuery };
+  if (pending.q.trim()) runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
   else {
     // Ratings and seats are already in flight; fill the landing screen once
     // they land rather than showing an empty frame in the meantime.
