@@ -5,7 +5,7 @@ import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratin
 import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
-import { applyFilters, isActive, parseBusy, formatBusy, DEFAULTS } from "./filters.js";
+import { applyFilters, hiddenFor, isActive, parseBusy, formatBusy, DEFAULTS } from "./filters.js";
 import { busyLabel } from "./format.js";
 import { renderCalendar } from "./calendar.js";
 import { formatCoverage } from "./format.js";
@@ -723,10 +723,7 @@ function paint(term = els.term.value) {
   const primary = sortEntries(p.entries, sort, term);
   const related = sortEntries(r.entries, sort, term);
   showSortNote([...primary, ...related], sort, term);
-  // Count what the filters removed from everything on the page, not just from
-  // the primary results, or the note understates its own effect.
-  const hiddenSections = p.hiddenSections + r.hiddenSections;
-  const hiddenCourses = p.hiddenCourses + r.hiddenCourses;
+  const { hiddenSections, hiddenCourses } = hiddenFor(view, p, r);
   const wanted = pendingClass;
   pendingClass = "";
 
