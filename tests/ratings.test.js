@@ -156,8 +156,8 @@ test("courseShare says none rather than staying quiet when nothing matches", () 
 test("courseShare does not fold an honours or pre-semester number onto the course", () => {
   // Has to hold from the catalog side too: 187 of the 259 letter-suffixed numbers
   // have a plain sibling whose ratings a fold would steal.
-  assert.deepEqual(share("Steve Gomori", "CSE", "2221"), { matched: 0, total: 60, code: "CSE 2221" });
-  assert.deepEqual(share("Steve Gomori", "CSE", "2221H"), { matched: 30, total: 60, code: "CSE 2221H" });
+  assert.deepEqual(share("Stephen Gomori", "CSE", "2221"), { matched: 0, total: 60, code: "CSE 2221" });
+  assert.deepEqual(share("Stephen Gomori", "CSE", "2221H"), { matched: 30, total: 60, code: "CSE 2221H" });
 });
 
 test("courseShare gives a bare number to the subject on screen, unless it is contested", () => {
@@ -178,6 +178,10 @@ test("courseShare returns null until the course codes are loaded", () => {
 test("loadRatingCourses caches, so a second detail open does not fetch again", async () => {
   const again = await withCodes.loadRatingCourses("never-fetched.json");
   assert.equal(again["2"]["MATH 1151"], 13);
+});
+
+test("a snapshot that loaded does not read as failed", () => {
+  assert.equal(ratings.ratingsFailed(), false);
 });
 
 test("the RateMyProfessors links point at Ohio State", () => {

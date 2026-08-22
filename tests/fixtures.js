@@ -12,6 +12,16 @@ export function meeting(days, startTime = null, endTime = null, instructors = []
   return m;
 }
 
+/** An online meeting in the shape OSU sends it, from PSYCH 1100 class 22988. */
+export function onlineMeeting(days = [], startTime = null, endTime = null, instructors = []) {
+  return meeting(days, startTime, endTime, instructors, {
+    buildingDescription: "Online",
+    buildingDescriptionShort: "ONLINE",
+    facilityDescription: "ONLINE",
+    facilityDescriptionShort: "ONLINE",
+  });
+}
+
 export function section(classNumber, opts = {}) {
   return {
     classNumber,
@@ -51,7 +61,7 @@ export const SEATS_INDEX = {
   note: "A missing class number means unknown, not zero.",
   terms: [
     { term: "1262", termName: "Spring 2026", sourceUpdated: "2026-04-27", sections: 2, file: "seats-1262.json" },
-    { term: "1268", termName: "Autumn 2026", sourceUpdated: "2026-08-18", sections: 7, file: "seats-1268.json" },
+    { term: "1268", termName: "Autumn 2026", sourceUpdated: "2026-08-18", sections: 20, file: "seats-1268.json" },
   ],
 };
 
@@ -66,7 +76,30 @@ export const SEATS_TERMS = {
       "1005": [12],           // malformed, too short
       "1006": ["12", 40, 0],  // malformed, enrolled is not a number
       "1007": [5, 30],        // no waitlist column
+      "1010": [5, 24, 0],     // a lab with seats left, feeding the full 1002
+      "1011": [22, 22, 0],    // one recitation into 1001, full
+      "1012": [8, 22, 0],     // the other, open
+      "1013": [3, 20, 0],     // a lab that drags in both 1001 and 1002
+      "1014": [0, 0, 2],      // no published capacity of its own, under the full 1002
+      "1020": [44, 46, 0],    // a lecture whose two recitations hold all 44 of its students
+      "1021": [22, 22, 0],
+      "1022": [22, 22, 0],
+      "1030": [107, 126, 0],  // holds more than its one listed lab explains
+      "1031": [21, 21, 0],
+      "1040": [50, 60, 0],    // one way in full, the other with no published capacity
+      "1041": [50, 50, 0],
+      "1042": [0, 0, 0],
     },
+    // Registration packages, parent first: picking any section after the
+    // parent also enrolls you into it. 1013 sits in both groups, which is
+    // Barrett's two-parent row.
+    groups: [
+      ["1001", "1011", "1012", "1013"],
+      ["1002", "1010", "1013", "1014"],
+      ["1020", "1021", "1022"],
+      ["1030", "1031"],
+      ["1040", "1041", "1042"],
+    ],
   },
   // A second term proves the guard: 1001 exists in both with different numbers,
   // so serving one term's row for another would be visible rather than subtle.
@@ -79,38 +112,83 @@ export const SEATS_TERMS = {
   },
 };
 
-// Ratings snapshot. Every professor here exists to exercise one join case.
-export const RATINGS = {
-  school: { id: "U2Nob29sLTcyNA==", legacyId: 724, name: "Ohio State University" },
-  count: 9,
-  professors: [
-    // Plain unique match, and the middle-name case: OSU says "Diana Ikenberry
-    // Kline", RMP says "Diana Kline".
-    prof(1, "Diana", "Kline", 4.2, 31, [1, 1, 4, 10, 15]),
-    // Nickname the query is a prefix of: OSU "Timothy Long", RMP "Tim Long".
-    prof(2, "Tim", "Long", 3.4, 12, [1, 2, 3, 3, 3]),
-    // Shared initial only, and the sole Gomori, so the weak rule is allowed.
-    prof(3, "Stephen", "Gomori", 4.8, 60, [0, 0, 2, 8, 50]),
-    // Two real people with the same name. Never guess between them.
-    prof(4, "Alan", "Reed", 2.1, 40),
-    prof(5, "Alan", "Reed", 4.6, 9),
-    // Two Vances with the same initial. A shared initial must not be enough.
-    prof(6, "Maria", "Vance", 3.9, 22),
-    prof(7, "Marcus", "Vance", 4.4, 18),
-    // Two plausible expansions of "Jon". Both viable means neither wins.
-    prof(8, "Jonathan", "Park", 3.1, 15),
-    prof(9, "Jonas", "Park", 4.0, 11),
-    // Suffix case: the OSU name is "Ivan C. Smith III".
-    prof(10, "Ivan", "Smith", 3.7, 8),
-    // The real Paolo Bucci: a 3.0 that is 32 ones and 38 fives, not a pile of threes.
-    prof(11, "Paolo", "Bucci", 3, 147, [32, 29, 19, 30, 38]),
-    prof(12, "Rosemary", "Bartoszek-Loza", 3.3, 128),
-    prof(13, "Nora", "Whitfield", 3.8, 60),
-  ],
+// Trend snapshot, in the shape scripts/fetch-seats.mjs writes since #60. Series
+// hold the per-day change in that field, aligned to `days`, and `from` is the
+// date the first entry was measured against.
+export const TREND = {
+  "1268": {
+    term: "1268",
+    from: "2026-08-14",
+    days: ["2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18"],
+    enrolled: {
+      "1001": [1, 2, 3, 0],   // three moving days, six enrolments, so six seats gone
+      "1003": [0, 0, 2, 3],   // two moving days, under the floor
+      "1004": [2, -1, -1, 0], // moved three times and went nowhere
+      "1005": [0, 1, 1, 1],   // starts moving mid-window, so the span starts there
+      "1006": [1, 1, 1],      // malformed, shorter than days
+    },
+    waitlist: {
+      "1002": [1, 1, 1, 0],
+    },
+    opened: ["1002"],
+  },
+  // A night the job missed, so three moving points span four days rather than
+  // three. The span has to come from the dates, not the point count.
+  "1262": {
+    term: "1262",
+    from: "2026-08-14",
+    days: ["2026-08-15", "2026-08-17", "2026-08-18"],
+    enrolled: {
+      "2001": [1, 1, 1],
+    },
+    waitlist: {},
+    opened: [],
+  },
 };
 
-// Null distribution is the shape upstream sends when it has no per-score counts.
-function prof(legacyId, firstName, lastName, avgRating, numRatings, distribution = null) {
+// Every professor here exists to exercise one join case.
+const PROFESSORS = [
+  // Plain unique match, and the middle-name case: OSU says "Diana Ikenberry
+  // Kline", RMP says "Diana Kline".
+  prof(1, "Diana", "Kline", 4.2, 31, { distribution: [1, 1, 4, 10, 15] }),
+  // Nickname the query is a prefix of: OSU "Timothy Long", RMP "Tim Long".
+  prof(2, "Tim", "Long", 3.4, 12, { distribution: [1, 2, 3, 3, 3] }),
+  // Shared initial only, and the sole Gomori, so the weak rule is allowed.
+  prof(3, "Stephen", "Gomori", 4.8, 60, { distribution: [0, 0, 2, 8, 50] }),
+  // Two real people with the same name. Never guess between them.
+  prof(4, "Alan", "Reed", 2.1, 40),
+  prof(5, "Alan", "Reed", 4.6, 9),
+  // Two Vances with the same initial. A shared initial must not be enough.
+  prof(6, "Maria", "Vance", 3.9, 22),
+  prof(7, "Marcus", "Vance", 4.4, 18),
+  // Two plausible expansions of "Jon". Both viable means neither wins.
+  prof(8, "Jonathan", "Park", 3.1, 15),
+  prof(9, "Jonas", "Park", 4.0, 11),
+  // Suffix case: the OSU name is "Ivan C. Smith III".
+  prof(10, "Ivan", "Smith", 3.7, 8),
+  // The real Paolo Bucci: a 3.0 that is 32 ones and 38 fives, not a pile of threes.
+  prof(11, "Paolo", "Bucci", 3, 147, { distribution: [32, 29, 19, 30, 38] }),
+  prof(12, "Rosemary", "Bartoszek-Loza", 3.3, 128),
+  prof(13, "Nora", "Whitfield", 3.8, 60),
+];
+
+// Ratings snapshot. count is derived, so adding a professor cannot leave the
+// two disagreeing the way the literal did.
+export const RATINGS = {
+  school: { id: "U2Nob29sLTcyNA==", legacyId: 724, name: "Ohio State University" },
+  count: PROFESSORS.length,
+  professors: PROFESSORS,
+};
+
+/**
+ * One professor record.
+ *
+ * The tail is an options object rather than positional slots: three branches
+ * wanted the sixth argument for three different things, and a positional list
+ * cannot carry two of them at once. Null distribution is the shape upstream
+ * sends when it has no per-score counts.
+ */
+function prof(legacyId, firstName, lastName, avgRating, numRatings, { avgDifficulty = 3, distribution = null } = {}) {
   return {
     legacyId,
     firstName,
@@ -118,7 +196,7 @@ function prof(legacyId, firstName, lastName, avgRating, numRatings, distribution
     department: "Computer Science",
     avgRating,
     numRatings,
-    avgDifficulty: 3,
+    avgDifficulty,
     wouldTakeAgainPercent: null,
     distribution,
   };
@@ -144,3 +222,88 @@ export const RATING_COURSES = {
     "13": { "ENGLISH 1110": 30, "ENGL1110": 8, "1110": 10, "ENGLISH 1110.02": 5, "HISTORY 1151": 7 },
   },
 };
+
+// Barrett's plain text schedule, for the tests that exercise
+// scripts/fetch-seats.mjs. The parser reads fixed columns, so a section line is
+// built at the positions docs/barrett-schedule.md records rather than retyped,
+// and tests/fetch-seats.test.js pins the builder against lines from a live file.
+
+export const BARRETT_COLUMNS =
+  "                       class#    (autoenrolls)                                enrld/limit/+wait";
+
+// A term Barrett has not published yet carries this between the title and the
+// column header, which is two more header lines than a published term has.
+export const BARRETT_BANNER =
+  "#####  DRAFT: pre-publication information; classes shown here are subject to change #####";
+
+// One Barrett subject file, three real AVIATN section lines from term 1268 as
+// published on 2026-08-20. The columns are load bearing, so this is verbatim.
+export const BARRETT_SUBJECT = [
+  "AVIATN         1268 (Autumn 2026)         updated: 20-Aug-2026",
+  "",
+  "                       class#    (autoenrolls)                                enrld/limit/+wait",
+  "",
+  "  AVIATN 1000.01         10132 B                                      ONLINE      36/99       {7W2} C.Roby, S.Pritchard",
+  "",
+  "  AVIATN 1000.02         10133 B                                      ONLINE      20/99       {7W2} C.Roby, S.Pritchard (SI)",
+  "",
+  "  AVIATN 1000.03         10134 B                                      ONLINE      11/99       {7W2} C.Roby, S.Pritchard (SI)",
+  "",
+].join("\n");
+
+const BARRETT_DAY_COLUMNS = { M: 49, T: 50, W: 51, R: 52, F: 53, S: 54, s: 55 };
+
+/** One section line. Anything left out stays blank, as it does in a real file. */
+export function barrettLine({
+  subject = "CSE",
+  catalog = "1110",
+  campus = "",
+  classNumber = "4817",
+  component = "L",
+  autoEnroll = "",
+  days = "",
+  time = "",
+  room = "",
+  enrolled = 25,
+  limit = 40,
+  waitlist = 0,
+  instructor = "",
+} = {}) {
+  const columns = new Array(94).fill(" ");
+  const put = (start, text) => { for (let i = 0; i < text.length; i++) columns[start + i] = text[i]; };
+  put(8 - subject.length, subject); // right aligned
+  put(9, catalog);
+  put(19, campus);
+  put(30 - String(classNumber).length, String(classNumber)); // right aligned
+  put(31, component);
+  put(34, autoEnroll);
+  for (const day of days) put(BARRETT_DAY_COLUMNS[day], day);
+  put(58, time);
+  put(70, room);
+  // Enrollment is right aligned on the slash, and the waitlist hangs off the end.
+  put(84 - String(enrolled).length, `${enrolled}/${limit}${waitlist ? `+${waitlist}` : ""}`);
+  return (columns.join("") + instructor).trimEnd();
+}
+
+/**
+ * One subject file. A row is either fields for barrettLine or a literal line,
+ * which is how a continuation or a trailer heading goes in.
+ *
+ * `columns` set to null drops the column header and a string replaces it, since
+ * both are layout changes the parser has to refuse rather than guess through.
+ * `gap` is the blank line every real file has under the column header.
+ */
+export function barrettFile(subject, term, rows = [], {
+  draft = false,
+  gap = true,
+  columns = BARRETT_COLUMNS,
+  termName = "Autumn 2026",
+  updated = "18-Aug-2026",
+} = {}) {
+  const lines = [`${subject.padEnd(12)}${term} (${termName})         updated: ${updated}`, ""];
+  if (draft) lines.push(BARRETT_BANNER, "");
+  if (columns) lines.push(columns);
+  if (gap) lines.push("");
+  for (const row of rows) lines.push(typeof row === "string" ? row : barrettLine({ subject, ...row }));
+  return lines.join("\n");
+}

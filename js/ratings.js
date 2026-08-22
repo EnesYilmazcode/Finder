@@ -8,6 +8,7 @@ const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
 
 let index = null;
 let loading = null;
+let failed = false;
 
 // Course codes are their own file, 151 KB gzipped against the roster's 211 KB, and
 // only the detail pane ever reads them. Fetched when a section is opened.
@@ -81,10 +82,22 @@ export async function loadRatings(baseUrl = "data/ratings.json") {
       bySurname.get(last).push(person);
     }
     index = { byKey, bySurname };
+    // A retry that lands has to stop reading as failed, as seats.js does.
+    failed = false;
     return index;
-  })();
+  })().catch((error) => {
+    // Every caller swallows this rejection, so unless it is recorded here
+    // nothing downstream can tell a dead snapshot from an empty one.
+    failed = true;
+    throw error;
+  });
 
   return loading;
+}
+
+/** True once the snapshot has been asked for and did not arrive. */
+export function ratingsFailed() {
+  return failed;
 }
 
 /**

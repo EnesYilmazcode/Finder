@@ -6,6 +6,12 @@ on:
     # busiest scheduling window and get delayed.
     - cron: "20 7 * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Write even when the run comes back far short of what is committed"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -25,6 +31,8 @@ jobs:
           node-version: "22"
 
       - name: Fetch ratings
+        env:
+          FORCE_WRITE: ${{ inputs.force && '1' || '' }}
         run: node scripts/fetch-ratings.mjs
 
       - name: Commit if changed

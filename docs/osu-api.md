@@ -136,6 +136,15 @@ the section's own limit. `facilityCapacity` is the room's capacity and is not th
 same number. So Finder shows enrolled counts and `enrollmentStatus`, and does not
 draw a percent-full meter it cannot honestly compute.
 
+**The autoenroll fields do not identify a section.** `autoEnrollSection1`,
+`autoEnrollSection2` and `associatedClass` are meant to say which section comes
+with which, but they carry a section *number within the course*, not a class
+number, and they are stamped course-wide. All 22 CSE 2221 sections for Autumn
+2026 report `autoEnrollSection1: "0006"` and `associatedClass: "5"`, which read
+literally would mean eleven lectures sharing one lab. Verified 2026-08-20. The
+lecture-to-lab pairing Finder uses comes from Barrett's autoenroll column
+instead, which names real class numbers; see docs/barrett-schedule.md.
+
 **Paged search is not deterministic in its default order.** Pulling the identical
 query three times back to back returns a different set of sections each time:
 
@@ -302,7 +311,10 @@ Sweeping the API instead, one pass over the eight `catalog-number` buckets, foun
 RADIOLG, SWAHILI, URDU). That sweep was in relevance order, so it was lossy for
 the reason below. So the script uses all three: Barrett as a seed, a sweep
 per term, and the subject codes already in the last `courses.json`. A candidate
-that is not offered costs one request and is dropped.
+that is not offered costs two requests, because one empty response is also what
+a dropped pass looks like. If the last `courses.json` had courses for it, the run
+refuses to write rather than dropping it, and `FORCE_WRITE=1` accepts the drop
+once the retirement is real.
 
 ### Sorting fixes the paging
 
