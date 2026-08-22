@@ -80,17 +80,20 @@ export const SEATS_TERMS = {
 };
 
 // Ratings snapshot. Every professor here exists to exercise one join case.
+// Difficulty is not the inverse of rating upstream, so it is not here either:
+// Smith is the easiest and Kline outrates him, which is what makes a difficulty
+// sort distinguishable from a rating sort.
 export const RATINGS = {
   school: { id: "U2Nob29sLTcyNA==", legacyId: 724, name: "Ohio State University" },
   count: 9,
   professors: [
     // Plain unique match, and the middle-name case: OSU says "Diana Ikenberry
     // Kline", RMP says "Diana Kline".
-    prof(1, "Diana", "Kline", 4.2, 31),
+    prof(1, "Diana", "Kline", 4.2, 31, 2.1),
     // Nickname the query is a prefix of: OSU "Timothy Long", RMP "Tim Long".
-    prof(2, "Tim", "Long", 3.4, 12),
+    prof(2, "Tim", "Long", 3.4, 12, 4.5),
     // Shared initial only, and the sole Gomori, so the weak rule is allowed.
-    prof(3, "Stephen", "Gomori", 4.8, 60),
+    prof(3, "Stephen", "Gomori", 4.8, 60, 4.0),
     // Two real people with the same name. Never guess between them.
     prof(4, "Alan", "Reed", 2.1, 40),
     prof(5, "Alan", "Reed", 4.6, 9),
@@ -101,11 +104,17 @@ export const RATINGS = {
     prof(8, "Jonathan", "Park", 3.1, 15),
     prof(9, "Jonas", "Park", 4.0, 11),
     // Suffix case: the OSU name is "Ivan C. Smith III".
-    prof(10, "Ivan", "Smith", 3.7, 8),
+    prof(10, "Ivan", "Smith", 3.7, 8, 1.4),
+    // Thin evidence: a perfect score and the lowest difficulty here, both from
+    // a single rating. Neither may be ranked on.
+    prof(11, "Wes", "Fenwick", 5.0, 1, 1.0),
+    // RateMyProfessors reports a missing difficulty as -1 and the snapshot
+    // stores it as null, which Number() turns into a 0 nobody reported.
+    prof(12, "Ada", "Nkemelu", 4.1, 20, null),
   ],
 };
 
-function prof(legacyId, firstName, lastName, avgRating, numRatings) {
+function prof(legacyId, firstName, lastName, avgRating, numRatings, avgDifficulty = 3) {
   return {
     legacyId,
     firstName,
@@ -113,7 +122,7 @@ function prof(legacyId, firstName, lastName, avgRating, numRatings) {
     department: "Computer Science",
     avgRating,
     numRatings,
-    avgDifficulty: 3,
+    avgDifficulty,
     wouldTakeAgainPercent: null,
   };
 }

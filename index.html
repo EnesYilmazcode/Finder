@@ -50,6 +50,19 @@
         <p class="f-hint" id="p-hint">Pick a subject to browse its courses. You can still type a course or a professor in the search box.</p>
       </form>
 
+      <div class="f-set">
+        <p class="eyebrow">Order</p>
+        <label class="f-label" for="f-sort">Sort by</label>
+        <select class="f-ctl" id="f-sort" aria-describedby="f-sort-note">
+          <option value="">Relevance</option>
+          <option value="rating">Highest rated instructor</option>
+          <option value="difficulty">Lowest reported difficulty</option>
+          <option value="seats">Most seats left</option>
+          <option value="start">Earliest start time</option>
+        </select>
+        <p class="f-hint" id="f-sort-note" hidden></p>
+      </div>
+
       <form id="filters">
         <fieldset class="f-set">
           <legend class="eyebrow">Meets on</legend>
