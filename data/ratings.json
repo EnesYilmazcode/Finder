@@ -8574,7 +8574,7 @@
       "avgRating": 3.9,
       "numRatings": 57,
       "avgDifficulty": 4,
-      "wouldTakeAgainPercent": 71.0526
+      "wouldTakeAgainPercent": 71.7949
     },
     {
       "legacyId": 574966,
@@ -45931,10 +45931,10 @@
       "firstName": "Irem",
       "lastName": "Eryilmaz",
       "department": "Electrical Engineering",
-      "avgRating": 3.2,
-      "numRatings": 24,
-      "avgDifficulty": 3,
-      "wouldTakeAgainPercent": 50
+      "avgRating": 3.1,
+      "numRatings": 26,
+      "avgDifficulty": 3.1,
+      "wouldTakeAgainPercent": 48.1481
     },
     {
       "legacyId": 2200688,
@@ -48521,9 +48521,9 @@
       "firstName": "Helen",
       "lastName": "Myers",
       "department": "Slavic Languages",
-      "avgRating": 4.5,
-      "numRatings": 2,
-      "avgDifficulty": 2.5,
+      "avgRating": 4.7,
+      "numRatings": 3,
+      "avgDifficulty": 2.3,
       "wouldTakeAgainPercent": 100
     },
     {
@@ -53552,9 +53552,9 @@
       "lastName": "Pulcherio",
       "department": "Electrical & Computer Engineering",
       "avgRating": 3.9,
-      "numRatings": 45,
+      "numRatings": 46,
       "avgDifficulty": 3.2,
-      "wouldTakeAgainPercent": 78.2609
+      "wouldTakeAgainPercent": 78.7234
     },
     {
       "legacyId": 2436606,
@@ -61621,10 +61621,10 @@
       "firstName": "Kubilay",
       "lastName": "Sertel",
       "department": "Electrical & Computer Engineering",
-      "avgRating": 4.2,
-      "numRatings": 13,
-      "avgDifficulty": 3.6,
-      "wouldTakeAgainPercent": 92.8571
+      "avgRating": 4.1,
+      "numRatings": 15,
+      "avgDifficulty": 3.7,
+      "wouldTakeAgainPercent": 93.75
     },
     {
       "legacyId": 2717131,
@@ -73031,10 +73031,10 @@
       "firstName": "Andrew",
       "lastName": "Kerr",
       "department": "Statistics",
-      "avgRating": 3.9,
-      "numRatings": 10,
-      "avgDifficulty": 2.8,
-      "wouldTakeAgainPercent": 81.8182
+      "avgRating": 3.6,
+      "numRatings": 11,
+      "avgDifficulty": 2.9,
+      "wouldTakeAgainPercent": 83.3333
     },
     {
       "legacyId": 3145603,
