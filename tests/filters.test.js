@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { DEFAULTS, toMinutes, isActive, applyFilters } from "../js/filters.js";
-import { entry, section, taught } from "./fixtures.js";
+import { entry, meeting, person, section, taught } from "./fixtures.js";
 import { withRatings, withSeats } from "./helpers.js";
 
 // filters.js reads seats and ratings through the shared module state, so the
@@ -181,6 +181,35 @@ test("applyFilters counts what it removed", () => {
   assert.equal(entries.length, 1, "the course with nothing left drops out");
   assert.equal(hiddenCourses, 1);
   assert.equal(hiddenSections, 2, "one TuTh section in each course");
+});
+
+// Regression, #82. Class 15671 in Autumn 2026 meets Tu 8:00a-10:55a in CE 310
+// and again Th 4:10p-5:05p in MP 1040. Reading the Tuesday half alone let it
+// survive an "ends no later than noon" filter by five hours.
+test("regression #82: a later meeting outside the window fails the filter", () => {
+  const split = () => entry("CHEM", "1110", "Elementary Chemistry", [
+    section(6001, {
+      meetings: [
+        meeting(["tuesday"], "8:00 AM", "10:55 AM", [person("Mehr Bindra")]),
+        meeting(["thursday"], "4:10 PM", "5:05 PM", [person("Laurenda Lamboni")]),
+      ],
+    }),
+  ]);
+  assert.equal(applyFilters([split()], filters({ to: "720" })).entries.length, 0, "Thursday runs to 5:05p");
+  assert.equal(applyFilters([split()], filters({ from: "600" })).entries.length, 0, "Tuesday starts at 8:00a");
+  assert.equal(applyFilters([split()], filters({ from: "480", to: "1025" })).entries.length, 1, "both fit");
+});
+
+test("regression #82: a meeting with no time still cannot fail a time filter", () => {
+  const partial = entry("CHEM", "1110", "Elementary Chemistry", [
+    section(6002, {
+      meetings: [
+        meeting(["monday"], null, null, [person("Mehr Bindra")]),
+        meeting(["tuesday"], "8:00 AM", "10:55 AM", [person("Mehr Bindra")]),
+      ],
+    }),
+  ]);
+  assert.equal(applyFilters([partial], filters({ from: "480", to: "720" })).entries.length, 1);
 });
 
 test("applyFilters does not mutate the entries it was given", () => {

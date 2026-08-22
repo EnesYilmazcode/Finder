@@ -52,7 +52,7 @@ function clock(minutes) {
 }
 
 /**
- * Collapse sections into time slots.
+ * Collapse meetings into time slots.
  *
  * Several instructors routinely teach the same course at the same hour. CSE
  * 2321 has three sections at MoWeFr 3:00p. Slicing that column three ways is
@@ -65,17 +65,25 @@ export function buildSlots(entries, term) {
 
   for (const entry of entries) {
     for (const section of entry.sections) {
-      const meeting = (section.meetings ?? []).find((m) => m.startTime && DAYS.some(([k]) => m[k]));
-      if (!meeting) { unscheduled.push({ entry, section }); continue; }
+      // A section can book two rooms for the same hour and must still be named
+      // once. MUSIC 2203.04 meets MoWeFr 4:10p in Weigel 174 and Weigel 100A.
+      const placed = new Set();
 
-      const start = toMinutes(meeting.startTime);
-      const end = toMinutes(meeting.endTime) ?? (start == null ? null : start + 55);
-      if (start == null) { unscheduled.push({ entry, section }); continue; }
+      for (const meeting of section.meetings ?? []) {
+        if (!DAYS.some(([key]) => meeting[key])) continue;
+        const start = toMinutes(meeting.startTime);
+        if (start == null) continue;
+        const end = toMinutes(meeting.endTime) ?? start + 55;
 
-      const days = DAYS.filter(([key]) => meeting[key]).map(([key]) => key);
-      const id = `${days.join(",")}|${start}|${end}`;
-      if (!slots.has(id)) slots.set(id, { id, days, start, end, items: [] });
-      slots.get(id).items.push({ entry, section, seats: seatsFor(section.classNumber, term) });
+        const days = DAYS.filter(([key]) => meeting[key]).map(([key]) => key);
+        const id = `${days.join(",")}|${start}|${end}`;
+        if (placed.has(id)) continue;
+        placed.add(id);
+        if (!slots.has(id)) slots.set(id, { id, days, start, end, items: [] });
+        slots.get(id).items.push({ entry, section, seats: seatsFor(section.classNumber, term) });
+      }
+
+      if (!placed.size) unscheduled.push({ entry, section });
     }
   }
 
