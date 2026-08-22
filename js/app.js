@@ -260,6 +260,14 @@ function closeDetail() {
   (selected ?? els.results).focus();
 }
 
+// Focus collapses to the body when a control removes itself, which drops a
+// keyboard user past the whole rail. Collapsed, an open detail pane hides the
+// results, so fall back to whichever region is on screen. Not called from
+// paint(), since an ordinary filter change should leave focus where it is.
+function focusResults() {
+  (els.results.getClientRects().length ? els.results : els.detail).focus();
+}
+
 // The status element is never removed or hidden, only its text changes. A live
 // region that was hidden when content arrived usually goes unannounced.
 function setStatus(message, kind = "info") {
@@ -415,7 +423,7 @@ function paint(term = els.term.value) {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = "See them in list view";
-      button.addEventListener("click", () => setView("list"));
+      button.addEventListener("click", () => { setView("list"); focusResults(); });
       note.append(button);
       els.results.append(note);
     }
@@ -435,7 +443,7 @@ function paint(term = els.term.value) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Show them anyway";
-    button.addEventListener("click", () => { showHidden = true; paint(term); });
+    button.addEventListener("click", () => { showHidden = true; paint(term); focusResults(); });
     note.append(button);
     els.results.append(note);
   }
@@ -551,6 +559,7 @@ async function init() {
     showHidden = false;
     syncUrl(els.query.value, els.term.value);
     paint();
+    focusResults();
   });
 
   els.railToggle.addEventListener("click", () => {
@@ -604,6 +613,7 @@ async function init() {
     reflectQuery(button.dataset.q);
     syncUrl(button.dataset.q, els.term.value);
     runSearch(button.dataset.q, els.term.value);
+    focusResults();
   });
 
   const initialQuery = params.get("q") ?? "";
