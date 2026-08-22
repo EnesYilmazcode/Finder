@@ -204,23 +204,26 @@ function prof(legacyId, firstName, lastName, avgRating, numRatings, { avgDifficu
 
 // Course codes, keyed by legacyId the way data/ratings-courses.json is. A professor
 // the file does not list is unknown, not a professor with no matching code.
+const RATING_COURSE_CODES = {
+  // The four ways raters write one course, plus a code with no number in it.
+  "1": { "CSE 2221": 10, "cse2221": 4, "CS2221": 3, "2221": 5, "CSE2231": 8, "PHYSICS": 1 },
+  // Rated, but never for the course on screen.
+  "2": { "MATH 1151": 13 },
+  // An honours number and a pre-semester code are their own courses.
+  "3": { "CSE2221H": 30, "CSE321": 30 },
+  // Codes adding to 148 against the 147 ratings upstream shows for the same man.
+  "11": { "CSE 2221": 52, "CSE321": 22, "CSE 2231": 74 },
+  // Losing "CHEMISTRY1210" would take the bare "1210" with it, by making the
+  // number look contested.
+  "12": { "CHEM1210": 117, "CHEMISTRY1210": 8, "1210": 3 },
+  // ENGLISH 1110.01 and 1110.02 are both just "1110" to a rater.
+  "13": { "ENGLISH 1110": 30, "ENGL1110": 8, "1110": 10, "ENGLISH 1110.02": 5, "HISTORY 1151": 7 },
+};
+
+// count derived, for the reason RATINGS derives it.
 export const RATING_COURSES = {
-  count: 6,
-  professors: {
-    // The four ways raters write one course, plus a code with no number in it.
-    "1": { "CSE 2221": 10, "cse2221": 4, "CS2221": 3, "2221": 5, "CSE2231": 8, "PHYSICS": 1 },
-    // Rated, but never for the course on screen.
-    "2": { "MATH 1151": 13 },
-    // An honours number and a pre-semester code are their own courses.
-    "3": { "CSE2221H": 30, "CSE321": 30 },
-    // Codes adding to 148 against the 147 ratings upstream shows for the same man.
-    "11": { "CSE 2221": 52, "CSE321": 22, "CSE 2231": 74 },
-    // Losing "CHEMISTRY1210" would take the bare "1210" with it, by making the
-    // number look contested.
-    "12": { "CHEM1210": 117, "CHEMISTRY1210": 8, "1210": 3 },
-    // ENGLISH 1110.01 and 1110.02 are both just "1110" to a rater.
-    "13": { "ENGLISH 1110": 30, "ENGL1110": 8, "1110": 10, "ENGLISH 1110.02": 5, "HISTORY 1151": 7 },
-  },
+  count: Object.keys(RATING_COURSE_CODES).length,
+  professors: RATING_COURSE_CODES,
 };
 
 // Barrett's plain text schedule, for the tests that exercise
@@ -233,7 +236,7 @@ export const BARRETT_COLUMNS =
 
 // A term Barrett has not published yet carries this between the title and the
 // column header, which is two more header lines than a published term has.
-export const BARRETT_BANNER =
+const BARRETT_BANNER =
   "#####  DRAFT: pre-publication information; classes shown here are subject to change #####";
 
 // One Barrett subject file, three real AVIATN section lines from term 1268 as

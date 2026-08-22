@@ -8,7 +8,7 @@
 
 import { formatWhen, formatPlace, formatUnits, instructorsOf } from "./format.js";
 import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
-import { linkedTo, seatsFor } from "./seats.js";
+import { linkedTo, seatsFor, unreachable } from "./seats.js";
 import { openedOn } from "./trend.js";
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
@@ -155,11 +155,11 @@ export function renderSection(section, term) {
     // Barrett rebuilds once a day, so this is a night's difference, not a seat
     // anyone is holding open. Never on a full row: seats and trend are two
     // fetches and can skew by a night, and 99 of the 248 sections that opened
-    // on 2026-08-19 were full again the next night. Never when a section this
-    // one auto-enrolls into is full either, since the seats it opened are then
-    // unreachable and the same rule already hides it from "hide full". #67.
-    const reachable = !seats.full && !(linked?.enrolls ?? []).some((n) => seatsFor(n, term)?.full);
-    const opened = reachable ? openedOn(section.classNumber, term) : null;
+    // on 2026-08-19 were full again the next night. Never on a row "hide full"
+    // drops either, since the seats it opened cannot be registered. #67.
+    const opened = !seats.full && !unreachable(section.classNumber, term)
+      ? openedOn(section.classNumber, term)
+      : null;
     if (opened) {
       const mark = el("span", "opened", "opened");
       mark.title = `Full in the previous snapshot, open in the one from ${opened}.`;

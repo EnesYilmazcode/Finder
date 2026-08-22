@@ -212,6 +212,45 @@ export function linkedTo(classNumber, term) {
 }
 
 /**
+ * Is every way into this section full?
+ *
+ * Yes only when Barrett publishes a capacity for all of them, every one is full,
+ * and their enrolled counts add up to this section's own, which means every
+ * student in it arrived through one of the sections listed. Barrett lists fewer
+ * sections than the API does, so a lecture holding more students than its listed
+ * labs account for has a way in Barrett never named, and calling it unreachable
+ * would be a guess. MATH 1151 lecture 17826 fails this twice over: one of its
+ * six recitations is 12/33, and two publish no capacity at all.
+ */
+function everyWayInFull(seats, ways, term) {
+  if (!seats || !ways?.length) return false;
+  let enrolled = 0;
+  for (const way of ways) {
+    const waySeats = seatsFor(way, term);
+    if (!waySeats?.full) return false;
+    enrolled += waySeats.enrolled;
+  }
+  return enrolled === seats.enrolled;
+}
+
+/**
+ * Can nobody register for this section, whatever its own row says?
+ *
+ * Either a section it auto-enrolls you into is full, so its own free seats
+ * cannot be taken, or every listed way in is full. One function because the
+ * list, the row and the detail pane each answered a different half of it:
+ * "hide full" dropped a lecture no recitation could get you into while the row
+ * badged that same lecture as newly opened.
+ */
+export function unreachable(classNumber, term) {
+  const linked = linkedTo(classNumber, term);
+  if (!linked) return false;
+  // True whatever this section's own capacity is, including unpublished.
+  if (linked.enrolls.some((n) => seatsFor(n, term)?.full)) return true;
+  return everyWayInFull(seatsFor(classNumber, term), linked.enrolledBy, term);
+}
+
+/**
  * How many sections a term covers, for the landing screen.
  *
  * Answers from the index, so it is available as soon as the 361-byte index

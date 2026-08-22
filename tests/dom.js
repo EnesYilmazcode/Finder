@@ -162,11 +162,37 @@ class Element extends Listeners {
   focus() { focused = this; }
 
   reset() {
-    for (const control of this.querySelectorAll("input, select, textarea")) {
+    for (const control of controlsOf(this)) {
       control.value = control.defaultValue ?? "";
       control.checked = control.defaultChecked ?? false;
     }
   }
+}
+
+function root(node) {
+  let at = node;
+  while (at.parentNode) at = at.parentNode;
+  return at;
+}
+
+/**
+ * The form a control submits with.
+ *
+ * `form=` names the owner by id, so a control outside the tag still belongs to
+ * it and one inside the tag can belong to another form or to none. Nothing on
+ * the page writes one yet, which is how dom.test.js came to assert through an
+ * attribute the harness ignored and pass on the descendant rule instead.
+ */
+function formOf(control) {
+  const owner = control.getAttribute("form");
+  if (owner == null) return control.closest("form");
+  const found = owner ? root(control).querySelector(`#${owner}`) : null;
+  return found?.tagName === "FORM" ? found : null;
+}
+
+/** Every control the form owns, in document order. */
+function controlsOf(form) {
+  return root(form).querySelectorAll("input, select, textarea").filter((c) => formOf(c) === form);
 }
 
 function walk(node, visit) {
@@ -344,14 +370,17 @@ function wireForms(body) {
     control.defaultChecked = control.checked;
   }
   for (const form of body.querySelectorAll("form")) {
-    for (const control of form.querySelectorAll("input, select, textarea")) {
+    for (const control of controlsOf(form)) {
       if (control.name) form[control.name] = control;
     }
   }
 }
 
 class FormDataStub {
-  constructor(form) { this.controls = form.querySelectorAll("input, select, textarea"); }
+  // A disabled control is not submitted, so it is not in here. #85 turns a
+  // filter off by disabling it and keeps reading its value off the control, and
+  // that line is only distinguishable from a FormData read if this omits them.
+  constructor(form) { this.controls = controlsOf(form).filter((c) => !c.disabled); }
   get(name) {
     const control = this.controls.find((c) => c.name === name);
     if (!control) return null;

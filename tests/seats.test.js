@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { withSeats } from "./helpers.js";
+import { SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
 
 // Both terms loaded, so the cross-term guard can be tested for real rather
 // than by the absence of data.
@@ -77,6 +78,20 @@ test("seatsTerm and seatsUpdated answer per term", () => {
   assert.equal(seats.seatsTerm("1268"), "1268");
   assert.equal(seats.seatsUpdated("1268"), "2026-08-18");
   assert.equal(seats.seatsUpdated("1262"), "2026-04-27");
+});
+
+// tests/contract.test.js holds the shipped snapshot to this, but nothing held
+// the fixture to it, and the two halves are read by different functions: the
+// landing screen counts sections off the index while every row comes from the
+// term file. #58 puts that count on screen before the term file has landed.
+test("the index counts the sections its term file actually holds", () => {
+  assert.deepEqual(SEATS_INDEX.terms.map((t) => t.term).sort(), Object.keys(SEATS_TERMS).sort(),
+    "the index and the term files have to be about the same terms");
+  for (const { term } of SEATS_INDEX.terms) {
+    assert.equal(seats.seatsSectionCount(term), Object.keys(SEATS_TERMS[term].sections).length,
+      `term ${term} does not hold what the index says`);
+  }
+  assert.equal(seats.seatsSectionCount("9999"), 0, "a term with no entry counts nothing, rather than throwing");
 });
 
 test("regression #23: the same class number resolves per term, never across", () => {

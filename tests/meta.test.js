@@ -47,11 +47,14 @@ function pngSize(url) {
 }
 
 test("the head carries every tag a card needs", () => {
-  for (const key of ["og:site_name", "og:title", "og:description", "og:url", "og:image"]) {
+  for (const key of ["og:site_name", "og:title", "og:description", "og:url", "og:image", "og:image:alt"]) {
     assert.ok(meta(html, key), `missing ${key}`);
   }
   assert.equal(meta(html, "og:type"), "website");
   assert.equal(meta(html, "twitter:card", "name"), "summary_large_image");
+  // The card is a screenshot of dense data, so alt is the only way a screen
+  // reader gets at any of it. Repeating the description would say nothing new.
+  assert.notEqual(meta(html, "og:image:alt"), meta(html, "og:description"));
 });
 
 test("the card description is the page description, not a second copy of it", () => {

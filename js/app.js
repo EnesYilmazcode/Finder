@@ -600,7 +600,6 @@ async function init() {
   // Start the ratings download early so the first search rarely waits on it.
   loadRatings().catch((error) => console.warn("ratings unavailable", error));
   loadSeats(els.term.value).catch((error) => console.warn("seats unavailable", error));
-  loadTrend(els.term.value);
 
   const params = new URLSearchParams(location.search);
   setBusy(false);

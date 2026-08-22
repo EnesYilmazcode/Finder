@@ -72,24 +72,98 @@ test("the parser picks the controls up from index.html rather than a list", asyn
 // The reason the harness parses instead of listing. 62, 63, 66 and 68 each add a
 // control, and the three shims this file replaced all threw at import the first
 // time that happened. Grow the page and nothing here changes.
+//
+// The consent checkbox is put outside the tag deliberately. No branch writes a
+// form= attribute today, so this is the only place that rule gets exercised,
+// and with the control inside the form it passed on the descendant rule.
 test("a control index.html does not have yet arrives without a harness edit", async () => {
   const grown = readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
-    '<div class="f-days" id="f-days"',
-    '<select id="f-sort"><option value="">Relevance</option><option value="rating">Rating</option></select>'
+    '<form id="filters">',
+    '<div class="f-set">'
+    + '<select id="f-sort"><option value="">Relevance</option><option value="rating">Rating</option></select>'
     + '<input id="f-busy-add" type="button">'
     + '<select id="p-gen"><option value=""></option></select>'
-    + '<input name="hideConsent" type="checkbox" form="filters">'
-    + '<div class="f-days" id="f-days"',
+    + '<input id="f-consent" name="hideConsent" type="checkbox" form="filters" checked>'
+    + '</div>'
+    + '<form id="filters">',
   );
   const page = setupDom(grown);
+  const filters = page.el("#filters");
 
   assert.equal(page.el("#f-sort").tagName, "SELECT");
   assert.equal(page.el("#f-busy-add").type, "button");
   assert.equal(page.el("#p-gen").tagName, "SELECT");
-  assert.equal(page.el("#filters").hideConsent.checked, false);
+
+  assert.equal(page.el("#f-consent").closest("form"), null, "outside the tag");
+  assert.equal(filters.hideConsent, page.el("#f-consent"));
+  assert.equal(new FormData(filters).get("hideConsent"), "on");
+
+  // 63's real sort select carries no name and no form=, measured on its branch,
+  // so it belongs to no form and the app has to clear it by hand.
+  assert.equal(filters.sort, undefined);
+  assert.equal(new FormData(filters).get("sort"), null);
 
   // and the controls that were already there still resolve
   assert.equal(page.all("#f-days .f-day").length, 5);
+});
+
+// A browser drops a disabled control from the submission, and js/app.js:92
+// reads the rating off the control for exactly that reason: #85 disables
+// #f-rating when the ratings snapshot dies and the filter still has to be read.
+test("a disabled control is not submitted", () => {
+  const page = setupDom();
+  const filters = page.el("#filters");
+  page.el("#f-rating").value = "4.5";
+  assert.equal(new FormData(filters).get("rating"), "4.5");
+
+  page.el("#f-rating").disabled = true;
+  assert.equal(new FormData(filters).get("rating"), null);
+  assert.deepEqual(new FormData(filters).getAll("rating"), []);
+  // off the form it is still there, which is the whole difference
+  assert.equal(filters.rating.value, "4.5");
+});
+
+test("form= owns a control wherever it sits, and only the form it names", () => {
+  const page = setupDom(`<body>
+    <form id="filters">
+      <select name="from"><option value=""></option><option value="480"></option></select>
+      <input name="stray" value="x" form="other">
+    </form>
+    <select name="sort" form="filters"><option value="rating"></option><option value=""></option></select>
+    <input name="loose" value="l">
+    <form id="other"></form>
+  </body>`);
+  const filters = page.el("#filters");
+  const data = new FormData(filters);
+
+  assert.equal(filters.sort, page.el('[name="sort"]'));
+  assert.equal(data.get("sort"), "rating");
+  assert.equal(data.get("from"), "");
+
+  // inside the tag but claimed elsewhere, and outside it claiming nothing
+  assert.equal(filters.stray, undefined);
+  assert.equal(data.get("stray"), null);
+  assert.equal(data.get("loose"), null);
+  assert.equal(new FormData(page.el("#other")).get("stray"), "x");
+});
+
+test("reset clears what the form owns and leaves the rest alone", () => {
+  const page = setupDom(`<body>
+    <form id="filters"><input name="from" value="480"></form>
+    <input name="hideConsent" type="checkbox" form="filters">
+    <select id="f-sort"><option value=""></option><option value="rating"></option></select>
+  </body>`);
+  const filters = page.el("#filters");
+
+  filters.from.value = "720";
+  filters.hideConsent.checked = true;
+  page.el("#f-sort").value = "rating";
+  filters.reset();
+
+  assert.equal(filters.from.value, "480");
+  assert.equal(filters.hideConsent.checked, false);
+  // an unowned control survives reset(), which is 63's sort select exactly
+  assert.equal(page.el("#f-sort").value, "rating");
 });
 
 test("the descendant combinator scopes a repeated class to its own group", () => {

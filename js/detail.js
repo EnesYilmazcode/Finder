@@ -4,7 +4,7 @@
 
 import { formatWhen, formatUnits, instructorsOf, trendLabel } from "./format.js";
 import { ratingFor, searchUrl, profileUrl, ratingSpread, courseShare } from "./ratings.js";
-import { linkedTo, seatsFor, seatsUpdated } from "./seats.js";
+import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { trendFor } from "./trend.js";
 import { isIndividualStudy } from "./rank.js";
 
@@ -212,6 +212,12 @@ export function renderDetail({ section, course, term, entries, formatDate }) {
     if (asOf) seatBlock.append(row("As of", formatDate ? formatDate(asOf) : asOf));
   } else {
     seatBlock.append(el("p", "d-note", "No seat data for this section."));
+  }
+  // Free seats a package puts out of reach are the ones "hide full" drops and
+  // the row refuses to badge. The pane explains rather than hides, so it is the
+  // one place that says why. #67.
+  if (unreachable(section.classNumber, term)) {
+    seatBlock.append(el("p", "d-note", "This section cannot be registered: another section in its package is full."));
   }
   wrap.append(seatBlock);
 

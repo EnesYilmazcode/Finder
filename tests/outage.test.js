@@ -11,6 +11,7 @@ import { loadRatings, ratingsFailed } from "../js/ratings.js";
 import { loadSeats, seatsFailed } from "../js/seats.js";
 import { entry, onlineMeeting, person, section, taught, SEATS_INDEX, SEATS_TERMS } from "./fixtures.js";
 import { stubFetch } from "./helpers.js";
+import { mountApp, fire, until } from "./dom.js";
 
 // An empty route table rejects every URL, which is what a blocked file does.
 const restore = stubFetch({});
@@ -87,5 +88,55 @@ test("one dead term does not condemn a term that loaded", async () => {
   await seats.loadSeats("1268", "seats.json");
   restore();
   assert.equal(seats.seatsFailed("1268"), false);
+  assert.equal(seats.seatsFor("1001", "1268").enrolled, 30);
+});
+
+// The page, not just the filter functions. Every loader above is already dead
+// in this process, so a mount here lands on the outage screen without staging
+// anything else.
+test("regression #85: a rating filter that is switched off is still read", async () => {
+  const restore = stubFetch(new Map([
+    [/searchableTermsV2/, { data: { data: [{ strm: TERM, descr: "Autumn 2026" }] } }],
+    [(url) => url.includes("/classes/search"), { data: { totalItems: 2, totalPages: 1, courses: [course()] } }],
+  ]));
+
+  // What a shared link looks like when the reader's ratings snapshot is down.
+  const page = await mountApp({
+    query: "CSE 2221",
+    term: TERM,
+    url: "https://enesyilmazcode.github.io/Finder/?rating=4.5",
+  });
+  await until(() => page.all(".section").length > 0, "the results");
+
+  assert.equal(page.el("#f-rating").disabled, true, "markSources turns the control off");
+  assert.equal(page.el("#f-rating").value, "4.5");
+
+  fire(page.el("#filters"), "change");
+
+  // Read out of a FormData instead of off the control, both of these go: the
+  // rating drops out of the link the student is about to share, and the button
+  // that would clear it disappears while the select still shows 4.5.
+  assert.match(page.location.search, /rating=4\.5/);
+  assert.equal(page.el("#f-clear").hidden, false);
+  restore();
+});
+
+test("an index that arrives on the retry stops every term reading as failed", async () => {
+  const seats = await import("../js/seats.js?index-retry");
+
+  let restore = stubFetch({});
+  await assert.rejects(seats.loadSeats("1268", "seats.json"));
+  restore();
+  assert.equal(seats.seatsFailed("1268"), true);
+  assert.equal(seats.seatsFailed("1262"), true);
+
+  // The index is the whole file's worth of terms, so a blip on it turns the
+  // seats filter off for every term at once. It has to come back on when the
+  // second try lands, not stay off for the rest of the visit.
+  restore = stubFetch({ "seats.json": SEATS_INDEX, "seats-1268.json": SEATS_TERMS["1268"] });
+  await seats.loadSeats("1268", "seats.json");
+  restore();
+  assert.equal(seats.seatsFailed("1268"), false);
+  assert.equal(seats.seatsFailed("1262"), false);
   assert.equal(seats.seatsFor("1001", "1268").enrolled, 30);
 });

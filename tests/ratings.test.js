@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { nameKey, surnameKey, searchUrl, profileUrl, courseCode } from "../js/ratings.js";
-import { withRatings, withRatingCourses } from "./helpers.js";
-import { RATINGS } from "./fixtures.js";
+import { stubFetch, withRatings, withRatingCourses } from "./helpers.js";
+import { RATINGS, RATING_COURSES } from "./fixtures.js";
 
 const ratings = await withRatings();
 const { ratingFor } = ratings;
@@ -180,8 +180,41 @@ test("loadRatingCourses caches, so a second detail open does not fetch again", a
   assert.equal(again["2"]["MATH 1151"], 13);
 });
 
+test("a course-code file that failed is not remembered as one", async () => {
+  const blip = await withRatings(RATINGS, "?codes-blip");
+
+  let restore = stubFetch({});
+  await assert.rejects(blip.loadRatingCourses("ratings-courses.json"));
+  restore();
+
+  restore = stubFetch({ "ratings-courses.json": RATING_COURSES });
+  const codes = await blip.loadRatingCourses("ratings-courses.json");
+  restore();
+  assert.equal(codes["11"]["CSE 2221"], 52);
+});
+
 test("a snapshot that loaded does not read as failed", () => {
   assert.equal(ratings.ratingsFailed(), false);
+});
+
+test("ratingsFailed never contradicts a snapshot that is in memory", async () => {
+  const blip = await import("../js/ratings.js?blip");
+
+  let restore = stubFetch({});
+  await assert.rejects(blip.loadRatings("ratings.json"));
+  restore();
+  assert.equal(blip.ratingsFailed(), true);
+  assert.equal(blip.ratingFor("Diana Kline"), null);
+
+  // loadRatings hands back its cached rejection until #79 clears it, so the
+  // second ask is only a real retry once #79 lands. Either way the flag and the
+  // lookup have to follow it together, or a snapshot that is right here leaves
+  // the outage note up and the two rating controls switched off.
+  restore = stubFetch({ "ratings.json": RATINGS });
+  const retried = await blip.loadRatings("ratings.json").then(() => true, () => false);
+  restore();
+  assert.equal(blip.ratingsFailed(), !retried);
+  assert.equal(blip.ratingFor("Diana Kline")?.avgRating ?? null, retried ? 4.2 : null);
 });
 
 test("the RateMyProfessors links point at Ohio State", () => {
