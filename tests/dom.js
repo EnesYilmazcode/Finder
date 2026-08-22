@@ -1,63 +1,125 @@
-// A DOM small enough to run app.js under node --test.
+// A document small enough to run js/app.js under node:test.
 //
-// app.js is wiring: it reads controls, repaints, and writes the URL. None of
-// that is reachable from a pure unit test, and there are no dependencies to
-// pull a real DOM from. So this parses the real index.html into the handful of
-// interfaces the search-and-filter path touches, which keeps the test honest
-// about the real markup rather than a fixture that can drift.
+// app.js is wiring: state, event handlers and repaints. None of that is
+// reachable from the pure-module tests, so this builds the page out of the real
+// index.html and implements the DOM pieces js/ actually touches.
 //
-// Only that path. The detail panel, the calendar and the view buttons all call
-// methods that are not here. Adding one means checking it against a browser
-// first, because a fake that guesses is worse than no fake.
+// Parsing the shipped markup rather than listing its ids is the point. Every
+// shim that named its own elements died the first time index.html grew a
+// control: the lookup returned null and init() threw during import, before a
+// single assertion ran.
 
 import { readFileSync } from "node:fs";
 
 const INDEX = new URL("../index.html", import.meta.url);
+const PAGE = "https://enesyilmazcode.github.io/Finder/";
 
-class Text {
+const VOID = new Set(["input", "meta", "link", "br", "img", "hr", "source", "col"]);
+
+const attrName = (key) => `data-${String(key).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+
+// Focus is a document-wide singleton, so it lives here rather than on a node.
+let focused = null;
+
+class TextNode {
   constructor(data) {
+    this.nodeType = 3;
     this.data = String(data);
     this.parentNode = null;
   }
   get textContent() { return this.data; }
+  set textContent(value) { this.data = String(value); }
 }
 
-class Element {
-  constructor(tagName) {
-    this.tagName = tagName;
-    this.id = "";
-    this.hidden = false;
-    this.childNodes = [];
-    this.parentNode = null;
-    this.attributes = new Map();
-    this.dataset = {};
-    this.listeners = new Map();
-    this.classes = new Set();
+class ClassList {
+  constructor(node) { this.node = node; }
+  get names() { return (this.node.getAttribute("class") ?? "").split(/\s+/).filter(Boolean); }
+  contains(name) { return this.names.includes(name); }
+  add(name) { if (!this.contains(name)) this.node.setAttribute("class", [...this.names, name].join(" ")); }
+  remove(name) { this.node.setAttribute("class", this.names.filter((n) => n !== name).join(" ")); }
+  toggle(name, force) { if (force ?? !this.contains(name)) this.add(name); else this.remove(name); }
+}
+
+// js/ assigns style properties directly and only reaches for a method to set
+// custom properties, which cannot be written as an identifier.
+class Style {
+  setProperty(name, value) { this[name] = String(value); }
+}
+
+/** The listener half of an EventTarget. The window needs one as much as an element does. */
+class Listeners {
+  constructor() { this.handlers = new Map(); }
+
+  addEventListener(type, handler) {
+    if (!this.handlers.has(type)) this.handlers.set(type, []);
+    this.handlers.get(type).push(handler);
   }
 
-  set className(value) { this.classes = new Set(String(value ?? "").split(/\s+/).filter(Boolean)); }
+  removeEventListener(type, handler) {
+    this.handlers.set(type, (this.handlers.get(type) ?? []).filter((h) => h !== handler));
+  }
 
-  get children() { return this.childNodes.filter((n) => n instanceof Element); }
+  // Bubbles, since app.js delegates every click on the results pane. The window
+  // has no parentNode, so the same walk stops after one step there.
+  dispatchEvent(event) {
+    event.target ??= this;
+    for (let at = this; at; at = at.parentNode) {
+      event.currentTarget = at;
+      for (const handler of at.handlers?.get(event.type) ?? []) handler.call(at, event);
+    }
+    return !event.defaultPrevented;
+  }
+}
 
+class Element extends Listeners {
+  constructor(tag) {
+    super();
+    this.nodeType = 1;
+    this.tagName = String(tag).toUpperCase();
+    this.attrs = new Map();
+    this.childNodes = [];
+    this.parentNode = null;
+    this.value = "";
+    this.checked = false;
+    this.disabled = false;
+    this.hidden = false;
+    this.style = new Style();
+    this.classList = new ClassList(this);
+    this.dataset = new Proxy({}, {
+      get: (_target, key) => this.attrs.get(attrName(key)),
+      set: (_target, key, value) => { this.attrs.set(attrName(key), String(value)); return true; },
+      has: (_target, key) => this.attrs.has(attrName(key)),
+    });
+  }
+
+  get id() { return this.attrs.get("id") ?? ""; }
+  get className() { return this.attrs.get("class") ?? ""; }
+  set className(value) { this.attrs.set("class", String(value)); }
+  get children() { return this.childNodes.filter((n) => n.nodeType === 1); }
+  get options() { return this.children.filter((n) => n.tagName === "OPTION"); }
   get textContent() { return this.childNodes.map((n) => n.textContent).join(""); }
   set textContent(value) {
     for (const child of this.childNodes) child.parentNode = null;
     this.childNodes = [];
-    if (value != null && value !== "") this.append(String(value));
+    if (value != null && value !== "") this.append(new TextNode(value));
   }
+
+  getAttribute(name) { return this.attrs.has(name) ? this.attrs.get(name) : null; }
+  setAttribute(name, value) { this.attrs.set(name, String(value)); }
+  removeAttribute(name) { this.attrs.delete(name); }
+  hasAttribute(name) { return this.attrs.has(name); }
 
   append(...nodes) {
     for (const node of nodes) {
       if (node == null) continue;
-      if (typeof node === "string" || typeof node === "number") {
-        const text = new Text(node);
-        text.parentNode = this;
-        this.childNodes.push(text);
-        continue;
-      }
-      if (node.parentNode) node.parentNode.removeChild(node);
-      node.parentNode = this;
-      this.childNodes.push(node);
+      const child = node.nodeType ? node : new TextNode(node);
+      // A fragment hands its children over and stays empty, like the real one.
+      if (child.nodeType === 11) { this.append(...child.childNodes.splice(0)); continue; }
+      // A node can only be in one place. Without this a moved node stays in its
+      // old parent's childNodes too, and a row that moved reads as two rows.
+      child.parentNode?.removeChild(child);
+      child.parentNode = this;
+      this.childNodes.push(child);
     }
   }
 
@@ -65,7 +127,10 @@ class Element {
     const at = this.childNodes.indexOf(node);
     if (at >= 0) this.childNodes.splice(at, 1);
     node.parentNode = null;
+    return node;
   }
+
+  remove() { this.parentNode?.removeChild(this); }
 
   replaceChildren(...nodes) {
     for (const child of this.childNodes) child.parentNode = null;
@@ -73,163 +138,376 @@ class Element {
     this.append(...nodes);
   }
 
-  setAttribute(name, value) {
-    this.attributes.set(name, String(value));
-    if (name === "class") this.className = value;
-    else if (name === "id") this.id = String(value);
-    else if (name === "hidden") this.hidden = true;
-    else if (name.startsWith("data-")) this.dataset[camel(name.slice(5))] = String(value);
-  }
-  getAttribute(name) { return this.attributes.get(name) ?? null; }
-  hasAttribute(name) { return this.attributes.has(name); }
-
-  matches(selector) {
-    return selector.split(",").some((one) => matchOne(this, one.trim()));
-  }
+  matches(selector) { return compile(selector)(this); }
 
   closest(selector) {
-    for (let node = this; node; node = node.parentNode) {
-      if (node instanceof Element && node.matches(selector)) return node;
-    }
+    const test = compile(selector);
+    for (let node = this; node; node = node.parentNode) if (node.nodeType === 1 && test(node)) return node;
     return null;
   }
 
+  // An array rather than a NodeList. Nothing in js/ relies on either shape, and
+  // tests get map, find and includes for free.
   querySelectorAll(selector) {
+    const test = compile(selector);
     const found = [];
-    for (const child of this.children) {
-      if (child.matches(selector)) found.push(child);
-      found.push(...child.querySelectorAll(selector));
-    }
+    walk(this, (node) => { if (test(node)) found.push(node); });
     return found;
   }
 
   querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
 
-  addEventListener(type, handler) {
-    if (!this.listeners.has(type)) this.listeners.set(type, []);
-    this.listeners.get(type).push(handler);
-  }
-
-  dispatchEvent(event) {
-    event.target ??= this;
-    for (let node = this; node; node = node.parentNode) {
-      event.currentTarget = node;
-      for (const handler of node.listeners?.get(event.type) ?? []) handler.call(node, event);
-    }
-  }
-
   click() { fire(this, "click"); }
 
+  focus() { focused = this; }
+
   reset() {
-    for (const control of this.querySelectorAll("input,select,textarea")) {
+    for (const control of this.querySelectorAll("input, select, textarea")) {
       control.value = control.defaultValue ?? "";
       control.checked = control.defaultChecked ?? false;
     }
   }
 }
 
-function camel(name) {
-  return name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+function walk(node, visit) {
+  for (const child of node.childNodes) {
+    if (child.nodeType !== 1) continue;
+    visit(child);
+    walk(child, visit);
+  }
 }
 
-function matchOne(element, selector) {
-  if (selector.startsWith("#")) return element.id === selector.slice(1);
-  if (selector.startsWith(".")) return element.classes.has(selector.slice(1));
-  return element.tagName === selector.toLowerCase();
+const COMPOUND = /[a-zA-Z][-\w]*|[#.][-\w]+|\[[^\]]+\]/g;
+const compiled = new Map();
+
+/**
+ * Enough selector syntax for what js/ and the app suites ask for: a comma list
+ * of compounds built from tag, #id, .class and [attr] or [attr=value], joined
+ * by the descendant and child combinators.
+ *
+ * Descendants are matched rather than refused because the page repeats classes:
+ * with two .f-day groups in the rail, an unscoped ".f-day" quietly answers a
+ * different question than the one the test asked. Sibling combinators still
+ * throw, since a right-to-left walk cannot answer them and matching nothing is
+ * indistinguishable from "no such element".
+ */
+function compile(selector) {
+  const key = String(selector);
+  if (!compiled.has(key)) {
+    const tests = key.split(",").map((s) => s.trim()).filter(Boolean).map((part) => {
+      const steps = parseComplex(part);
+      return (node) => matchSteps(node, steps, steps.length - 1);
+    });
+    compiled.set(key, (node) => tests.some((test) => test(node)));
+  }
+  return compiled.get(key);
 }
 
-/** Dispatch a bubbling event, the way a real click or change reaches a form. */
-export function fire(element, type) {
-  element.dispatchEvent({ type, target: element, currentTarget: null });
+function parseComplex(part) {
+  const steps = [];
+  let combinator = null;
+  let token = "";
+  let depth = 0;
+  const flush = () => {
+    if (!token) return;
+    steps.push({ combinator, tokens: token.match(COMPOUND) ?? [] });
+    token = "";
+    combinator = " ";
+  };
+  for (const ch of part) {
+    if (ch === "[") depth++;
+    else if (ch === "]") depth--;
+    // Inside brackets a space belongs to the attribute value, not the selector.
+    if (depth === 0 && /\s/.test(ch)) { flush(); continue; }
+    if (depth === 0 && ch === ">") { flush(); combinator = ">"; continue; }
+    if (depth === 0 && (ch === "+" || ch === "~")) throw new Error(`unsupported selector: ${part}`);
+    token += ch;
+  }
+  flush();
+  return steps;
 }
 
-const VOID = new Set(["meta", "link", "input", "br", "img", "hr", "source", "col"]);
-const ATTRS = /([^\s=/]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+function matchSteps(node, steps, i) {
+  if (!steps[i].tokens.every((token) => matchToken(node, token))) return false;
+  if (i === 0) return true;
+  if (steps[i].combinator === ">") {
+    const up = node.parentNode;
+    return up?.nodeType === 1 ? matchSteps(up, steps, i - 1) : false;
+  }
+  for (let up = node.parentNode; up?.nodeType === 1; up = up.parentNode) {
+    if (matchSteps(up, steps, i - 1)) return true;
+  }
+  return false;
+}
 
-function parseHtml(html) {
-  const root = new Element("#root");
-  const stack = [root];
-  let i = 0;
+function matchToken(node, token) {
+  if (token[0] === "#") return node.id === token.slice(1);
+  if (token[0] === ".") return node.classList.contains(token.slice(1));
+  if (token[0] === "[") {
+    const parsed = /^\[([-\w]+)(?:=["']?([^"'\]]*)["']?)?\]$/.exec(token);
+    if (!parsed) return false;
+    const value = node.getAttribute(parsed[1]);
+    if (value == null) return false;
+    return parsed[2] === undefined || value === parsed[2];
+  }
+  return node.tagName === token.toUpperCase();
+}
 
-  while (i < html.length) {
-    const open = html.indexOf("<", i);
-    if (open < 0) break;
-    // Trimmed, so textContent reads as the words rather than the indentation.
-    const text = html.slice(i, open).trim();
-    if (text) stack[stack.length - 1].append(text);
+class FakeEvent {
+  constructor(type) {
+    this.type = type;
+    this.target = null;
+    this.currentTarget = null;
+    this.defaultPrevented = false;
+  }
+  preventDefault() { this.defaultPrevented = true; }
+  stopPropagation() {}
+}
 
-    if (html.startsWith("<!--", open)) { i = html.indexOf("-->", open) + 3; continue; }
-    if (html.startsWith("<!", open)) { i = html.indexOf(">", open) + 1; continue; }
+const NEVER_SUBMITS = new Set(["button", "reset"]);
 
-    const close = html.indexOf(">", open);
-    const raw = html.slice(open + 1, close);
-    i = close + 1;
+// The form this event submits, if any. A button with no type is a submit
+// button; nothing else here defaults.
+function submitTarget(node, event) {
+  const type = node.type ?? (node.tagName === "BUTTON" ? "submit" : "text");
+  const submits = event.type === "click"
+    ? type === "submit" && (node.tagName === "BUTTON" || node.tagName === "INPUT")
+    : event.type === "keydown" && event.key === "Enter"
+      && node.tagName === "INPUT" && !NEVER_SUBMITS.has(type);
+  return submits ? node.closest("form") : null;
+}
 
-    if (raw.startsWith("/")) { if (stack.length > 1) stack.pop(); continue; }
+/**
+ * Fire an event on a node and let it bubble. `props` carries the fields a
+ * handler reads off the event, such as the `key` on a keydown.
+ *
+ * The default action runs afterwards, so a click on a submit button and Enter
+ * in a text field both reach the form's handler, and preventDefault stops them
+ * the way it would on the page. The event handed back is the one fired: a
+ * cancelled submit does not mark the click that led to it, so assert on what
+ * the handler did rather than on the flag.
+ */
+export function fire(node, type, props = {}) {
+  const event = Object.assign(new FakeEvent(type), props);
+  node.dispatchEvent(event);
+  const form = event.defaultPrevented ? null : submitTarget(node, event);
+  if (form) fire(form, "submit");
+  return event;
+}
 
-    const tag = raw.match(/^[a-zA-Z0-9-]+/)[0].toLowerCase();
-    const element = new Element(tag);
-    for (const [, name, dq, sq, bare] of raw.slice(tag.length).matchAll(ATTRS)) {
-      element.setAttribute(name, dq ?? sq ?? bare ?? "");
+const TAG = /<(\/?)([a-zA-Z][-\w]*)((?:\s+[^>]*?)?)\/?>/g;
+const ATTR = /([-\w]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+
+function parseBody(html) {
+  const inner = html.slice(html.indexOf("<body>") + 6, html.lastIndexOf("</body>"))
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<script[\s\S]*?<\/script>/g, "");
+
+  const body = new Element("body");
+  const stack = [body];
+  let last = 0;
+  for (const match of inner.matchAll(TAG)) {
+    const text = inner.slice(last, match.index);
+    if (text.trim()) stack.at(-1).append(new TextNode(text));
+    last = match.index + match[0].length;
+
+    const [, closing, tag, attrs] = match;
+    const name = tag.toLowerCase();
+    if (closing) {
+      if (stack.length > 1) stack.pop();
+      continue;
     }
-    stack[stack.length - 1].append(element);
-    if (!VOID.has(tag) && !raw.endsWith("/")) stack.push(element);
+    const node = new Element(name);
+    for (const attr of attrs.matchAll(ATTR)) {
+      node.setAttribute(attr[1], attr[2] ?? attr[3] ?? attr[4] ?? "");
+    }
+    // The properties the code reads, which a real parser reflects from markup.
+    if (node.hasAttribute("name")) node.name = node.getAttribute("name");
+    if (node.hasAttribute("value")) node.value = node.getAttribute("value");
+    if (node.hasAttribute("type")) node.type = node.getAttribute("type");
+    node.checked = node.hasAttribute("checked");
+    node.disabled = node.hasAttribute("disabled");
+    node.hidden = node.hasAttribute("hidden");
+    stack.at(-1).append(node);
+    if (!VOID.has(name)) stack.push(node);
   }
-  return root;
+  return body;
 }
 
-/** Named properties and the defaults reset() restores, neither of which the parser sets. */
-function wireForms(root) {
-  for (const select of root.querySelectorAll("select")) {
-    select.value = select.querySelector("option")?.getAttribute("value") ?? "";
-    select.defaultValue = select.value;
+/** Named controls hang off the form, the way readFilters and writeFilters use them. */
+function wireForms(body) {
+  for (const control of body.querySelectorAll("input, select, textarea")) {
+    // A select with nothing selected shows its first option, and that is what
+    // reset() puts back. A control whose default is not "" needs this.
+    if (control.tagName === "SELECT") control.value = control.querySelector("option")?.getAttribute("value") ?? "";
+    control.defaultValue = control.value;
+    control.defaultChecked = control.checked;
   }
-  for (const input of root.querySelectorAll("input")) {
-    input.value = input.getAttribute("value") ?? "";
-    input.defaultValue = input.value;
-    input.checked = input.hasAttribute("checked");
-    input.defaultChecked = input.checked;
-  }
-  for (const form of root.querySelectorAll("form")) {
-    for (const control of form.querySelectorAll("input,select,textarea")) {
-      const name = control.getAttribute("name");
-      if (name && !(name in form)) form[name] = control;
+  for (const form of body.querySelectorAll("form")) {
+    for (const control of form.querySelectorAll("input, select, textarea")) {
+      if (control.name) form[control.name] = control;
     }
   }
 }
 
-class FormDataLike {
-  constructor(form) {
-    this.pairs = [];
-    for (const control of form.querySelectorAll("input,select,textarea")) {
-      const name = control.getAttribute("name");
-      if (!name) continue;
-      if (control.getAttribute("type") === "checkbox" && !control.checked) continue;
-      this.pairs.push([name, control.value ?? ""]);
-    }
+class FormDataStub {
+  constructor(form) { this.controls = form.querySelectorAll("input, select, textarea"); }
+  get(name) {
+    const control = this.controls.find((c) => c.name === name);
+    if (!control) return null;
+    if (control.type === "checkbox") return control.checked ? control.value || "on" : null;
+    return control.value ?? null;
   }
-  get(name) { return this.pairs.find(([key]) => key === name)?.[1] ?? null; }
+  getAll(name) {
+    return this.controls
+      .filter((c) => c.name === name && (c.type !== "checkbox" || c.checked))
+      .map((c) => c.value ?? "");
+  }
 }
 
-/** Install index.html as the document, plus the globals app.js reads at import. */
-export function installDom(url) {
-  const root = parseHtml(readFileSync(INDEX, "utf8"));
-  wireForms(root);
+/** A real URL, so syncUrl and the shared ?class= and ?gen= links are readable. */
+class FakeLocation {
+  constructor(href) { this.href = String(href); }
+  get search() { return new URL(this.href).search; }
+  get pathname() { return new URL(this.href).pathname; }
+  get hostname() { return new URL(this.href).hostname; }
+  get origin() { return new URL(this.href).origin; }
+  get hash() { return new URL(this.href).hash; }
+  assign(next) { this.href = new URL(String(next), this.href).href; }
+  toString() { return this.href; }
+}
+
+class FakeWindow extends Listeners {
+  constructor() {
+    super();
+    this.media = new Map();
+  }
+  // One object per query, so a test can reach the same media query app.js holds
+  // and fire a change on it.
+  matchMedia(query) {
+    if (!this.media.has(query)) {
+      this.media.set(query, Object.assign(new Listeners(), { matches: false, media: query }));
+    }
+    return this.media.get(query);
+  }
+}
+
+function makeHistory(location, window) {
+  const previous = [];
+  return {
+    get length() { return previous.length + 1; },
+    pushState(_state, _title, next) { previous.push(location.href); location.assign(next); },
+    replaceState(_state, _title, next) { location.assign(next); },
+    back() {
+      if (!previous.length) return;
+      location.href = previous.pop();
+      window.dispatchEvent(new FakeEvent("popstate"));
+    },
+  };
+}
+
+// A URL to read, or the markup itself. Only markup can contain a tag.
+function readIndex(html) {
+  return typeof html === "string" && html.includes("<") ? html : readFileSync(html, "utf8");
+}
+
+function pageUrl(url, params) {
+  const next = new URL(url);
+  for (const [key, value] of Object.entries(params)) if (value) next.searchParams.set(key, value);
+  return next.href;
+}
+
+/**
+ * Install the page and the globals app.js expects, and hand back an accessor.
+ *
+ * Call before importing app.js, which queries the document as it loads. Most
+ * suites want mountApp() instead; this is the seam for a test that needs a
+ * document without running the app against it.
+ */
+export function setupDom(html = INDEX, { query = "", term = "", url = PAGE } = {}) {
+  const body = parseBody(readIndex(html));
+  wireForms(body);
+  focused = null;
 
   const document = {
+    body,
+    get activeElement() { return focused ?? body; },
     createElement: (tag) => new Element(tag),
-    createTextNode: (text) => new Text(text),
-    querySelector: (selector) => root.querySelector(selector),
-    querySelectorAll: (selector) => root.querySelectorAll(selector),
-    body: root.querySelector("body"),
+    createTextNode: (text) => new TextNode(text),
+    createDocumentFragment: () => Object.assign(new Element("fragment"), { nodeType: 11 }),
+    getElementById: (id) => body.querySelector(`#${id}`),
+    querySelector: (selector) => body.querySelector(selector),
+    querySelectorAll: (selector) => body.querySelectorAll(selector),
   };
 
-  globalThis.document = document;
-  globalThis.window = globalThis;
-  globalThis.location = new URL(url);
-  globalThis.history = { replaceState: (_state, _title, next) => { globalThis.location = new URL(next, url); } };
-  globalThis.matchMedia = () => ({ matches: false, addEventListener() {} });
-  globalThis.FormData = FormDataLike;
+  const location = new FakeLocation(pageUrl(url, { q: query, term }));
+  const window = new FakeWindow();
+  const history = makeHistory(location, window);
+  Object.assign(window, { document, location, history });
 
-  return document;
+  // Not globalThis. window.addEventListener has to exist in its own right, or
+  // a popstate listener registered in init() takes the suite down at import.
+  globalThis.window = window;
+  globalThis.document = document;
+  globalThis.location = location;
+  globalThis.history = history;
+  globalThis.matchMedia = (media) => window.matchMedia(media);
+  globalThis.FormData = FormDataStub;
+
+  return {
+    document, window, location, history, body,
+    el: (selector) => body.querySelector(selector),
+    all: (selector) => body.querySelectorAll(selector),
+  };
+}
+
+let mounts = 0;
+
+/**
+ * Start app.js against a fresh page and return an accessor for it.
+ *
+ * The `?mount=` suffix gives each mount its own copy of app.js, which holds the
+ * search state at module level and runs init() on import, so a second bare
+ * import is a cache hit that never starts.
+ *
+ * It does not reach app.js's own imports, which are bare specifiers, so
+ * js/seats.js and js/ratings.js stay shared and stay warm. Measured: mount 1
+ * fetches ratings.json, seats.json, the term list and seats-1268.json; mount 2
+ * fetches the term list alone. A second test that holds a seat or ratings route
+ * open therefore holds a route nothing asks for, and passes having exercised
+ * nothing. Name a term or a URL the earlier mount did not load.
+ */
+export async function mountApp({ query = "", term = "", fetch, html = INDEX, url = PAGE } = {}) {
+  const page = setupDom(html, { query, term, url });
+  if (fetch) globalThis.fetch = fetch;
+  await import(`../js/app.js?mount=${++mounts}`);
+  return page;
+}
+
+/**
+ * Wait for the app to catch up, and say what was being waited for if it never
+ * does. Throws on timeout rather than returning false: a caller that treats a
+ * timeout as an answer reads a page the app never painted and passes anyway.
+ */
+export async function until(condition, label, tries = 200) {
+  if (typeof label !== "string") {
+    throw new TypeError("until(condition, label) needs a label naming what is awaited");
+  }
+  for (let i = 0; i < tries; i++) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
+/**
+ * Drain the pending work without asking for a result. This is the one for
+ * asserting an absence, where until() would throw on the passing case.
+ *
+ * A turn is a real macrotask, not a microtask checkpoint, so the default costs
+ * about 750ms on Windows, where the timer floor is ~15ms. An absence that only
+ * has promises to outlive is settled in two or three turns.
+ */
+export async function settle(turns = 50) {
+  for (let i = 0; i < turns; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
