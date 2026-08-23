@@ -35,7 +35,13 @@ jobs:
           FORCE_WRITE: ${{ inputs.force && '1' || '' }}
         run: node scripts/fetch-ratings.mjs
 
+      # The fetch writes ratings.json before it checks courseCodes, so that a
+      # change upstream costs the course file and not the nightly refresh the
+      # whole site runs on. Committing only on success threw that refresh away
+      # again. !cancelled() is success or failure, so this also commits after a
+      # crash.
       - name: Commit if changed
+        if: ${{ !cancelled() }}
         run: |
           # --porcelain rather than git diff so a first run, where the file is not
           # tracked yet, still counts as a change.
@@ -45,7 +51,10 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/ratings.json data/ratings-courses.json
+          # ratings-courses.json is only written once the run clears its own gate,
+          # and git add is fatal on a pathspec that matches nothing, which would
+          # abandon the roster staged beside it.
+          git add -- data/ratings.json $(git ls-files -co -- data/ratings-courses.json)
           git commit -m "Update RateMyProfessors snapshot"
           # The scheduled run and a manual dispatch can overlap, and the branch may have
           # moved on while the fetch was running.

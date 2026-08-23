@@ -38,7 +38,7 @@ const bad = (status, statusText) => ({ ok: false, status, statusText, headers, t
  * banner every subject file of an unpublished term carries. A subject in
  * `failing` 403s, which fetchText treats as fatal, one in `mislabelled` returns
  * a file stamped with the wrong term, and one in `layoutBroken` returns a file
- * with no column header.
+ * with no column header. `updated` is the date every file is stamped with.
  */
 export function install({
   subjects = [],
@@ -49,6 +49,7 @@ export function install({
   mislabelled = [],
   layoutBroken = [],
   sections = 4,
+  updated,
 } = {}) {
   return stubFetch((href) => {
     if (href === `${API}/searchableTermsV2`) {
@@ -64,7 +65,11 @@ export function install({
       subject,
       mislabelled.includes(subject) ? "1264" : term,
       rows(subject, sections),
-      { draft: draft.includes(term), ...(layoutBroken.includes(subject) ? { columns: null } : {}) }
+      {
+        draft: draft.includes(term),
+        ...(updated ? { updated } : {}),
+        ...(layoutBroken.includes(subject) ? { columns: null } : {}),
+      }
     ));
   });
 }

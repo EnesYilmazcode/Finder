@@ -21,6 +21,19 @@ const MAX_DROP = 0.1;
 export const forceable = (reason) => ({ reason, forceable: true });
 export const fatal = (reason) => ({ reason, forceable: false });
 
+// A short answer from searchableTermsV2 is not a shrink. It deletes committed
+// files for terms this run never asked about, so FORCE_WRITE=1 does not reach
+// it: that flag is for shipping one term's real shrink. Terms do roll over, so
+// there has to be a way to accept one, and this is it.
+export function termListRefusal(count, previous, allow = process.env.ALLOW_TERM_DROP === '1') {
+  const short = countRefusal('searchable terms', count, 1, previous);
+  if (!short) return null;
+  // An empty answer trips the floor, which is nobody's rollover.
+  if (!short.forceable) return short;
+  if (allow) return null;
+  return fatal(`${short.reason}; set ALLOW_TERM_DROP=1 once a term really has rolled over`);
+}
+
 // A count against its floor and against the last committed run. `previous` is 0
 // or null on a first run, which leaves only the floor.
 export function countRefusal(label, count, floor, previous) {

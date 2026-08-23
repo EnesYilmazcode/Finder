@@ -3,15 +3,21 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { BARRETT_SUBJECT } from "./fixtures.js";
-import { countRefusal, refusalMessage, residueRefusal, subjectResidueRefusal } from "../scripts/guards.mjs";
-import { previousCount, writeRefusals as ratingsRefusals } from "../scripts/fetch-ratings.mjs";
+import {
+  countRefusal,
+  refusalMessage,
+  residueRefusal,
+  subjectResidueRefusal,
+  termListRefusal,
+} from "../scripts/guards.mjs";
+import { courseCodes, courseIndex, previousCount, writeRefusals as ratingsRefusals } from "../scripts/fetch-ratings.mjs";
 import { previousIndex, subjectsByTerm, writeRefusals as coursesRefusals } from "../scripts/fetch-courses.mjs";
-import { parseSubjectFile, previousSections, subjectRefusals, termProblem } from "../scripts/fetch-seats.mjs";
+import { appendTrend, parseSubjectFile, previousSections, subjectRefusals, termProblem } from "../scripts/fetch-seats.mjs";
 
 const DATA = join(dirname(dirname(fileURLToPath(import.meta.url))), "data");
 const read = async (name) => JSON.parse(await readFile(join(DATA, name), "utf8"));
@@ -33,6 +39,7 @@ const parsed = (subject, sections, failures) => ({
 // otherwise.
 const termStats = (term, extra) => ({
   term,
+  sourceUpdated: "2026-08-21",
   subjectsOffered: 200,
   subjectsFailed: 0,
   subjectsUnparsed: 0,
@@ -296,4 +303,150 @@ test("FORCE_WRITE=1 clears a shrink but not a broken parse", () => {
   }
   assert.equal(warnings.length, 2);
   for (const line of warnings) assert.match(line, /FORCE_WRITE=1/);
+});
+
+// The two newest nightly outputs. Neither is committed yet, so each is held to
+// the shape its writer produces as well as to the file, or the coverage would
+// be a test that runs on nothing until the night it matters.
+test("trend-{term}.json keeps its shape", async () => {
+  const index = await read("seats.json");
+  // 10003 does not move, so it is what the prune has to drop: a term is 17692
+  // sections and only a fifth of them move on a night.
+  const sections = (a, b, c) => ({ 10001: a, 10002: b, 10003: c });
+  const before = { term: "1268", sourceUpdated: "2026-08-20", sections: sections([30, 40, 2], [40, 40, 1], [12, 25, 0]) };
+  const after = { term: "1268", sourceUpdated: "2026-08-21", sections: sections([31, 40, 0], [39, 40, 0], [12, 25, 0]) };
+  const yesterday = { term: "1268", from: "2026-08-19", days: ["2026-08-20"], enrolled: {}, waitlist: {}, opened: [] };
+  const written = appendTrend(yesterday, before, after);
+
+  const files = (await readdir(DATA)).filter((name) => /^trend-\d{4}\.json$/.test(name));
+  const committed = await Promise.all(files.map(async (name) => [name, await read(name)]));
+
+  for (const [what, trend] of [["appendTrend", written], ...committed]) {
+    const keys = ["term", "from", "days", "enrolled", "waitlist", "opened"];
+    assert.deepEqual(Object.keys(trend), keys, `${what} is missing a key or reordered one`);
+    if (what !== "appendTrend") {
+      assert.equal(`trend-${trend.term}.json`, what);
+      assert.ok(index.terms.some((t) => t.term === trend.term), `${what} has no term file to sit beside`);
+    }
+    assert.match(trend.from, /^\d{4}-\d{2}-\d{2}$/);
+    for (const day of trend.days) assert.match(day, /^\d{4}-\d{2}-\d{2}$/);
+
+    // js/trend.js drops a series whose length does not match, so a file that
+    // gets this wrong renders as a term where nothing moved.
+    for (const field of ["enrolled", "waitlist"]) {
+      for (const [classNumber, series] of Object.entries(trend[field])) {
+        assert.match(classNumber, /^\d+$/);
+        assert.equal(series.length, trend.days.length, `${what} ${field} ${classNumber} is not one point per day`);
+        for (const value of series) assert.equal(typeof value, "number");
+        assert.ok(series.some(Boolean), `${what} ${field} ${classNumber} never moved and should have been pruned`);
+      }
+    }
+    for (const classNumber of trend.opened) assert.match(classNumber, /^\d+$/);
+  }
+
+  assert.deepEqual(written.days, ["2026-08-20", "2026-08-21"]);
+  assert.deepEqual(written.enrolled, { 10001: [0, 1], 10002: [0, -1] });
+  assert.deepEqual(written.opened, ["10002"]);
+});
+
+test("ratings-courses.json keeps its shape", async () => {
+  // Through courseCodes, so the rules that keep a blank name and a zero count
+  // out of the file are the ones on trial rather than a fixture.
+  const upstream = [
+    { legacyId: 12, courseCodes: [{ courseName: "CSE 2221", courseCount: 3 }, { courseName: " ", courseCount: 9 }] },
+    {
+      legacyId: 34,
+      courseCodes: [
+        { courseName: "MATH1151", courseCount: 1 },
+        { courseName: "math 1151", courseCount: 2 },
+        { courseName: "STAT 1350", courseCount: 0 },
+      ],
+    },
+  ];
+  const taught = upstream.map((node) => ({ legacyId: node.legacyId }));
+  const codes = new Map(upstream.map((node) => [node.legacyId, courseCodes(node)]));
+  const files = [["courseIndex", courseIndex(taught, codes)]];
+  try {
+    files.push(["ratings-courses.json", await read("ratings-courses.json")]);
+  } catch {
+    // Not committed until the first nightly that clears the courseCodes gate.
+  }
+
+  for (const [what, courses] of files) {
+    const keys = ["source", "note", "count", "professors"];
+    assert.deepEqual(Object.keys(courses), keys, `${what} is missing a key or reordered one`);
+    const entries = Object.entries(courses.professors);
+    assert.equal(courses.count, entries.length, `${what} does not hold what it says`);
+    for (const [legacyId, byCourse] of entries) {
+      assert.match(legacyId, /^\d+$/);
+      const named = Object.entries(byCourse);
+      assert.ok(named.length, `${what} ${legacyId} is in the file with no course`);
+      // The count is what the detail pane weights a rating by, so zero would be
+      // a course that is listed and contributes nothing.
+      for (const [name, count] of named) {
+        assert.ok(name.trim(), `${what} ${legacyId} names a blank course`);
+        assert.equal(typeof count, "number");
+        assert.ok(count > 0, `${what} ${legacyId} ${name} is ${count}`);
+      }
+    }
+  }
+});
+
+// Regression, #59. FORCE_WRITE=1 is one flag over every drop in the run, and the
+// term list is the one drop that deletes files for terms the run never fetched.
+test("FORCE_WRITE=1 does not clear a short term list", () => {
+  const short = termListRefusal(2, 3, false);
+  assert.match(short.reason, /searchable terms: got 2/);
+  assert.equal(short.forceable, false, "so refusalMessage cannot force it");
+  assert.equal(refusalMessage([short], true), short.reason);
+  assert.match(short.reason, /ALLOW_TERM_DROP=1/);
+  assert.doesNotMatch(refusalMessage([short], false), /FORCE_WRITE/);
+
+  // The flag that does say what it does, and the floor neither flag clears.
+  assert.equal(termListRefusal(2, 3, true), null);
+  assert.equal(termListRefusal(3, 3, false), null);
+  const empty = refusalMessage([termListRefusal(0, 3, true)], true);
+  assert.equal(empty, "searchable terms: got 0, the floor is 1, and 3 is already committed");
+});
+
+// Regression, #59. toIsoDate hands back whatever Barrett stamped when it does
+// not match d-MMM-yyyy, and every reader of sourceUpdated wants yyyy-mm-dd.
+test("a term Barrett stamped with a date this cannot read is held back", async () => {
+  const entry = (await read("seats.json")).terms[0];
+  const previous = entry.sections;
+  const stamped = (sourceUpdated) =>
+    termProblem(termStats(entry.term, { sectionsParsed: previous, sourceUpdated }), { previous, force: false });
+
+  assert.equal(stamped("2026-08-21"), null);
+  // A case change upstream is enough: MONTHS holds Aug, not AUG.
+  assert.match(stamped("19-AUG-2026"), /"19-AUG-2026", which is not a yyyy-mm-dd date/);
+  assert.match(stamped(""), /term \d{4}: Barrett stamped ""/);
+  // Not forceable, because forcing it writes the unreadable date.
+  assert.match(
+    termProblem(termStats(entry.term, { sectionsParsed: previous, sourceUpdated: "19-AUG-2026" }), { previous, force: true }),
+    /not a yyyy-mm-dd date/
+  );
+});
+
+// Regression, #59. Number() on a units field the API did not send as a number
+// gives NaN, and JSON.stringify writes that as null.
+test("a course whose units are not numbers is refused", async () => {
+  const previous = subjectsByTerm(await previousIndex());
+  const [strm, before] = [...previous][0];
+  const still = (await read("courses.json")).terms[strm].subjects;
+  const gate = (subjects) => say(coursesRefusals(strm, before.subjects, before.courses, before, subjects));
+
+  assert.equal(gate(still), null);
+
+  // One course of the term, the way a variable-credit subject would arrive if
+  // the API ever described its units in words.
+  const [first, ...rest] = still;
+  const [catalog, title] = first.courses[0];
+  const broken = [{ ...first, courses: [[catalog, title, Number("VAR"), 3], ...first.courses.slice(1)] }, ...rest];
+  const refusal = gate(broken);
+  assert.match(refusal, /1 courses have units that are not numbers/);
+  assert.match(refusal, new RegExp(`${first.code} ${catalog}`));
+  assert.doesNotMatch(refusal, /FORCE_WRITE/);
+  const forced = refusalMessage(coursesRefusals(strm, before.subjects, before.courses, before, broken), true);
+  assert.match(forced, /not numbers/);
 });

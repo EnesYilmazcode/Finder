@@ -13,7 +13,9 @@
 // searchable terms keep the files and index entries they already have. A term
 // that fails its checks keeps what it has too, and the run exits non-zero.
 // FORCE_WRITE=1 writes a term that came back far short of the one already
-// committed, which is how a real upstream shrink gets shipped.
+// committed, which is how a real upstream shrink gets shipped. ALLOW_TERM_DROP=1
+// is the separate flag for a term that has left the searchable list, because
+// that deletes the files of terms this run never fetched.
 //
 // Output is one file per term, data/seats-1268.json, plus data/seats.json
 // listing them. Seats load before anything renders, so a browser fetches the
@@ -29,7 +31,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promise
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { countRefusal, fatal, refusalMessage, subjectResidueRefusal } from './guards.mjs';
+import { countRefusal, fatal, refusalMessage, subjectResidueRefusal, termListRefusal } from './guards.mjs';
 
 const BASE = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
 // Only for the term list. Every seat number here comes from Barrett.
@@ -112,6 +114,7 @@ const HEADER_RE = /^(\S+)\s+(\d{4}) \((.+?)\)\s+updated: (\S+)\s*$/;
 const COLUMNS_RE = /class#.*enrld\/limit\/\+wait/;
 const COLUMNS_SEARCH_LINES = 10;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -402,11 +405,12 @@ async function snapshotTerm(term, subjects) {
   }
 
   const groups = linkGroups([...byClass.values()]);
+  const sourceUpdated = toIsoDate(updated);
 
   const snapshot = {
     term,
     termName,
-    sourceUpdated: toIsoDate(updated),
+    sourceUpdated,
     sections,
     groups,
   };
@@ -415,6 +419,7 @@ async function snapshotTerm(term, subjects) {
     snapshot,
     stats: {
       term,
+      sourceUpdated,
       subjectsListed: subjects.length,
       subjectsOffered: offered,
       subjectsFailed: fetchErrors.length,
@@ -462,6 +467,12 @@ function termProblem(stats, { refusals = [], previous = 0, force } = {}) {
       // so one is enough to hold the term back. This is the threshold the loud
       // throws in parseSubjectFile rely on, so it does not get a tolerance.
       stats.subjectsUnparsed > 0 ? fatal(`${label}: ${stats.subjectsUnparsed} subject files did not parse`) : null,
+      // toIsoDate hands back whatever Barrett stamped when it is not d-MMM-yyyy,
+      // and nothing downstream reads it as anything but yyyy-mm-dd: the trend
+      // compares it as a string and the page parses it as a date.
+      ISO_DATE_RE.test(stats.sourceUpdated ?? '')
+        ? null
+        : fatal(`${label}: Barrett stamped ${JSON.stringify(stats.sourceUpdated ?? '')}, which is not a yyyy-mm-dd date`),
       stats.residueRate > MAX_TERM_RESIDUE_RATE
         ? fatal(
             `${label}: residue rate ${(stats.residueRate * 100).toFixed(2)}% exceeds ` +
@@ -589,9 +600,7 @@ async function main() {
   // non-deterministically, and a term missing from that answer has its file
   // deleted at the end of this run. A named run is held to the same check,
   // because it decides what to keep from the same list.
-  const termRefusal = refusalMessage([
-    countRefusal('searchable terms', searchable.length, 1, committed?.terms?.length),
-  ]);
+  const termRefusal = refusalMessage([termListRefusal(searchable.length, committed?.terms?.length)]);
   if (termRefusal) throw new Error(`Refusing to write ${OUT_DIR}.\n${termRefusal}`);
 
   // One subject index covers every term. It lists every code Barrett knows, and

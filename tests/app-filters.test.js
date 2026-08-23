@@ -144,7 +144,7 @@ const SPLIT = [
 const filterNote = (page) =>
   page.all(".hidden-note").find((n) => n.textContent.includes("hidden by your filters"))?.textContent ?? "";
 
-test("regression #77: the calendar note counts only the pile the grid plots", async () => {
+test("regression #77: switching to the calendar drops what the grid cannot plot", async () => {
   const restore = stubFetch(new Map([
     ["data/ratings.json", RATINGS],
     ["data/seats.json", SEATS_INDEX],
@@ -166,4 +166,115 @@ test("regression #77: the calendar note counts only the pile the grid plots", as
   page.el("#view-list").click();
   assert.match(filterNote(page), /^2 sections and 1 course hidden by your filters/);
   restore();
+});
+
+// Regression, #68. The two flag checkboxes reach the filter rule through
+// readFilters and come back from a link through writeFilters, and nothing else
+// on the page reads them, so both boxes can be inert without a test objecting.
+// 1002 needs permission and 1003 is a graduate section, one flag each.
+const FLAGGED = [
+  entry("CSE", "2221", "Software 1", [
+    taught(1001, MWF, "9:00 AM", "9:55 AM", ["Stephen Gomori"]),
+    taught(1002, MWF, "10:20 AM", "11:15 AM", ["Stephen Gomori"], { consent: "I" }),
+    taught(1003, MWF, "1:00 PM", "1:55 PM", ["Stephen Gomori"], { career: "GRAD" }),
+  ]),
+];
+
+function serveFlagged() {
+  return stubFetch(new Map([
+    ["data/ratings.json", RATINGS],
+    ["data/seats.json", SEATS_INDEX],
+    [`data/seats-${TERM}.json`, SEATS_TERMS[TERM]],
+    [/searchableTermsV2/, TERMS],
+    [/\/classes\/search/, { data: { totalItems: 3, totalPages: 1, courses: FLAGGED } }],
+  ]));
+}
+
+const numbers = (page) => page.all(".section").map((row) => row.dataset.classNumber);
+
+test("regression #68: hiding permission-only sections takes 1002 off the page and into the URL", async (t) => {
+  t.after(serveFlagged());
+  const page = await mountApp({ query: "CSE 2221", term: TERM });
+  await until(() => rows(page) === 3, "the three sections to paint");
+
+  page.el("#f-consent").checked = true;
+  fire(page.el("#filters"), "change");
+
+  assert.deepEqual(numbers(page), ["1001", "1003"]);
+  assert.match(note(page).textContent, /^1 section hidden by your filters/);
+  assert.equal(page.el("#f-clear").hidden, false);
+  assert.match(page.location.search, /hideConsent=1/);
+});
+
+test("regression #68: only-undergraduate takes the graduate section off the page and into the URL", async (t) => {
+  t.after(serveFlagged());
+  const page = await mountApp({ query: "CSE 2221", term: TERM });
+  await until(() => rows(page) === 3, "the three sections to paint");
+
+  page.el("#f-undergrad").checked = true;
+  fire(page.el("#filters"), "change");
+
+  assert.deepEqual(numbers(page), ["1001", "1002"]);
+  assert.equal(page.el("#f-clear").hidden, false);
+  assert.match(page.location.search, /undergradOnly=1/);
+});
+
+// The other half of the round trip. A rail that never reads the two keys back
+// shows both boxes clear over a page that is filtered anyway, which is the same
+// lie #78 fixed for the boxes above them.
+test("regression #68: a link carrying both keys comes back with both boxes ticked", async (t) => {
+  t.after(serveFlagged());
+  const page = await mountApp({
+    query: "CSE 2221",
+    term: TERM,
+    url: "https://enesyilmazcode.github.io/Finder/?hideConsent=1&undergradOnly=1",
+  });
+  await until(() => rows(page) === 1, "the one section both filters keep");
+
+  assert.equal(page.el("#f-consent").checked, true, "the permission box came back clear over a filtered page");
+  assert.equal(page.el("#f-undergrad").checked, true, "the undergraduate box came back clear over a filtered page");
+  assert.deepEqual(numbers(page), ["1001"]);
+  assert.equal(page.el("#f-clear").hidden, false);
+});
+
+// Regression, #63. #f-sort sits outside <form id="filters">, so the only thing
+// that puts a link's order back on it is writeFilters naming it. Left out, a
+// shared "Earliest start time" link paints in relevance order under a control
+// reading Relevance, and the link looks like it worked. The later class number
+// starts earlier, so the two orders cannot agree by accident.
+const OUT_OF_ORDER = [
+  entry("CSE", "2221", "Software 1", [
+    taught(1001, MWF, "2:00 PM", "2:55 PM", ["Stephen Gomori"]),
+    taught(1002, MWF, "9:00 AM", "9:55 AM", ["Stephen Gomori"]),
+  ]),
+];
+
+async function sorted(sort) {
+  const page = await mountApp({
+    query: "CSE 2221",
+    term: TERM,
+    url: `https://enesyilmazcode.github.io/Finder/?sort=${sort}`,
+  });
+  await until(() => rows(page) === 2, "both sections to paint");
+  return page;
+}
+
+test("regression #63: a link's order comes back on the control and on the page", async (t) => {
+  t.after(stubFetch(new Map([
+    ["data/ratings.json", RATINGS],
+    ["data/seats.json", SEATS_INDEX],
+    [`data/seats-${TERM}.json`, SEATS_TERMS[TERM]],
+    [/searchableTermsV2/, TERMS],
+    [/\/classes\/search/, { data: { totalItems: 2, totalPages: 1, courses: OUT_OF_ORDER } }],
+  ])));
+
+  const start = await sorted("start");
+  assert.equal(start.el("#f-sort").value, "start", "the rail claims relevance over a sorted page");
+  assert.deepEqual(numbers(start), ["1002", "1001"]);
+
+  // A select set to a value it has no option for shows nothing at all, so an
+  // order the app does not offer has to come back as relevance rather than blank.
+  const bogus = await sorted("cheapest");
+  assert.equal(bogus.el("#f-sort").value, "");
+  assert.deepEqual(numbers(bogus), ["1001", "1002"]);
 });

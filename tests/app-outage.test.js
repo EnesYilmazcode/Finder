@@ -2,9 +2,7 @@
 //
 // tests/outage.test.js pins the two flags underneath. This is what #85 actually
 // showed anybody: the sentence a student reads and the three controls that go
-// dark. js/ratings.js stays warm across mounts, so the order here is the only
-// one reachable: ratings die on the first mount and stay dead, and the second
-// mount names a term whose seats the first never asked for.
+// dark. Each mount gets its own copy of js/, so the two land in either order.
 
 import test from "node:test";
 import assert from "node:assert/strict";

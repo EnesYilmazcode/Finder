@@ -65,8 +65,10 @@ test("a search submitted before the terms arrive is held rather than eaten by th
 
   terms.release(TERM_LIST);
   await until(() => page.all(".section").length > 0, "the held search to run once the terms land");
-  assert.match(status(page), /1 course, 1 sections in Autumn 2026/);
+  assert.match(status(page), /1 course, 1 section in Autumn 2026/);
   assert.equal(page.el("#term").value, "1268", "the term list never filled the picker");
+  // Written before there was a term to write, so nothing had put one in it.
+  assert.match(page.location.search, /term=1268/, "the link left behind names no term at all");
 });
 
 test("a shared link's query is in the box before the terms request answers", async (t) => {

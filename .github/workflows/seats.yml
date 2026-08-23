@@ -16,6 +16,11 @@ on:
         type: boolean
         required: false
         default: false
+      dropTerms:
+        description: 'Accept a term that has left the searchable list, deleting its files'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -40,6 +45,7 @@ jobs:
         env:
           TERM_INPUT: ${{ inputs.term }}
           FORCE_WRITE: ${{ inputs.force && '1' || '' }}
+          ALLOW_TERM_DROP: ${{ inputs.dropTerms && '1' || '' }}
         run: node scripts/fetch-seats.mjs $TERM_INPUT
 
       # The fetch exits non-zero when it skipped a term, and the terms it did
@@ -52,8 +58,10 @@ jobs:
           # is new and one that was dropped, and staging a file whose bytes did
           # not move records nothing, so an unchanged term stays out of the diff.
           # The trend files stage here too, or they are written on the runner
-          # and never committed.
-          git add -A -- data/seats.json 'data/seats-*.json' 'data/trend-*.json'
+          # and never committed. They are listed rather than globbed because git
+          # add is fatal on a pathspec matching nothing, and a run that wrote no
+          # term wrote no trend file either.
+          git add -A -- data/seats.json 'data/seats-*.json' $(git ls-files -co -- 'data/trend-*.json')
           if git diff --cached --quiet; then
             echo "No seat file changed, nothing to commit."
             exit 0

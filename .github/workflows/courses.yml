@@ -15,6 +15,11 @@ on:
         type: boolean
         required: false
         default: false
+      dropTerms:
+        description: 'Accept a term that has left the searchable list, dropping it from the index'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -41,6 +46,7 @@ jobs:
       - name: Build course index
         env:
           FORCE_WRITE: ${{ inputs.force && '1' || '' }}
+          ALLOW_TERM_DROP: ${{ inputs.dropTerms && '1' || '' }}
         run: node scripts/fetch-courses.mjs
 
       - name: Commit if changed

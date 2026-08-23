@@ -70,3 +70,34 @@ test("regression #76: switching term re-runs the picked subject still scoped", a
   assert.equal(url.searchParams.get("term"), "1262");
   assert.equal(url.searchParams.get("subject"), "math", "the re-run dropped back to a keyword search");
 });
+
+// The pickers are filled from the query too, so a search for "CSE 2221" leaves
+// 2221 in the number field. Picking a subject over it used to search nothing at
+// all: the leftover number blocked the search and stayed in the rail, which then
+// read MATH 2221 over CSE 2221's results.
+test("regression #76: picking a subject over a course search searches the subject", async (t) => {
+  const asked = [];
+  t.after(stubFetch([
+    ["data/ratings.json", RATINGS],
+    ["data/seats.json", SEATS_INDEX],
+    ["data/seats-1268.json", SEATS_TERMS["1268"]],
+    ["data/courses.json", COURSE_INDEX],
+    [(url) => url.includes("searchableTermsV2"), TERM_LIST],
+    [SEARCH, (url) => { asked.push(url); return RESULT; }],
+  ]));
+  const page = await mountApp({ query: "CSE 2221" });
+  await until(() => asked.length > 0, "the link's own search");
+  assert.equal(page.el("#p-number").value, "2221", "the query never reached the pickers");
+
+  fire(page.el("#p-subject"), "focus");
+  await settle(4);
+  page.el("#p-subject").value = "MATH — Mathematics";
+  fire(page.el("#p-subject"), "input");
+  await until(() => asked.length > 1, "the picked subject to reach the API");
+
+  const url = new URL(asked[asked.length - 1]);
+  assert.equal(url.searchParams.get("subject"), "math");
+  assert.equal(url.searchParams.get("q"), "", "2221 rode along into a subject that has no such course");
+  assert.equal(page.el("#p-number").value, "", "the rail still names a course from the subject before this one");
+  assert.equal(page.el("#q").value, "MATH");
+});

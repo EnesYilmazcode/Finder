@@ -8,7 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mountApp, until, settle } from "./dom.js";
+import { fire, mountApp, until, settle } from "./dom.js";
 import { stubFetch } from "./helpers.js";
 import { RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, onlineMeeting, person, section, taught } from "./fixtures.js";
 
@@ -135,4 +135,147 @@ test("the class number is copyable where the browser has a clipboard", async (t)
   await until(() => copied.length === 1, "the class number to reach the clipboard");
   assert.deepEqual(copied, ["1001"]);
   restore();
+});
+
+/** A share sheet, which node:test's navigator has no more than it has a clipboard. */
+function stubShare(t, share) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { share } });
+  t.after(() => Object.defineProperty(globalThis, "navigator", original));
+}
+
+test("the section is shareable where the browser has a share sheet", async (t) => {
+  const shared = [];
+  stubShare(t, async (data) => { shared.push(data); });
+  t.after(serve());
+
+  const page = await followed(`${PAGE}?class=1001`);
+  const share = page.el(".d-act");
+  assert.equal(share?.textContent, "Share", "no share button where the browser offers a sheet");
+
+  share.click();
+  await until(() => shared.length === 1, "the section to reach the share sheet");
+
+  assert.equal(shared[0].title, "CSE 2221 section 1001");
+  // The link the sheet sends has to be the one on screen, or the friend opens
+  // the page on somebody else's section.
+  assert.equal(shared[0].url, page.location.href);
+  assert.match(shared[0].url, /class=1001/);
+});
+
+// Closing the sheet without sending rejects, and an unhandled rejection is a
+// crash on the page rather than a student changing their mind.
+test("regression #64: dismissing the share sheet is not an error", async (t) => {
+  let tried = 0;
+  stubShare(t, async () => { tried += 1; throw new Error("AbortError"); });
+  t.after(serve());
+
+  const page = await followed(`${PAGE}?class=1001`);
+  page.el(".d-act").click();
+  await until(() => tried === 1, "the share sheet to open");
+  await settle(2);
+
+  assert.equal(page.el(".section.is-selected")?.dataset.classNumber, "1001");
+});
+
+// A link that missed leaves a note on the results, and the next row opened is
+// the answer to it. Nothing else in the suite opens a second section, so the
+// whole of deselectRows is only measured here.
+test("regression #64: opening a section clears the last one and the note that missed it", async (t) => {
+  t.after(serve());
+  const page = await followed(`${PAGE}?class=9999`);
+
+  assert.match(linkNote(page).textContent, /^Section 9999 is not in these results\./);
+  assert.equal(selected(page), null);
+
+  page.el('[data-class-number="1001"]').click();
+  assert.equal(selected(page)?.dataset.classNumber, "1001");
+  assert.equal(linkNote(page), null, "the note still names a section the pane is no longer about");
+
+  page.el('[data-class-number="1002"]').click();
+
+  assert.deepEqual(page.all(".section.is-selected").map((row) => row.dataset.classNumber), ["1002"]);
+  assert.deepEqual(page.all("[aria-current]").map((row) => row.dataset.classNumber), ["1002"],
+    "two rows are announced as current at once");
+  assert.match(page.location.search, /class=1002/);
+});
+
+// The pane's own Back button, which nothing else in the suite presses. Three
+// things have to happen at once: the link stops naming a section, the row it
+// named keeps its selection, and focus goes back to that row rather than to the
+// pane that is no longer on screen. #64 with #74.
+test("regression #64: the pane's Back button closes it, unnames the section and returns focus to its row", async (t) => {
+  t.after(serve());
+  const page = await followed(PAGE);
+  // The object app.js holds, so flipping it here is what a phone is.
+  page.window.matchMedia("(max-width: 64rem)").matches = true;
+
+  page.el('[data-class-number="1001"]').click();
+  assert.equal(page.el(".app").dataset.view, "detail");
+  assert.match(page.location.search, /class=1001/);
+
+  page.el("#detail-back").click();
+
+  assert.equal(page.el(".app").dataset.view, "results");
+  assert.doesNotMatch(page.location.search, /class=/, "a shut pane still names its section");
+  assert.equal(selected(page)?.dataset.classNumber, "1001", "the row lost the selection focus was about to go back to");
+  assert.equal(page.document.activeElement.dataset.classNumber, "1001");
+});
+
+// An entry is the whole URL, so Back has to put the rail back too. Only the
+// pane pushes, so the entry behind it is the search as it was before the pane
+// opened, filters and all.
+test("regression #64: Back undoes a filter set after the pane opened", async (t) => {
+  t.after(serve());
+  const page = await followed(PAGE);
+
+  page.el('[data-class-number="1001"]').click();
+  page.el("#f-online").checked = true;
+  fire(page.el("#filters"), "change");
+  assert.equal(page.all(".section").length, 1);
+  assert.doesNotMatch(page.location.search, /class=/, "the repaint closed the pane and the link still names it");
+
+  page.history.back();
+
+  assert.equal(page.el("#f-online").checked, false, "the rail kept a filter the URL no longer carries");
+  assert.equal(page.all(".section").length, 2);
+  assert.equal(page.el("#f-clear").hidden, true);
+  assert.doesNotMatch(page.location.search, /hideOnline/);
+});
+
+// A link's section belongs to the search it arrived with. Landing on one that
+// names a section but no query leaves it pending over the welcome screen, and
+// without the guard the next search a student types inherits it and is told
+// about a section they never asked for.
+test("regression #64: a link's section does not follow a search the student typed", async (t) => {
+  t.after(serve());
+  const page = await mountApp({ term: TERM, url: `${PAGE}?class=9999` });
+  await until(() => page.el("#welcome").hidden === false, "the welcome screen");
+
+  page.el("#q").value = "CSE 2221";
+  page.el("#go").click();
+  await until(() => page.all(".section").length === 2, "the typed search to paint");
+
+  assert.equal(linkNote(page), null, "the new search was annotated with the old link's section");
+  assert.doesNotMatch(page.location.search, /class=/);
+});
+
+// <details> hides its content rather than deferring it, so the related courses
+// are built on first open. A link into one opens the list itself and builds it,
+// and the browser answers that `open` with a toggle event, so the same open
+// arrives twice and the build has to survive being asked again.
+test("regression #64: the related list builds on first unfold and only once", async (t) => {
+  t.after(serve());
+  const page = await followed(PAGE);
+
+  const details = page.el("details.related");
+  assert.ok(!details.open);
+  assert.equal(page.el('[data-class-number="2001"]'), null, "the folded list was built before anyone asked");
+
+  details.open = true;
+  fire(details, "toggle");
+  assert.equal(page.all('[data-class-number="2001"]').length, 1, "unfolding the list built nothing");
+
+  fire(details, "toggle");
+  assert.equal(page.all('[data-class-number="2001"]').length, 1, "the list built a second copy of itself");
 });

@@ -12,7 +12,6 @@ import { linkedTo, seatsFor, unreachable } from "./seats.js";
 import { openedOn } from "./trend.js";
 import { orderBy } from "./sort.js";
 
-// One cap for the whole strip, whatever a later branch feeds into it.
 export const ROW_CHIPS = 2;
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
@@ -165,7 +164,7 @@ export function renderSection(section, term) {
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
 
-  // See #82.
+  // The row's first line has room for one pattern, and a section can hold more.
   for (const extra of meetings.slice(1)) {
     li.append(el("span", "section-also", `${formatWhen(extra)} · ${formatPlace(extra, section)}`));
   }

@@ -103,6 +103,7 @@ describe("what holds a term back", () => {
 
   const termStats = (extra) => ({
     term: "1268",
+    sourceUpdated: "2026-08-18",
     subjectsOffered: 241,
     subjectsFailed: 0,
     subjectsUnparsed: 0,

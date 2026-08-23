@@ -209,10 +209,14 @@ node scripts/fetch-seats.mjs 1268
 All three refuse to write a snapshot that came back far short of the one already
 committed, and leave the old file in place. `FORCE_WRITE=1`, or the force input
 on the workflow, writes it anyway, which is how a real shrink gets shipped. A
-file that failed to parse is refused either way.
+file that failed to parse is refused either way, and so is a short answer from
+the term list, which takes `ALLOW_TERM_DROP=1` because it deletes the files of
+terms the run never fetched.
 
-`npm test` runs 556 tests through `node --test`, with nothing installed.
-23 of them call Ohio State and are skipped unless `FINDER_LIVE=1`.
+`npm test` runs the suite through `node --test`, with nothing installed. The one
+file that calls Ohio State is skipped unless `FINDER_LIVE=1`, so a default run
+stays offline. The runner prints the count at the end; it is not written out
+here, because the copy went stale every time the suite grew.
 
 ## Repo layout
 
@@ -220,6 +224,7 @@ file that failed to parse is refused either way.
 index.html            the whole page
 css/finder.css        the app stylesheet, no framework
 css/fonts.css         the three families, self hosted
+css/stats.css         the /stats page
 assets/fonts/         the woff2 files and their licenses
 js/
   app.js              wiring, state, URL sync
@@ -242,7 +247,7 @@ js/
 scripts/              the three snapshot jobs
 data/                 the snapshots, committed
 docs/                 what OSU's API and Barrett's schedule get wrong
-tests/                556 tests, zero dependencies
+tests/                node:test, zero dependencies
 wireframes/           three layouts considered first
 analytics/            the page-view counter, a Cloudflare Worker
 stats/                the page that reads the counter
@@ -257,7 +262,8 @@ stats/                the page that reads the counter
 - A shared calendar link opens as a list.
 - Changing a filter clears whichever section you had selected.
 - Columbus only, and only the three terms OSU's API exposes at a time.
-- A section with several meeting patterns shows the first one.
+- A section listed in two rooms of the same building at the same hour shows
+  one of them.
 
 Finder is not affiliated with or endorsed by The Ohio State University.
 

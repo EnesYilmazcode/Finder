@@ -13,13 +13,15 @@
 // what the workflow does. Naming terms is for local debugging: the file is
 // rewritten, so terms left out are dropped from it. --allow-drop is FORCE_WRITE=1
 // under another name, for accepting a subject the last index had courses for and
-// this run found none of.
+// this run found none of. Accepting a term that has left the searchable list is
+// ALLOW_TERM_DROP=1, which is a separate flag because it drops terms this run
+// never indexed.
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { countRefusal, forceable, refusalMessage } from './guards.mjs';
+import { countRefusal, fatal, forceable, refusalMessage, termListRefusal } from './guards.mjs';
 
 const API = 'https://content.osu.edu/v2/classes';
 const BARRETT = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
@@ -243,14 +245,37 @@ function lostSubjects(previous, subjects) {
   return [...previous].filter((code) => !offered.has(code));
 }
 
+// Rows whose credit hours did not survive Number(). NaN is written as null, and
+// the page reads that as a course with no credit hours rather than as one the
+// API described in a way this script cannot read.
+function unreadableUnits(subjects) {
+  const bad = [];
+  for (const subject of subjects) {
+    for (const [catalog, , min, max] of subject.courses ?? []) {
+      if (Number.isFinite(min) && Number.isFinite(max)) continue;
+      bad.push(`${subject.code} ${catalog}`);
+    }
+  }
+  return bad;
+}
+
 // Every reason not to write a term. Apart from main so a test can hold it to the
 // counts that are really committed. `subjects` is what this run built for the
 // term, because one of the reasons is which of them went missing.
 function writeRefusals(strm, offered, courses, before, subjects = []) {
   const lost = lostSubjects(before?.codes ?? new Set(), subjects);
+  const unreadable = unreadableUnits(subjects);
   return [
     countRefusal(`term ${strm} subjects`, offered, MIN_SUBJECTS, before?.subjects),
     countRefusal(`term ${strm} courses`, courses, MIN_COURSES, before?.courses),
+    // Not forceable: forcing it would write the nulls, which is the thing being
+    // refused. A units field this script cannot read is a shape change.
+    unreadable.length
+      ? fatal(
+          `term ${strm}: ${unreadable.length} courses have units that are not numbers ` +
+            `(${unreadable.slice(0, 5).join(', ')})`
+        )
+      : null,
     // Forceable for the same reason a shrink is: a subject really can retire, and
     // the stale index goes on saying it had courses until an operator accepts it.
     lost.length
@@ -423,10 +448,7 @@ async function main() {
   // is rewritten every run. A named run is exempt: dropping the rest is what
   // that mode is for.
   if (!requested.length) {
-    const refusal = refusalMessage(
-      [countRefusal('searchable terms', terms.length, 1, Object.keys(committed?.terms ?? {}).length)],
-      force
-    );
+    const refusal = refusalMessage([termListRefusal(terms.length, Object.keys(committed?.terms ?? {}).length)]);
     if (refusal) throw new Error(`Refusing to write ${OUT_PATH}.\n${refusal}`);
   }
 

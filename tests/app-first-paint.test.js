@@ -191,5 +191,5 @@ test("a welcome example clicked before the term's seats land keeps the results",
 
   assert.equal(page.el("#welcome").hidden, true, "the landing screen came back over the results");
   assert.equal(page.all(".section").length, 1, "the results left the screen");
-  assert.match(page.el("#status").textContent, /^1 course, 1 sections in Autumn 2026\./);
+  assert.match(page.el("#status").textContent, /^1 course, 1 section in Autumn 2026\./);
 });

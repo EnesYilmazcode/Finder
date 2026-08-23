@@ -156,6 +156,17 @@ async function previousCount(path = OUT_PATH) {
   }
 }
 
+// The course-code file. Apart from main so a test can pin its shape without
+// fetching the roster.
+function courseIndex(taught, codes) {
+  return {
+    source: ENDPOINT,
+    note: "Course names are free text typed by raters, not catalog codes.",
+    count: taught.length,
+    professors: Object.fromEntries(taught.map((p) => [p.legacyId, codes.get(p.legacyId)])),
+  };
+}
+
 // Every reason not to write this run. Apart from main so a test can hold it to
 // the file that is really committed.
 async function writeRefusals(count, path = OUT_PATH) {
@@ -234,16 +245,9 @@ async function main() {
     process.exit(1);
   }
 
-  const courses = {
-    source: ENDPOINT,
-    note: "Course names are free text typed by raters, not catalog codes.",
-    count: taught.length,
-    professors: Object.fromEntries(taught.map((p) => [p.legacyId, codes.get(p.legacyId)])),
-  };
-
   // Compact rather than indented like ratings.json. Nothing but the detail pane reads
   // this file, and at two-space indent the same codes come to 851 KB instead of 505.
-  const coursesJson = JSON.stringify(courses, null, 0) + "\n";
+  const coursesJson = JSON.stringify(courseIndex(taught, codes), null, 0) + "\n";
   const coursesTmp = `${COURSES_PATH}.tmp`;
   await writeFile(coursesTmp, coursesJson, "utf8");
   await rename(coursesTmp, COURSES_PATH);
@@ -252,7 +256,7 @@ async function main() {
 }
 
 // Exported so a test can drive the write gate without fetching the roster.
-export { previousCount, writeRefusals };
+export { courseCodes, courseIndex, previousCount, writeRefusals };
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch((error) => {

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -64,6 +64,76 @@ test("regression #93: a skipped term keeps its file while the rest are written",
     assert.deepEqual(index.terms.map((t) => t.term), ["1268", "1272"]);
     assert.equal(index.terms[1].sourceUpdated, "2026-07-29", "1272 keeps its own older date");
     assert.equal(existsSync(join(dir, "seats-1260.json")), false, "a term that really left is still dropped");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Regression, #59. FORCE_WRITE=1 is one flag over every drop in the run, and
+// searchableTermsV2 pages non-deterministically, so a night an operator set it
+// to ship one term's real shrink used to delete the committed files of the
+// terms a short answer left out, and exit 0.
+test("regression #59: FORCE_WRITE=1 does not delete the terms a short answer left out", () => {
+  const dir = mkdtempSync(join(tmpdir(), "finder-seats-"));
+  try {
+    for (const term of ["1262", "1268", "1272"]) {
+      write(dir, `seats-${term}.json`, { term, termName: "T", sourceUpdated: "2026-08-21", sections: { [`9${term}`]: [5, 30, 0] } });
+      write(dir, `trend-${term}.json`, { term, from: "2026-08-20", days: ["2026-08-21"], enrolled: {}, waitlist: {}, opened: [] });
+    }
+    write(dir, "seats.json", {
+      terms: ["1262", "1268", "1272"].map((term) => ({ term, termName: "T", sourceUpdated: "2026-08-21", sections: 1, file: `seats-${term}.json` })),
+    });
+    const before = readdirSync(dir).sort();
+
+    // The answer comes back with one term of the three.
+    const scenario = { subjects: SUBJECTS, searchable: ["1268"], published: ["1268"], sections: SECTIONS_PER_SUBJECT };
+    const forced = spawnSync(process.execPath, ["--import", MOCK, SCRIPT], {
+      encoding: "utf8",
+      env: { ...process.env, SEATS_OUT_DIR: dir, BARRETT_MOCK: JSON.stringify(scenario), FORCE_WRITE: "1" },
+    });
+
+    assert.equal(forced.status, 1, forced.stdout);
+    assert.match(forced.stderr, /searchable terms: got 1, down 66\.7%/);
+    assert.match(forced.stderr, /ALLOW_TERM_DROP=1/);
+    assert.doesNotMatch(forced.stderr, /FORCE_WRITE=1 to write this anyway/, "the advice would not have worked");
+    assert.deepEqual(readdirSync(dir).sort(), before, "nothing was written and nothing was deleted");
+
+    // The flag that names the act does accept it, which is how a real rollover
+    // still ships.
+    const dropped = spawnSync(process.execPath, ["--import", MOCK, SCRIPT], {
+      encoding: "utf8",
+      env: { ...process.env, SEATS_OUT_DIR: dir, BARRETT_MOCK: JSON.stringify(scenario), ALLOW_TERM_DROP: "1" },
+    });
+    assert.equal(dropped.status, 0, dropped.stderr);
+    assert.deepEqual(readdirSync(dir).sort(), ["seats-1268.json", "seats.json", "trend-1268.json"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Regression, #59. toIsoDate hands back whatever Barrett stamped when it is not
+// d-MMM-yyyy, so a case change upstream used to be committed as sourceUpdated
+// and fail tests/contract.test.js the next morning on a commit nobody made.
+test("regression #59: a date this cannot read holds the term back rather than shipping", () => {
+  const dir = mkdtempSync(join(tmpdir(), "finder-seats-"));
+  try {
+    write(dir, "seats-1268.json", { term: "1268", termName: "Autumn 2026", sourceUpdated: "2026-08-21", sections: { 10001: [5, 30, 0] } });
+    write(dir, "seats.json", { terms: [{ term: "1268", termName: "Autumn 2026", sourceUpdated: "2026-08-21", sections: 1, file: "seats-1268.json" }] });
+    const before = read(dir, "seats-1268.json");
+
+    const r = run(dir, {
+      subjects: SUBJECTS,
+      searchable: ["1268"],
+      published: ["1268"],
+      sections: SECTIONS_PER_SUBJECT,
+      updated: "22-AUG-2026",
+    });
+
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /term 1268: Barrett stamped "22-AUG-2026", which is not a yyyy-mm-dd date/);
+    assert.match(r.stderr, /term 1268: keeping the file it already has/);
+    assert.equal(read(dir, "seats-1268.json"), before);
+    assert.equal(existsSync(join(dir, "trend-1268.json")), false, "and no trend file was seeded off it");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

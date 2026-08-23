@@ -5,7 +5,7 @@
 import { instructorsOf } from "./format.js";
 import { toMinutes } from "./filters.js";
 import { ratingFor } from "./ratings.js";
-import { seatsFor } from "./seats.js";
+import { seatsFor, unreachable } from "./seats.js";
 
 // Short label for the column head, full name for the accessible name: a screen
 // reader gets the day from the label, since the grid only says it by position.
@@ -81,7 +81,14 @@ export function buildSlots(entries, term) {
         if (placed.has(id)) continue;
         placed.add(id);
         if (!slots.has(id)) slots.set(id, { id, days, start, end, items: [] });
-        slots.get(id).items.push({ entry, section, seats: seatsFor(section.classNumber, term) });
+        // The row, the pane and "hide full" all judge a section on whether its
+        // package leaves a way in, and the grid was the one view that did not. #67.
+        slots.get(id).items.push({
+          entry,
+          section,
+          seats: seatsFor(section.classNumber, term),
+          unreachable: unreachable(section.classNumber, term),
+        });
       }
 
       if (!placed.size) unscheduled.push({ entry, section });
@@ -171,11 +178,18 @@ export function slotInsets(column, columns, span = 1) {
   };
 }
 
-/** Worst-case tone for a slot: red if every section in it is full. */
+/** Nobody can take a seat here: full, or free seats a full package blocks. */
+function shut(item) {
+  return item.unreachable || Boolean(item.seats?.full);
+}
+
+/** Worst-case tone for a slot: red if nothing in it can be registered. */
 function slotTone(items) {
-  const known = items.filter((i) => i.seats);
-  if (known.length && known.every((i) => i.seats.full)) return "is-full";
-  if (known.some((i) => i.seats.full)) return "is-part";
+  // Unreachable settles a section even where Barrett publishes no capacity for
+  // it, so it counts as known on its own.
+  const known = items.filter((i) => i.seats || i.unreachable);
+  if (known.length && known.every(shut)) return "is-full";
+  if (known.some(shut)) return "is-part";
   return "is-open";
 }
 
@@ -306,12 +320,15 @@ function renderSlot({ slot, column, columns, span }, first, fullDay) {
       said.push(`rated ${Number(rating.avgRating).toFixed(1)} out of 5`);
     }
     if (item.seats) {
-      line.append(el("span", item.seats.full ? "cal-seats is-full" : "cal-seats",
+      line.append(el("span", shut(item) ? "cal-seats is-full" : "cal-seats",
         `${item.seats.enrolled}/${item.seats.limit}`));
       said.push(item.seats.full
         ? `full, ${item.seats.enrolled} of ${item.seats.limit} seats taken`
         : `${item.seats.enrolled} of ${item.seats.limit} seats taken`);
     }
+    // A block has colour and nothing else, and "5/24" reads open in any colour.
+    // The label is where the reason gets said out loud.
+    if (item.unreachable) said.push("cannot be registered, another section in its package is full");
     line.setAttribute("aria-label", said.join(", "));
     box.append(line);
   }

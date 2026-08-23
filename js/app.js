@@ -57,6 +57,9 @@ let termsError = "";
 // pickers are live in that window, so a bare query would replay unscoped.
 let queued = null;
 let latestRequest = 0;
+// Whether a search is on the wire. Between asking and answering the status line
+// is that search's, so a repaint underneath it must not write over the line.
+let searching = false;
 
 // Class number to its section and course, rebuilt on every render. The detail
 // pane needs the real objects, not text scraped back out of the DOM.
@@ -469,8 +472,21 @@ function setStatus(message, kind = "info") {
 // aria-disabled, not the disabled property: searching by pressing Enter leaves
 // focus on the button, and disabling it would throw that focus back to the body.
 function setBusy(busy) {
+  searching = busy;
   els.submit.setAttribute("aria-disabled", String(busy));
   els.results.setAttribute("aria-busy", String(busy));
+}
+
+/**
+ * Rewrite one parameter and leave the rest of the URL alone.
+ *
+ * Not syncUrl, which also rewrites the filters and drops the section a link
+ * arrived with, both of which its own callers have just changed anyway.
+ */
+function replaceParam(key, value) {
+  const url = new URL(location.href);
+  if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
+  history.replaceState(null, "", url);
 }
 
 function syncUrl(q, term) {
@@ -652,7 +668,7 @@ const SORT_UNKNOWN = {
   start: "no meeting time",
 };
 
-/** The tail the sort cannot place, counted rather than left unexplained. */
+/** The tail the sort cannot place in the list on screen, counted rather than left unexplained. */
 function showSortNote(entries, sort, term) {
   const n = view === "list" ? unknownSections(entries, sort, term) : 0;
   // Not "at the end": an unplaceable section sits at the end of its own block,
@@ -696,7 +712,30 @@ function markSources(term) {
   // on screen for being unplaceable. #63.
   const dead = { ratings, seats };
   for (const option of els.sort.options) option.disabled = Boolean(dead[SORT_SOURCE[option.value]]);
-  if (dead[SORT_SOURCE[els.sort.value]]) els.sort.value = "";
+  if (dead[SORT_SOURCE[els.sort.value]]) {
+    els.sort.value = "";
+    // A link is the shared copy of what the page is applying, so an order that
+    // was just switched off cannot stay in one.
+    replaceParam("sort", "");
+  }
+}
+
+/**
+ * A note under the results naming what it is not showing, with the button that
+ * puts it back. Three callers, one shape.
+ */
+function hiddenNote(text, offer, extra = "") {
+  const note = document.createElement("p");
+  note.className = extra ? `hidden-note ${extra}` : "hidden-note";
+  note.append(document.createTextNode(`${text} `));
+  if (offer) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = offer.label;
+    button.addEventListener("click", offer.act);
+    note.append(button);
+  }
+  els.results.append(note);
 }
 
 /** Re-render from the last search. Filters never refetch. */
@@ -721,7 +760,10 @@ function paint(term = els.term.value) {
   if ((lastResult.term ?? term) !== term) {
     clearLastSearch();
     showSortNote([], sortKey(), term);
-    setStatus("");
+    // The term change started a search, and that search owns the status line
+    // until it answers. Blanking it left an empty page saying nothing at all,
+    // with the query still in the box and aria-busy still on. #89 #71.
+    if (!searching) setStatus("");
     return;
   }
 
@@ -731,7 +773,10 @@ function paint(term = els.term.value) {
   const sort = sortKey();
   const primary = sortEntries(p.entries, sort, term);
   const related = sortEntries(r.entries, sort, term);
-  showSortNote([...primary, ...related], sort, term);
+  // Primary only: the related pile is a collapsed <details> whose sections are
+  // not built until it is opened, so counting it put a number beside the status
+  // line bigger than the page's own total. #63.
+  showSortNote(primary, sort, term);
   const { hiddenSections, hiddenCourses } = hiddenFor(view, p, r);
   const wanted = pendingClass;
   pendingClass = "";
@@ -748,17 +793,10 @@ function paint(term = els.term.value) {
     // Related courses are deliberately not plotted, since a grid of a hundred
     // courses is unreadable. Deliberate is not the same as silent.
     if (related.length) {
-      const note = document.createElement("p");
-      note.className = "hidden-note";
-      note.append(document.createTextNode(
-        `${related.length} related course${related.length === 1 ? "" : "s"} are not on the grid. `
-      ));
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = "See them in list view";
-      button.addEventListener("click", () => { setView("list"); focusResults(); });
-      note.append(button);
-      els.results.append(note);
+      hiddenNote(
+        `${related.length} related course${related.length === 1 ? "" : "s"} are not on the grid.`,
+        { label: "See them in list view", act: () => { setView("list"); focusResults(); } }
+      );
     }
   } else {
     // A related course stays folded away until it is asked for, so a link into
@@ -772,21 +810,16 @@ function paint(term = els.term.value) {
   const missed = wanted ? openLinked(wanted, term) : "";
 
   if (hiddenSections || hiddenCourses) {
-    // Never hide silently. Say what was removed and offer it back.
-    const note = document.createElement("p");
-    note.className = "hidden-note";
     const parts = [];
     if (hiddenSections) parts.push(`${hiddenSections} section${hiddenSections === 1 ? "" : "s"}`);
     if (hiddenCourses) parts.push(`${hiddenCourses} course${hiddenCourses === 1 ? "" : "s"}`);
-    note.append(document.createTextNode(`${parts.join(" and ")} hidden by your filters. `));
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = "Show them anyway";
-    // Clearing rather than overriding is what keeps the rail, the status line
-    // and the URL from describing a set that is no longer on screen.
-    button.addEventListener("click", () => { clearFilters(); focusResults(); });
-    note.append(button);
-    els.results.append(note);
+    // Never hide silently. Say what was removed and offer it back. Clearing
+    // rather than overriding is what keeps the rail, the status line and the
+    // URL from describing a set that is no longer on screen.
+    hiddenNote(
+      `${parts.join(" and ")} hidden by your filters.`,
+      { label: "Show them anyway", act: () => { clearFilters(); focusResults(); } }
+    );
   }
 
   // A dead snapshot and a link that missed both describe the page rather than
@@ -812,10 +845,11 @@ function paint(term = els.term.value) {
 
   const sections = primary.reduce((n, e) => n + e.sections.length, 0);
   const noun = primary.length === 1 ? "course" : "courses";
+  const unit = sections === 1 ? "section" : "sections";
   // Barrett refreshes once a day, so the numbers are dated, and during a
   // registration window that distinction matters.
   const dated = seatsTerm(term) && seatsUpdated(term) ? ` Seats as of ${formatDate(seatsUpdated(term))}.` : "";
-  const counts = `${primary.length} ${noun}, ${sections} sections in ${termName(term)}.${dated}`;
+  const counts = `${primary.length} ${noun}, ${sections} ${unit} in ${termName(term)}.${dated}`;
   // The counts describe the fetch, not the filters, so this stays put when
   // filters hide rows: the search really did read only part of the answer.
   const coverage = formatCoverage(lastResult);
@@ -838,24 +872,18 @@ function openLinked(classNumber, term) {
     inSearch: hasSection([...lastResult.primary, ...lastResult.related], classNumber),
   });
 
-  const note = document.createElement("p");
-  note.className = "hidden-note link-note";
-  note.append(document.createTextNode(`${message} `));
-  if (offer) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = offer === "list" ? "See it in list view" : "Show it anyway";
-    button.addEventListener("click", () => {
+  const action = offer && {
+    label: offer === "list" ? "See it in list view" : "Show it anyway",
+    act: () => {
       pendingClass = classNumber;
       // Clearing rather than overriding is what keeps the rail, the status line
       // and the URL describing the set on screen. clearFilters repaints.
       if (offer === "list") setView("list");
       else clearFilters();
       focusResults();
-    });
-    note.append(button);
-  }
-  els.results.append(note);
+    },
+  };
+  hiddenNote(message, action, "link-note");
   return message;
 }
 
@@ -922,7 +950,12 @@ async function init() {
     const courses = fillNumbers();
     // Committing a whole subject is a useful search on its own, but only once
     // the typed text actually names one.
-    if (courses.length && !els.number.value) searchFromPickers();
+    if (!courses.length) return;
+    // A number left over from the subject before this one is not a course in
+    // this one. Kept, it blocked the search below and left the rail naming a
+    // course nobody had searched for.
+    if (!courses.some((c) => c.number === els.number.value.trim())) els.number.value = "";
+    searchFromPickers();
   });
 
   els.number.addEventListener("input", () => {
@@ -1086,8 +1119,12 @@ async function init() {
 
   // A search asked for while the terms were loading was refused, not dropped.
   const pending = queued ?? { q: initialQuery };
-  if (pending.q.trim() || genCategory()) runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
-  else {
+  if (pending.q.trim() || genCategory()) {
+    // Its URL was written before there was a term to write, so the link it left
+    // in the address bar names none and reopens on whichever term is default.
+    if (queued) replaceParam("term", els.term.value);
+    runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
+  } else {
     // Ratings and the seats index are already in flight; fill the landing screen
     // once they land rather than showing an empty frame. The term's own seats
     // are another 69 KB and nothing on this screen shows a seat count, so they

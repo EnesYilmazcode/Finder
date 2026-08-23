@@ -192,6 +192,27 @@ test("regression #89: a filter change while the new term loads drops the old row
   assert.deepEqual(seatsOn(page, 3101), { text: "12/40", state: "open" });
 });
 
+// The same window again, for the line rather than the rows. The guard blanked
+// the status on its way out, and the line it blanked belonged to the search the
+// term change had just started: empty results, nothing said, aria-busy still on.
+test("regression #71: a filter change in that window leaves the running search's line alone", async () => {
+  const spring = holdTerm(SPRING);
+  const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve({ slow: spring }) });
+  await searched(page);
+
+  switchTerm(page, SPRING);
+  await until(() => page.el("#status").textContent === "Searching...", "Spring's search to start");
+  changeFilter(page, "hideOnline");
+
+  assert.deepEqual(sectionNumbers(page), [], "Autumn's rows were repainted against Spring");
+  assert.equal(page.el("#status").textContent, "Searching...", "the page went empty and silent under a running search");
+  assert.equal(page.el("#results").getAttribute("aria-busy"), "true");
+
+  spring.release();
+  await until(() => sectionNumbers(page).includes("3101"), "Spring's own section to arrive");
+  assert.match(page.el("#status").textContent, /1 course, 1 section in Spring 2026/);
+});
+
 // The rows deliberately stay up while the new term is fetched, so the detail
 // pane has to read seats for the term they came from, not for the selector.
 test("regression #89: the detail pane reads seats for the term its section came from", async () => {
