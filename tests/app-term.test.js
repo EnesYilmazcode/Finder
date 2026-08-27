@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { fire, mountApp, settle, until } from "./dom.js";
-import { RATING_COURSES, meeting, person, section } from "./fixtures.js";
+import { HEADSHOTS, RATING_COURSES, meeting, person, section } from "./fixtures.js";
 
 const AUTUMN = "1268";
 const SPRING = "1262";
@@ -61,6 +61,8 @@ function serve({ slow = null, fails = null } = {}) {
       body = { data: { totalItems: 1, totalPages: 1, courses: COURSES[term] ?? [] } };
     } else if (url.includes("ratings-courses.json")) {
       body = RATING_COURSES;
+    } else if (url.includes("headshots.json")) {
+      body = HEADSHOTS;
     } else if (url.includes("ratings.json")) {
       body = { school: {}, count: 0, professors: [] };
     } else {

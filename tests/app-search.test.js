@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 import { mountApp, fire, until } from "./dom.js";
 import { stubFetch } from "./helpers.js";
-import { RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught } from "./fixtures.js";
+import { RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught, HEADSHOTS } from "./fixtures.js";
 
 const TR = ["tuesday", "thursday"];
 const COURSES = [
@@ -29,6 +29,7 @@ function serve() {
       : { data: { totalItems: 1, totalPages: 1, courses: COURSES } })],
     ["data/ratings.json", RATINGS],
     ["data/ratings-courses.json", RATING_COURSES],
+    ["data/headshots.json", HEADSHOTS],
     ["data/seats.json", SEATS_INDEX],
     ["data/seats-1268.json", SEATS_TERMS["1268"]],
     ["data/trend-1268.json", { ok: false, status: 404, json: async () => null }],

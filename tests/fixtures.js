@@ -254,6 +254,16 @@ export const RATING_COURSES = {
   professors: RATING_COURSE_CODES,
 };
 
+// Stand-ins for the ids the real snapshot lists. Everyone else draws a monogram,
+// which is what two thirds of instructors get, so the list is deliberately short.
+export const HEADSHOT_IDS = ["gomori.1", "bucci.2"];
+
+export const HEADSHOTS = {
+  source: "https://opic.osu.edu",
+  count: HEADSHOT_IDS.length,
+  ids: HEADSHOT_IDS,
+};
+
 // Barrett's plain text schedule, for the tests that exercise
 // scripts/fetch-seats.mjs. The parser reads fixed columns, so a section line is
 // built at the positions docs/barrett-schedule.md records rather than retyped,

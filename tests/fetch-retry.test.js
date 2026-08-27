@@ -1,19 +1,21 @@
-// The retry policy the two nightly snapshot scripts share. fetch and setTimeout
-// are both replaced, so nothing here touches the network or actually waits.
+// The retry policy the three snapshot scripts share. fetch and setTimeout are
+// both replaced, so nothing here touches the network or actually waits.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { fetchText } from "../scripts/fetch-seats.mjs";
 import { fetchJson } from "../scripts/fetch-courses.mjs";
+import { fetchJson as fetchHeadshotJson } from "../scripts/fetch-headshots.mjs";
 
 const URL_UNDER_TEST = "https://example.invalid/thing.txt";
 
-// The two scripts hold a hand-copied loop each, so every case runs against both
-// and the copies cannot drift apart quietly.
+// The scripts hold a hand-copied loop each, so every case runs against all of
+// them and the copies cannot drift apart quietly.
 const CLIENTS = [
   ["seats", fetchText, "ok"],
   ["courses", fetchJson, { body: "ok" }],
+  ["headshots", fetchHeadshotJson, { body: "ok" }],
 ];
 
 const realFetch = globalThis.fetch;

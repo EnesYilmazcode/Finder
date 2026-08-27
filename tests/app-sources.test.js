@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 
 import { fire, mountApp, until } from "./dom.js";
 import { stubFetch } from "./helpers.js";
-import { RATINGS, RATING_COURSES, SEATS_INDEX, SEATS_TERMS, TREND, entry, taught } from "./fixtures.js";
+import { RATINGS, RATING_COURSES, SEATS_INDEX, SEATS_TERMS, TREND, entry, taught, HEADSHOTS } from "./fixtures.js";
 
 const TERM = "1268";
 const NO_SEATS = "1262";
@@ -38,6 +38,7 @@ function serve(over = []) {
   const restore = stubFetch(new Map([
     ["data/ratings.json", RATINGS],
     ["data/ratings-courses.json", RATING_COURSES],
+    ["data/headshots.json", HEADSHOTS],
     ["data/seats.json", SEATS_INDEX],
     [`data/seats-${TERM}.json`, SEATS_TERMS[TERM]],
     [`data/trend-${TERM}.json`, TREND[TERM]],
