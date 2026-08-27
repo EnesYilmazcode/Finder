@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const WORKFLOWS = join(dirname(dirname(fileURLToPath(import.meta.url))), ".github", "workflows");
 const read = (name) => readFileSync(join(WORKFLOWS, name), "utf8");
-const FILES = ["seats.json", "seats-1268.json", "ratings.json", "courses.json"];
+const FILES = ["seats.json", "seats-1268.json", "ratings.json", "courses.json", "headshots.json"];
 
 // One step out of a job, as its `if:` and the body of its `run:` block.
 function step(yaml, name) {
@@ -60,6 +60,7 @@ test("the ratings commit step is not gated on the fetch succeeding", () => {
   assert.ok(gate, "no if:, so it defaults to success() and is skipped when the fetch exits 1");
   assert.match(gate, /!cancelled\(\)/);
   assert.equal(step(read("seats.yml"), "Commit if changed").gate, gate, "seats.yml already had the right form");
+  assert.equal(step(read("headshots.yml"), "Commit if changed").gate, gate, "headshots.yml has to keep it too");
 });
 
 // git add is fatal on a pathspec that matches nothing, so one absent file takes
@@ -69,6 +70,7 @@ test("a commit step stages what it can when a run wrote nothing new", () => {
     ["seats.yml", ["data/seats-1268.json", "data/seats.json"]],
     ["ratings.yml", ["data/ratings.json"]],
     ["courses.yml", ["data/courses.json"]],
+    ["headshots.yml", ["data/headshots.json"]],
   ]) {
     const dir = repo();
     try {

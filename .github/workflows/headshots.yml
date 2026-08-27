@@ -1,0 +1,54 @@
+name: Headshot snapshot
+
+on:
+  schedule:
+    # Weekly, not nightly. A photo is uploaded once and then sits there for years,
+    # and the run costs a sweep of every subject plus a HEAD per instructor.
+    - cron: "40 8 * * 0"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Write even when the run comes back far short of what is committed"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: headshots-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Fetch headshots
+        env:
+          FORCE_WRITE: ${{ inputs.force && '1' || '' }}
+        run: node scripts/fetch-headshots.mjs
+
+      - name: Commit if changed
+        if: ${{ !cancelled() }}
+        run: |
+          # --porcelain rather than git diff so a first run, where the file is not
+          # tracked yet, still counts as a change.
+          if [ -z "$(git status --porcelain -- data/headshots.json)" ]; then
+            echo "No change in the headshot snapshot, nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- data/headshots.json
+          git commit -m "Update headshot snapshot"
+          # The scheduled run and a manual dispatch can overlap, and the branch may have
+          # moved on while the fetch was running.
+          git pull --rebase origin ${{ github.ref_name }}
+          git push origin HEAD:${{ github.ref_name }}

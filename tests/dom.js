@@ -142,6 +142,17 @@ class Element extends Listeners {
 
   remove() { this.parentNode?.removeChild(this); }
 
+  /** Swap this node for another in place, which is how detail.js drops a dead image. */
+  replaceWith(node) {
+    const parent = this.parentNode;
+    if (!parent) return;
+    const at = parent.childNodes.indexOf(this);
+    this.parentNode = null;
+    node.parentNode?.removeChild(node);
+    node.parentNode = parent;
+    parent.childNodes.splice(at, 1, node);
+  }
+
   replaceChildren(...nodes) {
     for (const child of this.childNodes) child.parentNode = null;
     this.childNodes = [];

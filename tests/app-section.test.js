@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 
 import { mountApp, until } from "./dom.js";
 import { stubFetch } from "./helpers.js";
-import { RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught } from "./fixtures.js";
+import { RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught, HEADSHOTS } from "./fixtures.js";
 
 const TERM = "1268";
 const MWF = ["monday", "wednesday", "friday"];
@@ -31,6 +31,7 @@ function serve() {
   return stubFetch(new Map([
     ["data/ratings.json", RATINGS],
     ["data/ratings-courses.json", RATING_COURSES],
+    ["data/headshots.json", HEADSHOTS],
     ["data/seats.json", SEATS_INDEX],
     [`data/seats-${TERM}.json`, SEATS_TERMS[TERM]],
     [`data/trend-${TERM}.json`, { ok: false, status: 404, json: async () => null }],

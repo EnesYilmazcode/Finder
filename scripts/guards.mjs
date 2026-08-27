@@ -1,4 +1,4 @@
-// The refusal rules the three snapshotters share.
+// The refusal rules the four snapshotters share.
 //
 // An absolute floor only catches a total collapse. What actually goes wrong is a
 // partial one: upstream rate limits half a run, the count still clears the floor,

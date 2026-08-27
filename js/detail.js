@@ -4,6 +4,7 @@
 
 import { formatWhen, formatUnits, instructorsOf, distinctMeetings, attributesOf, attributeLabel, sectionFlags, trendLabel } from "./format.js";
 import { ratingFor, searchUrl, profileUrl, ratingSpread, courseShare } from "./ratings.js";
+import { faceFor, initials } from "./headshots.js";
 import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { trendFor } from "./trend.js";
 import { isIndividualStudy } from "./rank.js";
@@ -98,6 +99,43 @@ function scopeLine({ matched, total, code }) {
     : `${matched} of ${total} ratings ${matched === 1 ? "is" : "are"} for ${code}.`;
 }
 
+/**
+ * Initials in the same circle the photo would fill.
+ *
+ * Drawn from the attribute by CSS rather than written as text, so selecting the
+ * heading copies "Paolo Bucci" and not "PBPaolo Bucci".
+ */
+function monogram(person) {
+  const mono = el("span", "d-face d-mono");
+  mono.dataset.initials = initials(person.name);
+  mono.setAttribute("aria-hidden", "true");
+  return mono;
+}
+
+/**
+ * The instructor's photo, or their initials when there is none to show.
+ *
+ * Most instructors have no photo, so the monogram is the ordinary case rather
+ * than a failure state, and it also stands in while the snapshot is still on its
+ * way. Decorative either way, since the name follows it.
+ */
+function instructorFace(person) {
+  const url = faceFor(person.email);
+  if (!url) return monogram(person);
+
+  const img = el("img", "d-face");
+  img.src = url;
+  img.alt = "";
+  img.loading = "lazy";
+  // Some photos come back over a megabyte even at 100px, so keep the decode off
+  // the main thread.
+  img.decoding = "async";
+  // Only fires if opic is unreachable. A missing photo is a 302 to a placeholder
+  // that loads perfectly well, which is what the snapshot is for.
+  img.addEventListener("error", () => img.replaceWith(monogram(person)), { once: true });
+  return img;
+}
+
 function instructorHeading(people) {
   const heading = el("h2", "d-name");
   people.forEach((person, i) => {
@@ -107,7 +145,7 @@ function instructorHeading(people) {
     link.href = rating ? profileUrl(rating.legacyId) : searchUrl(person.name);
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    heading.append(link);
+    heading.append(instructorFace(person), link);
   });
   return heading;
 }
