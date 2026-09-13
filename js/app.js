@@ -2,7 +2,7 @@ import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } fro
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
-import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
+import { linkedTo, loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
 import { loadHeadshots } from "./headshots.js";
@@ -13,6 +13,10 @@ import { formatCoverage } from "./format.js";
 import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
 import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } from "./deeplink.js";
 import { isSortKey, sortEntries, unknownSections } from "./sort.js";
+import {
+  addScheduleItem, formatPlan, isScheduled, loadSchedule, parsePlan, removeScheduleItem,
+  renderSchedule, saveSchedule, scheduleEntries, scheduleIds,
+} from "./schedule.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -44,6 +48,8 @@ const els = {
   wList: document.querySelector("#w-list"),
   viewList: document.querySelector("#view-list"),
   viewCal: document.querySelector("#view-cal"),
+  viewSchedule: document.querySelector("#view-schedule"),
+  scheduleCount: document.querySelector("#schedule-count"),
   clear: document.querySelector("#f-clear"),
   query: document.querySelector("#q"),
   term: document.querySelector("#term"),
@@ -79,6 +85,8 @@ let lastQuery = "";
 // stops matching it.
 let pickedSearch = null;
 let view = "list";
+let schedule = loadSchedule();
+let scheduleNote = "";
 // A section named by the URL. Applied on the next paint and then forgotten, so
 // changing a filter later does not drag the pane back to it.
 let pendingClass = "";
@@ -371,11 +379,125 @@ function searchFromPickers() {
 
 function setView(next) {
   view = next;
-  for (const [button, name] of [[els.viewList, "list"], [els.viewCal, "calendar"]]) {
+  for (const [button, name] of [[els.viewList, "list"], [els.viewCal, "calendar"], [els.viewSchedule, "schedule"]]) {
     button.classList.toggle("is-on", name === next);
     button.setAttribute("aria-pressed", String(name === next));
   }
+  if (next !== "schedule" && !lastResult) {
+    els.results.replaceChildren();
+    resetDetail();
+    if (els.term.value) showWelcome(els.term.value);
+  }
   paint();
+}
+
+function scheduleItem(found, term, entries = currentEntries) {
+  const included = [];
+  for (const number of linkedTo(found.section.classNumber, term)?.enrolls ?? []) {
+    for (const entry of entries) {
+      const section = entry.sections.find((candidate) => String(candidate.classNumber) === String(number));
+      if (section) { included.push({ course: entry.course, section }); break; }
+    }
+  }
+  return { ...found, term, included };
+}
+
+function planUrl() {
+  const url = new URL(location.href);
+  const plan = formatPlan(scheduleIds(schedule, els.term.value));
+  if (plan) url.searchParams.set("plan", plan); else url.searchParams.delete("plan");
+  url.searchParams.delete("class");
+  return url;
+}
+
+function storeSchedule() {
+  saveSchedule(schedule);
+  els.scheduleCount.textContent = String(scheduleIds(schedule, els.term.value).length);
+  history.replaceState(null, "", planUrl());
+}
+
+function toggleSchedule(found, term) {
+  const number = found.section.classNumber;
+  if (isScheduled(schedule, term, number)) schedule = removeScheduleItem(schedule, term, number);
+  else schedule = addScheduleItem(schedule, scheduleItem(found, term));
+  storeSchedule();
+  if (view === "schedule") paintSchedule(term);
+  else {
+    const row = els.results.querySelector(`[data-class-number="${number}"]`);
+    if (row) applySelection(row);
+  }
+}
+
+function shareSchedule() {
+  const url = planUrl().href;
+  if (navigator.share) {
+    navigator.share({ title: `Finder schedule for ${termName(els.term.value)}`, url }).catch(() => {});
+  } else if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(
+      () => { scheduleNote = "Schedule link copied."; paintSchedule(); },
+      () => { scheduleNote = "Could not copy the schedule link."; paintSchedule(); }
+    );
+  } else {
+    scheduleNote = "The schedule is encoded in this page's address. Copy it from the address bar.";
+    paintSchedule();
+  }
+}
+
+/** Resolve the small class-number-only form a shared link carries against OSU's live API. */
+async function refreshSchedule(ids, term) {
+  const wanted = [...new Set(ids.map(String))];
+  if (!wanted.length || !term) return;
+  const settled = await Promise.allSettled(wanted.map((number) => searchAllPages({ q: number, term })));
+  const found = new Set();
+  settled.forEach((result, index) => {
+    if (result.status !== "fulfilled") return;
+    const number = wanted[index];
+    for (const course of result.value.courses ?? []) {
+      for (const section of course.sections ?? []) {
+        if (String(section.classNumber) !== number) continue;
+        schedule = addScheduleItem(schedule, scheduleItem(
+          { course: course.course, section }, term, [{ course: course.course, sections: course.sections ?? [] }]
+        ));
+        found.add(number);
+      }
+    }
+  });
+  saveSchedule(schedule);
+  const missed = wanted.filter((number) => !found.has(number));
+  scheduleNote = missed.length
+    ? `Could not refresh section${missed.length === 1 ? "" : "s"} ${missed.join(", ")}; it may no longer be offered this term.`
+    : "Schedule refreshed from Ohio State.";
+}
+
+function paintSchedule(term = els.term.value) {
+  view = "schedule";
+  const entries = scheduleEntries(schedule, term);
+  currentEntries = entries;
+  sectionIndex = new Map(entries.flatMap((entry) => entry.sections.map((section) => [
+    String(section.classNumber), { section, course: entry.course },
+  ])));
+  els.results.replaceChildren(renderSchedule(schedule, term, {
+    calendar: renderCalendar,
+    onRemove: (item) => {
+      schedule = removeScheduleItem(schedule, item.term, item.section.classNumber);
+      storeSchedule();
+      resetDetail();
+      paintSchedule(term);
+      els.results.focus();
+    },
+    onClear: () => {
+      schedule = schedule.filter((item) => String(item.term) !== String(term));
+      storeSchedule();
+      resetDetail();
+      paintSchedule(term);
+      els.results.focus();
+    },
+    onShare: shareSchedule,
+  }));
+  resetDetail();
+  els.app.dataset.view = "results";
+  setStatus(scheduleNote);
+  scheduleNote = "";
 }
 
 function sectionLink(classNumber) {
@@ -408,6 +530,8 @@ function applySelection(row) {
   const term = lastResult?.term ?? els.term.value;
   const draw = () => renderDetail({
     ...found, term, entries: currentEntries, formatDate, shareUrl: link,
+    scheduled: isScheduled(schedule, term, found.section.classNumber),
+    onSchedule: () => toggleSchedule(found, term),
   });
   showDetail(draw());
   history.replaceState(null, "", link);
@@ -506,6 +630,8 @@ function syncUrl(q, term) {
   if (!sameSearch(url, q, term)) pendingClass = "";
   if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
   if (term) url.searchParams.set("term", term);
+  const plan = formatPlan(scheduleIds(schedule, term));
+  if (plan) url.searchParams.set("plan", plan); else url.searchParams.delete("plan");
   const gen = genCategory();
   if (gen) url.searchParams.set("gen", gen); else url.searchParams.delete("gen");
 
@@ -751,6 +877,8 @@ function hiddenNote(text, offer, extra = "") {
 /** Re-render from the last search. Filters never refetch. */
 function paint(term = els.term.value) {
   markSources(term);
+  els.scheduleCount.textContent = String(scheduleIds(schedule, term).length);
+  if (view === "schedule") { paintSchedule(term); return; }
   const filters = readFilters();
   // The clear button tracks the filters, not the result, so it is set before
   // the bail below.
@@ -914,6 +1042,7 @@ async function init() {
   loadSeats(els.term.value).catch((error) => console.warn("seats unavailable", error));
 
   const params = new URLSearchParams(location.search);
+  const sharedPlan = parsePlan(params.get("plan"));
   setBusy(false);
   setStatus("Loading terms...");
   els.term.disabled = true;
@@ -981,6 +1110,13 @@ async function init() {
 
   els.viewList.addEventListener("click", () => setView("list"));
   els.viewCal.addEventListener("click", () => setView("calendar"));
+  els.viewSchedule.addEventListener("click", () => {
+    setView("schedule");
+    const ids = scheduleIds(schedule, els.term.value);
+    if (!ids.length) return;
+    setStatus("Refreshing your schedule...");
+    refreshSchedule(ids, els.term.value).then(() => paintSchedule());
+  });
 
   els.filters.addEventListener("change", (event) => {
     // The busy fields are not a filter until Add is pressed.
@@ -1045,13 +1181,13 @@ async function init() {
 
   // Selecting a section is delegated, so results can re-render freely.
   els.results.addEventListener("click", (event) => {
-    const row = event.target.closest(".section, .cal-item");
+    const row = event.target.closest(".section, .cal-item, .plan-open");
     if (row && !event.target.closest("a")) selectSection(row);
   });
 
   els.results.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
-    const row = event.target.closest(".section");
+    const row = event.target.closest(".section, .plan-open");
     if (!row || event.target.closest("a")) return;
     event.preventDefault(); // Space would otherwise scroll the results pane
     selectSection(row);
@@ -1126,6 +1262,27 @@ async function init() {
   // A picker opened before this point filled itself from an empty term, and
   // setting the value in code fires no change event to refill it.
   if (isLoaded()) { fillSubjects(); fillNumbers(); }
+
+  // A shared schedule contains only opaque class numbers. Resolve those
+  // against the live course service before drawing it; ratings and today's
+  // seat snapshot land alongside that work and never hold it up serially.
+  if (sharedPlan.length) {
+    for (const [button, name] of [[els.viewList, "list"], [els.viewCal, "calendar"], [els.viewSchedule, "schedule"]]) {
+      button.classList.toggle("is-on", name === "schedule");
+      button.setAttribute("aria-pressed", String(name === "schedule"));
+    }
+    view = "schedule";
+    // The link is the sender's schedule for this term, not an instruction to
+    // merge it with whichever sections the recipient already saved locally.
+    schedule = schedule.filter((item) => String(item.term) !== String(els.term.value)
+      || sharedPlan.includes(String(item.section.classNumber)));
+    setStatus("Refreshing the shared schedule...");
+    await Promise.allSettled([loadRatings(), loadSeats(els.term.value)]);
+    await refreshSchedule(sharedPlan, els.term.value);
+    storeSchedule();
+    paintSchedule();
+    return;
+  }
 
   // A search asked for while the terms were loading was refused, not dropped.
   const pending = queued ?? { q: initialQuery };

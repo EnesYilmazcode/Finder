@@ -42,7 +42,7 @@ function figure(value, label, tone) {
  * The class number and the two things students do with it: type it into
  * BuckeyeLink, and send the section to a friend.
  */
-function sectionHead(section, course, shareUrl) {
+function sectionHead(section, course, shareUrl, scheduled, onSchedule) {
   const head = el("div", "d-head");
   head.append(el("p", "eyebrow", `Section ${section.classNumber}`));
 
@@ -76,6 +76,13 @@ function sectionHead(section, course, shareUrl) {
       }).catch(() => {});
     });
     head.append(share);
+  }
+  if (onSchedule) {
+    const plan = el("button", "d-act d-plan", scheduled ? "Remove from schedule" : "Add to schedule");
+    plan.type = "button";
+    plan.setAttribute("aria-pressed", String(Boolean(scheduled)));
+    plan.addEventListener("click", onSchedule);
+    head.append(plan);
   }
   return head;
 }
@@ -225,11 +232,11 @@ function partners(title, numbers, term, entries) {
   return wrap;
 }
 
-export function renderDetail({ section, course, term, entries, formatDate, shareUrl }) {
+export function renderDetail({ section, course, term, entries, formatDate, shareUrl, scheduled = false, onSchedule }) {
   const wrap = document.createDocumentFragment();
   const people = instructorsOf(section);
 
-  wrap.append(sectionHead(section, course, shareUrl));
+  wrap.append(sectionHead(section, course, shareUrl, scheduled, onSchedule));
   wrap.append(people.length ? instructorHeading(people) : el("h2", "d-name is-none", "Instructor not listed"));
 
   const units = formatUnits(course);

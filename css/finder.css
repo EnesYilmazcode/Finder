@@ -867,6 +867,92 @@ body {
 .view-toggle button + button { border-left: 1px solid var(--field); }
 .view-toggle button.is-on { background: var(--scarlet); color: var(--paper); font-weight: 600; }
 
+#schedule-count {
+  display: inline-block;
+  min-width: 1.25em;
+  margin-left: 0.2rem;
+  font-family: var(--data);
+  font-size: 0.72rem;
+}
+
+/* Schedule --------------------------------------------------------------- */
+
+.plan-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.plan-title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.plan-actions { display: flex; gap: 0.4rem; }
+
+.plan-action,
+.plan-remove {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.plan-action:disabled { color: var(--mute); cursor: default; opacity: 0.6; }
+.plan-empty { color: var(--mute); }
+.plan-ok { margin: 0 0 0.8rem; color: var(--open); font-size: 0.85rem; }
+
+.plan-conflicts {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border-left: 3px solid var(--scarlet);
+  background: var(--paper);
+}
+
+.plan-conflicts ul { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; }
+.plan-list { list-style: none; margin: 1rem 0 0; padding: 0; border-top: 1px solid var(--rule); }
+
+.plan-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.plan-open {
+  display: grid;
+  grid-template-columns: auto auto minmax(8rem, 1fr) auto auto;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plan-open span { color: var(--mute); font-size: 0.8rem; overflow-wrap: anywhere; }
+.plan-open .plan-seats { color: var(--open); font-family: var(--data); }
+.plan-remove { color: var(--scarlet); border-color: var(--rule); }
+
+@media (max-width: 46rem) {
+  .plan-open { grid-template-columns: 1fr auto; }
+  .plan-open span:nth-child(n + 3) { grid-column: 1 / -1; }
+}
+
 .cal-scroll { overflow-x: auto; }
 .cal-scroll:focus-visible { outline: 2px solid var(--scarlet); outline-offset: 2px; }
 
