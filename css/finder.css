@@ -441,6 +441,28 @@ body {
 .teacher .sections > .section:first-child { border-top: 0; }
 .teacher .section { padding-top: 0.35rem; padding-bottom: 0.6rem; }
 
+/* Labs and recitations are registration choices, not peers of the lecturer.
+   They stay reachable, but below the instructor comparison and without a
+   RateMyProfessors heading for a TA who is usually unrated. */
+.supporting { border-top: 1px solid var(--rule); background: var(--wash); }
+
+.supporting-title {
+  margin: 0;
+  padding: 0.75rem 1rem 0;
+  font-family: var(--display);
+  font-size: 0.9rem;
+}
+
+.supporting-note {
+  margin: 0;
+  padding: 0.15rem 1rem 0.45rem;
+  color: var(--mute);
+  font-size: 0.75rem;
+}
+
+.supporting .section { background: var(--paper); }
+.supporting .section:hover { background: var(--sunk); }
+
 /* Related courses stay reachable without competing with the answer. */
 
 .related {

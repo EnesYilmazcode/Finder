@@ -15,6 +15,7 @@ import { orderBy } from "./sort.js";
 export const ROW_CHIPS = 2;
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
+const SUPPORT_COMPONENTS = new Set(["Laboratory", "Recitation"]);
 const UNLISTED = "Instructor not listed";
 
 function el(tag, className, text) {
@@ -130,22 +131,24 @@ function renderTeacher(group) {
   return nodes;
 }
 
-// Only the parent direction goes on a row. A lecture can have three dozen labs
-// under it, and listing those here would bury the section itself, so the detail
-// pane takes that side.
-function renderLinked(parent, term) {
+// Lecture rows show only the section they register with. The reverse direction
+// is useful in the quieter support block, where it identifies the lecture a lab
+// belongs to without turning the lecturer comparison into a wall of links.
+function renderLinked(parent, term, reverse = false) {
   const seats = seatsFor(parent, term);
   const node = el("span", "linked", seats ? `with ${parent} ${seats.enrolled}/${seats.limit}` : `with ${parent}`);
   if (seats) node.dataset.state = seats.full ? "full" : "open";
 
-  const note = `Registering for this also registers you for ${parent}.`;
+  const note = reverse
+    ? `Section ${parent} registers with this one.`
+    : `Registering for this also registers you for ${parent}.`;
   node.title = seats
     ? `${note} That one is ${seats.enrolled} enrolled of ${seats.limit}${seats.full ? ", so this section cannot be registered" : ""}.`
     : note;
   return node;
 }
 
-export function renderSection(section, term) {
+export function renderSection(section, term, { showInstructor = false } = {}) {
   const li = el("li", "section");
   // Selecting a section is the primary action in the three-pane layout, so the
   // row has to be a real control rather than a div with a click handler.
@@ -164,6 +167,14 @@ export function renderSection(section, term) {
 
   li.append(el("span", "section-where", formatPlace(meeting, section)));
 
+  // Lecture instructors are the headings students compare. Labs and
+  // recitations live in their own quieter block, so their names belong on the
+  // row without a rating rather than masquerading as another course choice.
+  if (showInstructor) {
+    const people = instructorsOf(section).map((person) => person.name).join(" & ");
+    if (people) li.append(el("span", "section-who", people));
+  }
+
   // The row's first line has room for one pattern, and a section can hold more.
   for (const extra of meetings.slice(1)) {
     li.append(el("span", "section-also", `${formatWhen(extra)} · ${formatPlace(extra, section)}`));
@@ -173,7 +184,8 @@ export function renderSection(section, term) {
   // decision most and the pane spells out the rest. One strip and one cap: the
   // fee and the honors marking are chips of the same kind as the flags, and a
   // second run of them in a second colour tells a student nothing.
-  const flags = [...sectionFlags(section), ...sectionBadges(section).map(asChip)].slice(0, ROW_CHIPS);
+  const sectionLevelFlags = sectionFlags(section).filter((flag) => !showInstructor || flag.key !== "assistant");
+  const flags = [...sectionLevelFlags, ...sectionBadges(section).map(asChip)].slice(0, ROW_CHIPS);
   if (flags.length) {
     const strip = el("span", "flags");
     for (const flag of flags) strip.append(chip(flag));
@@ -215,8 +227,16 @@ export function renderSection(section, term) {
 
   // A lab with seats left is not open if the lecture it enrolls you into is
   // full, and that lecture is nowhere else on the row.
-  for (const parent of linked?.enrolls ?? []) {
-    seatCell.append(renderLinked(parent, term));
+  const direct = linked?.enrolls ?? [];
+  const reverse = showInstructor ? linked?.enrolledBy ?? [] : [];
+  const partners = [...new Set([...direct, ...reverse])];
+  for (const parent of partners.slice(0, 3)) {
+    seatCell.append(renderLinked(parent, term, !direct.includes(parent)));
+  }
+  if (partners.length > 3) {
+    const more = el("span", "linked", `with ${partners.length} linked sections`);
+    more.title = `Linked sections: ${partners.join(", ")}. Open this row for the full list.`;
+    seatCell.append(more);
   }
 
   if (seatCell.childNodes.length) li.append(seatCell);
@@ -238,7 +258,10 @@ export function renderCourse({ course, sections }, term, sort = "") {
   head.append(el("span", "course-meta", units ? `${units} · ${count}` : count));
   article.append(head);
 
-  for (const group of groupByInstructor(sections, sort, term)) {
+  const support = sections.filter((section) => SUPPORT_COMPONENTS.has(section.component));
+  const primary = sections.filter((section) => !SUPPORT_COMPONENTS.has(section.component));
+
+  for (const group of groupByInstructor(primary, sort, term)) {
     const block = el("section", "teacher");
 
     const heading = el("h3", "teacher-name");
@@ -254,6 +277,18 @@ export function renderCourse({ course, sections }, term, sort = "") {
     for (const section of sortSections(group.sections, sort, term)) list.append(renderSection(section, term));
     block.append(list);
 
+    article.append(block);
+  }
+
+  if (support.length) {
+    const block = el("section", "supporting");
+    block.append(el("h3", "supporting-title", "Labs and recitations"));
+    block.append(el("p", "supporting-note", "Pick these after the lecture. When registration links are published, the paired section is shown on the row."));
+    const list = el("ul", "sections");
+    for (const section of sortSections(support, sort, term)) {
+      list.append(renderSection(section, term, { showInstructor: true }));
+    }
+    block.append(list);
     article.append(block);
   }
 

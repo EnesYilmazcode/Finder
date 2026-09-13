@@ -256,6 +256,26 @@ test("a course header badges the GE all of its sections agree on", () => {
   assert.deepEqual(head.querySelectorAll(".flag").map((chip) => [chip.dataset.flag, chip.textContent]), [["GE2", "GE F3"]]);
 });
 
+test("labs and recitations follow the lecturer groups without TA ratings", () => {
+  setupDom();
+  const course = entry("CSE", "2221", "Software 1", [
+    taught(1011, MWF, "10:20 AM", "11:15 AM", ["Timothy Long"], { component: "Recitation" }),
+    taught(1001, MWF, "9:00 AM", "9:55 AM", ["Diana Ikenberry Kline"]),
+    taught(1012, MWF, "11:30 AM", "12:25 PM", ["Ivan C. Smith III"], { component: "Laboratory" }),
+  ]);
+
+  const rendered = renderCourse(course, "1268");
+  assert.deepEqual(rendered.querySelectorAll(".teacher .section").map((row) => row.dataset.classNumber), ["1001"]);
+  assert.deepEqual(rendered.querySelectorAll(".supporting .section").map((row) => row.dataset.classNumber), ["1012", "1011"]);
+  assert.deepEqual(rendered.querySelectorAll(".supporting .section-who").map((node) => node.textContent), [
+    "Ivan C. Smith III", "Timothy Long",
+  ]);
+  assert.equal(rendered.querySelector(".supporting .score"), null);
+  assert.equal(rendered.querySelector(".supporting [data-flag='assistant']"), null);
+  assert.deepEqual(rendered.querySelectorAll(".supporting .linked").map((node) => node.textContent), ["with 1001 30/40", "with 1001 30/40"]);
+  assert.match(rendered.querySelector(".supporting-note").textContent, /after the lecture/i);
+});
+
 // Regression, #60 with #67. 1010 is a lab with 5 of 24 taken that went full to
 // open overnight, and 1002, the lecture it auto-enrolls you into, is 40/40. The
 // seats it opened cannot be registered, and "hide full" already drops the row
