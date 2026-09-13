@@ -53,8 +53,11 @@ and a seat bar reading 33 of 40.](docs/screenshots/finder-phone.png)
 
 No filter touches the network, and nothing a filter hides vanishes quietly:
 the page says how many sections it removed and offers a button that shows
-them anyway. There is no saved schedule and no conflict detection. Finder
-searches, it does not plan.
+them anyway. A separate Schedule view lets you keep sections from different
+searches, see them together on the week grid and catch conflicts before you
+register. Linked labs and recitations come with their section; when several are
+valid, Finder asks which one instead of guessing. The schedule stays in this
+browser unless you choose Share.
 
 Every search is in the address bar, and so is the section you picked, so a
 link opens on the section you meant rather than on the search. The right
@@ -167,10 +170,10 @@ on Ohio State alone.
 Only the newest search is allowed to draw, so a slow first search can never
 paint over a fast second one.
 
-That diagram is only the part a search waits on. Opening the page is 28 requests
+That diagram is only the part a search waits on. Opening the page is 29 requests
 across two hosts, counted in Chrome against a local copy with the cache
-cleared: 27 files from this repo and the term list from `content.osu.edu`. The
-27 are the HTML, two stylesheets, three font files, seventeen modules, the
+cleared: 28 files from this repo and the term list from `content.osu.edu`. The
+28 are the HTML, two stylesheets, three font files, eighteen modules, the
 ratings snapshot, two seat files and the favicon. The live page adds one more,
 the page-view ping to the analytics worker, which local runs skip.
 
@@ -229,6 +232,7 @@ js/
   rank.js             merging, scoring, splitting results
   render.js           list view, grouped by instructor
   calendar.js         week grid
+  schedule.js         saved sections, sharing and conflict detection
   detail.js           right pane
   filters.js          client-side filtering
   sort.js             ordering by rating, difficulty, seats or start time
@@ -257,7 +261,8 @@ stats/                the page that reads the counter
 - Barrett covers fewer sections than the API, so some rows never show seats.
 - Back closes the section pane and puts back the filters it opened with, but
   it does not undo a search.
-- A shared calendar link opens as a list.
+- A shared schedule refreshes each section separately, so a long schedule makes
+  several requests to Ohio State when it opens.
 - Changing a filter clears whichever section you had selected.
 - Columbus only, and only the three terms OSU's API exposes at a time.
 - A section listed in two rooms of the same building at the same hour shows
