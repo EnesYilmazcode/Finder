@@ -236,13 +236,33 @@ body {
 
 .course-title { font-weight: 600; }
 
-.course-meta {
+.course-actions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.course-meta {
   color: var(--mute);
   font-family: var(--data);
   font-size: 0.8rem;
   white-space: nowrap;
 }
+
+.course-toggle {
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0.2rem 0.45rem;
+  color: var(--ink);
+  background: var(--sunk);
+  font: 700 0.72rem var(--data);
+  cursor: pointer;
+}
+
+.course-toggle:hover { background: var(--rule); }
+.course-toggle:focus-visible { outline: 2px solid var(--scarlet); outline-offset: 2px; }
+.course-body[hidden] { display: none; }
 
 /* Sections ---------------------------------------------------------------- */
 
@@ -388,7 +408,8 @@ body {
   .section-also,
   .section-who,
   .flags { grid-column: 1 / -1; }
-  .course-meta { margin-left: 0; width: 100%; white-space: normal; }
+  .course-actions { margin-left: 0; width: 100%; justify-content: space-between; }
+  .course-meta { white-space: normal; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -13,6 +13,7 @@ import { openedOn } from "./trend.js";
 import { orderBy } from "./sort.js";
 
 export const ROW_CHIPS = 2;
+export const COURSE_COLLAPSE_AT = 50;
 
 const COMPONENT_ORDER = ["Lecture", "Seminar", "Studio", "Laboratory", "Recitation"];
 const SUPPORT_COMPONENTS = new Set(["Laboratory", "Recitation"]);
@@ -244,7 +245,7 @@ export function renderSection(section, term, { showInstructor = false } = {}) {
   return li;
 }
 
-export function renderCourse({ course, sections }, term, sort = "") {
+export function renderCourse({ course, sections }, term, sort = "", { forceOpen = false } = {}) {
   const article = el("article", "course");
 
   const head = el("header", "course-head");
@@ -255,48 +256,82 @@ export function renderCourse({ course, sections }, term, sort = "") {
 
   const units = formatUnits(course);
   const count = `${sections.length} section${sections.length === 1 ? "" : "s"}`;
-  head.append(el("span", "course-meta", units ? `${units} · ${count}` : count));
+  const actions = el("span", "course-actions");
+  actions.append(el("span", "course-meta", units ? `${units} · ${count}` : count));
+
+  const body = el("div", "course-body");
+  const bodyId = `course-${term}-${course.subject}-${course.catalogNumber}`.replace(/[^a-zA-Z0-9_-]+/g, "-");
+  body.setAttribute("id", bodyId);
+  const initiallyOpen = forceOpen || sections.length < COURSE_COLLAPSE_AT;
+  body.hidden = !initiallyOpen;
+
+  const courseCode = `${course.subject} ${course.catalogNumber}`;
+  const toggle = el("button", "course-toggle", initiallyOpen ? "Hide sections" : "Show sections");
+  toggle.setAttribute("type", "button");
+  toggle.setAttribute("aria-controls", bodyId);
+  toggle.setAttribute("aria-expanded", String(initiallyOpen));
+  toggle.setAttribute("aria-label", `${initiallyOpen ? "Hide" : "Show"} sections for ${courseCode}`);
+  actions.append(toggle);
+  head.append(actions);
   article.append(head);
 
-  const support = sections.filter((section) => SUPPORT_COMPONENTS.has(section.component));
-  const primary = sections.filter((section) => !SUPPORT_COMPONENTS.has(section.component));
+  let built = false;
+  const build = () => {
+    if (built) return;
+    built = true;
+    const support = sections.filter((section) => SUPPORT_COMPONENTS.has(section.component));
+    const primary = sections.filter((section) => !SUPPORT_COMPONENTS.has(section.component));
 
-  for (const group of groupByInstructor(primary, sort, term)) {
-    const block = el("section", "teacher");
+    for (const group of groupByInstructor(primary, sort, term)) {
+      const block = el("section", "teacher");
 
-    const heading = el("h3", "teacher-name");
-    if (group.key === UNLISTED) {
-      heading.classList.add("is-unlisted");
-      heading.textContent = group.key;
-    } else {
-      heading.append(...renderTeacher(group));
+      const heading = el("h3", "teacher-name");
+      if (group.key === UNLISTED) {
+        heading.classList.add("is-unlisted");
+        heading.textContent = group.key;
+      } else {
+        heading.append(...renderTeacher(group));
+      }
+      block.append(heading);
+
+      const list = el("ul", "sections");
+      for (const section of sortSections(group.sections, sort, term)) list.append(renderSection(section, term));
+      block.append(list);
+
+      body.append(block);
     }
-    block.append(heading);
 
-    const list = el("ul", "sections");
-    for (const section of sortSections(group.sections, sort, term)) list.append(renderSection(section, term));
-    block.append(list);
-
-    article.append(block);
-  }
-
-  if (support.length) {
-    const block = el("section", "supporting");
-    block.append(el("h3", "supporting-title", "Labs and recitations"));
-    block.append(el("p", "supporting-note", "Pick these after the lecture. When registration links are published, the paired section is shown on the row."));
-    const list = el("ul", "sections");
-    for (const section of sortSections(support, sort, term)) {
-      list.append(renderSection(section, term, { showInstructor: true }));
+    if (support.length) {
+      const block = el("section", "supporting");
+      block.append(el("h3", "supporting-title", "Labs and recitations"));
+      block.append(el("p", "supporting-note", "Pick these after the lecture. When registration links are published, the paired section is shown on the row."));
+      const list = el("ul", "sections");
+      for (const section of sortSections(support, sort, term)) {
+        list.append(renderSection(section, term, { showInstructor: true }));
+      }
+      block.append(list);
+      body.append(block);
     }
-    block.append(list);
-    article.append(block);
-  }
+  };
+
+  if (initiallyOpen) build();
+  toggle.addEventListener("click", () => {
+    const open = body.hidden;
+    if (open) build();
+    body.hidden = !open;
+    toggle.textContent = open ? "Hide sections" : "Show sections";
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.setAttribute("aria-label", `${open ? "Hide" : "Show"} sections for ${courseCode}`);
+  });
+
+  article.append(body);
 
   return article;
 }
 
-export function renderResults(container, { primary, related, openRelated }, term, sort = "") {
-  const nodes = primary.map((entry) => renderCourse(entry, term, sort));
+export function renderResults(container, { primary, related, openRelated, openClass }, term, sort = "") {
+  const hasClass = (entry) => Boolean(openClass) && entry.sections.some((section) => String(section.classNumber) === String(openClass));
+  const nodes = primary.map((entry) => renderCourse(entry, term, sort, { forceOpen: hasClass(entry) }));
 
   if (related?.length) {
     const details = el("details", "related");
@@ -309,7 +344,7 @@ export function renderResults(container, { primary, related, openRelated }, term
     const build = () => {
       if (built) return;
       built = true;
-      details.append(...related.map((entry) => renderCourse(entry, term, sort)));
+      details.append(...related.map((entry) => renderCourse(entry, term, sort, { forceOpen: hasClass(entry) })));
     };
     details.addEventListener("toggle", () => { if (details.open) build(); });
     // A link into a related course has to land on a row that exists. The toggle

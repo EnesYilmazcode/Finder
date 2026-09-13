@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { groupByInstructor, renderCourse, renderSection, sortSections } from "../js/render.js";
+import { COURSE_COLLAPSE_AT, groupByInstructor, renderCourse, renderSection, sortSections } from "../js/render.js";
 import { attr, entry, meeting, section, taught, TREND } from "./fixtures.js";
 import { setupDom } from "./dom.js";
 import { withRatings, withSeats, withTrend } from "./helpers.js";
@@ -274,6 +274,45 @@ test("labs and recitations follow the lecturer groups without TA ratings", () =>
   assert.equal(rendered.querySelector(".supporting [data-flag='assistant']"), null);
   assert.deepEqual(rendered.querySelectorAll(".supporting .linked").map((node) => node.textContent), ["with 1001 30/40", "with 1001 30/40"]);
   assert.match(rendered.querySelector(".supporting-note").textContent, /after the lecture/i);
+});
+
+test("large courses start collapsed and build their sections only when opened", () => {
+  setupDom();
+  const sections = Array.from({ length: COURSE_COLLAPSE_AT }, (_, index) => (
+    taught(2000 + index, MWF, "9:00 AM", "9:55 AM", ["Diana Ikenberry Kline"])
+  ));
+  const rendered = renderCourse(entry("GENED", "1201", "GE Launch Seminar", sections), "1268");
+  const toggle = rendered.querySelector(".course-toggle");
+  const body = rendered.querySelector(".course-body");
+
+  assert.equal(toggle.textContent, "Show sections");
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(toggle.getAttribute("aria-label"), "Show sections for GENED 1201");
+  assert.equal(body.hidden, true);
+  assert.equal(rendered.querySelectorAll(".section").length, 0, "collapsed rows are not built up front");
+  assert.match(rendered.querySelector(".course-meta").textContent, new RegExp(`${COURSE_COLLAPSE_AT} sections`));
+
+  toggle.click();
+  assert.equal(toggle.textContent, "Hide sections");
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(toggle.getAttribute("aria-label"), "Hide sections for GENED 1201");
+  assert.equal(body.hidden, false);
+  assert.equal(rendered.querySelectorAll(".section").length, COURSE_COLLAPSE_AT);
+
+  toggle.click();
+  assert.equal(body.hidden, true);
+  assert.equal(rendered.querySelectorAll(".section").length, COURSE_COLLAPSE_AT, "a second open reuses the rows");
+});
+
+test("a linked section can force a large course open", () => {
+  setupDom();
+  const sections = Array.from({ length: COURSE_COLLAPSE_AT }, (_, index) => (
+    taught(3000 + index, MWF, "9:00 AM", "9:55 AM", ["Diana Ikenberry Kline"])
+  ));
+  const rendered = renderCourse(entry("GENED", "1201", "GE Launch Seminar", sections), "1268", "", { forceOpen: true });
+  assert.equal(rendered.querySelector(".course-body").hidden, false);
+  assert.equal(rendered.querySelector(".course-toggle").getAttribute("aria-expanded"), "true");
+  assert.equal(rendered.querySelectorAll(".section").length, COURSE_COLLAPSE_AT);
 });
 
 // Regression, #60 with #67. 1010 is a lab with 5 of 24 taken that went full to

@@ -1001,7 +1001,7 @@ function paint(term = els.term.value) {
     // A related course stays folded away until it is asked for, so a link into
     // one has to ask for it here rather than after the render.
     const openRelated = Boolean(wanted) && hasSection(related, wanted);
-    renderResults(els.results, { primary, related, openRelated }, term, sort);
+    renderResults(els.results, { primary, related, openRelated, openClass: wanted }, term, sort);
   }
   resetDetail();
   els.app.dataset.view = "results";
