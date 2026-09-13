@@ -23,42 +23,33 @@ equivalent piece to fail. It is a folder of files on GitHub Pages.
 
 ## What you see
 
-```
-+-----------------------------------------------------------------------------+
-| Finder   [ CSE 2221        ]  [ Autumn 2026 v ]   [ Search ]                |
-+---------------+-------------------------------------------+-----------------+
-|               | [ List ] [ Calendar ]                     | SECTION 5168    |
-| FIND A COURSE |                                           | Paolo Bucci     |
-|  Subject      | 1 course, 22 sections in Autumn 2026.     | CSE 2221        |
-|  Number       | Seats as of Aug 19.                       | Lecture, 4 cr   |
-|  Fulfills     |                                           |                 |
-| MEETS ON      | CSE 2221  Software I: Software Components | 3.0  from 147   |
-| Mo Tu We Th Fr| 4 credits, 22 sections                    | 4.1  difficulty |
-|               |                                           | 40%  take again |
-| TIME OF DAY   |   Can Alpay  2.7 (3)                      |                 |
-|  Starts after |     5477  TuTh 4:10p   DL 357   40/40 +1  | SEATS           |
-|  Ends before  |     5478  WeFr 4:10p   DL 280   40/40 +1  | [========  ]    |
-|               |   ...                                     | Enrolled 32/40  |
-| BUSY TIMES    |   Paolo Bucci  3.0 (147)                  | Waitlist none   |
-|  TuTh 9:35a x |     5168  TuTh 8:00a   DL 357   32/40     | As of  Aug 19   |
-|               |     5169  WeFr 8:00a   DL 280   32/40     |                 |
-| INSTRUCTOR    |   ...                                     | MEETS           |
-|  Min rating   |   Naomi Lynn Zweben  4.9 (44)             | TuTh 8:00a      |
-|  Only rated   |     4831  TuTh 11:30a  DL 357   41/40 +2  | Dreese Lab 357  |
-|               |     4833  TuTh 12:40p  DL 357   40/40 +1  |                 |
-| AVAILABILITY  |                                           | ALSO TEACHES    |
-|  Hide full    | > Show 6 related courses                  | ABOUT           |
-|  Hide online  |                                           |                 |
-+---------------+-------------------------------------------+-----------------+
-```
-
-On a phone the filters move behind a Filters button and the right pane
-takes over the screen, so you get the same three panes one at a time.
+![Finder on a laptop, searching CSE 2221 in Autumn 2026. The filters run down
+the left, the middle pane lists all 22 sections grouped under each instructor
+and their rating, and the right pane is open on section 5168. Full sections
+read 40/40 in scarlet, sections with room read 33/40 in green, and every row
+carries a LECTURE or LABORATORY chip.](docs/screenshots/finder-desktop.png)
 
 - **Filters.** Days, time window, busy times, minimum rating, rated only, hide full,
   hide online, hide permission-only, undergraduate only. A sort control sits above them.
 - **Middle.** The same sections as a list by instructor, or on a week grid.
 - **Right pane.** Rating, difficulty, take-again, seats, room, description.
+
+The grid is the same sections placed by when they meet, and whichever one you
+picked stays open beside it.
+
+![The middle and right panes of that search on the week grid. Tuesday through
+Friday hold blocks from 8am down, each naming an instructor, their rating and
+the seat count, edged green where seats are left and scarlet where the section
+is full. Section 5168 is outlined at 8am Tuesday and its detail pane is open on
+the right.](docs/screenshots/finder-calendar.png)
+
+On a phone the filters move behind a Filters button and the right pane takes
+over the screen, so you get the same three panes one at a time.
+
+![Finder on a 390 pixel phone screen. The search box, the term and a Filters
+button stack down the top, and below them section 5168 fills the width: a Back
+to results button, Paolo Bucci at 3.0 from 147 ratings, the five per-score bars,
+and a seat bar reading 33 of 40.](docs/screenshots/finder-phone.png)
 
 No filter touches the network, and nothing a filter hides vanishes quietly:
 the page says how many sections it removed and offers a button that shows
@@ -72,30 +63,32 @@ browsers that have it.
 
 ## Where the data comes from
 
+```mermaid
+flowchart TB
+  accTitle: Where Finder's data comes from
+  accDescr: RateMyProfessors and Barrett's schedule both refuse to answer a web page, so a job on GitHub reads them every morning and commits each answer to this repo as a file the site serves. Ohio State's own class API answers a web page directly, so your browser asks it the moment you search.
+
+  subgraph nightly ["Earlier today, on a computer at GitHub"]
+    direction TB
+    rmp["ratemyprofessors.com<br>refuses a web page"] --> ratings["data/ratings.json<br>every rated OSU professor"]
+    ratings ~~~ barrett["asc.ohio-state.edu<br>refuses a web page"]
+    barrett --> seats["data/seats-1268.json<br>Autumn 2026 seat counts"]
+  end
+
+  ratings --> committed["committed to the repo,<br>served like any other file"]
+  seats --> committed
+
+  subgraph browser ["Right now, in your browser"]
+    direction TB
+    typed["you search CSE 2221"] --> osu["content.osu.edu/v2<br>answers a web page,<br>every section seconds old"]
+  end
+
+  committed --> page["the page in front of you"]
+  osu --> page
 ```
-EARLIER TODAY   These two sites refuse to answer a web page, so a computer
-                on GitHub asks them for you every morning and saves each
-                answer as a file in this repo:
 
-   ratemyprofessors.com  ->  data/ratings.json       every rated OSU professor
-   asc.ohio-state.edu    ->  data/seats-1268.json    Autumn 2026 seat counts
-
-                data/ratings-courses.json rides along
-                with the ratings, and data/courses.json
-                is rebuilt the same way once a week
-                              |
-                              v
-                   committed to the repo, then served
-                   like any other file on the site
-
-RIGHT NOW       You type CSE 2221 and press Enter, and your browser asks
-                Ohio State itself:
-
-   content.osu.edu/v2    ->  every section, seconds old
-                              |
-                              v
-                     the page in front of you
-```
+`data/ratings-courses.json` rides along with the ratings, and
+`data/courses.json` is rebuilt the same way once a week.
 
 Only the saved files can go stale, which is why the page prints the date
 the seat counts came from.
@@ -153,29 +146,28 @@ rather than when the page loads.
 
 ## What one search does
 
+```mermaid
+flowchart TB
+  accTitle: What one search does
+  accDescr: A search asks Ohio State for the sections and reads the two snapshots that started downloading when the page opened. rank.js merges and scores them, render.js groups them by instructor, and changing a filter redraws from memory without touching the network.
+
+  typed["you type CSE 2221 and press Enter"] --> osu["content.osu.edu/v2<br>the 22 sections, live"]
+  typed --> snaps["data/ratings.json, Paolo Bucci 3.0 from 147<br>data/seats-1268.json, 5168 has 33 of 40"]
+  osu --> rank["rank.js<br>merge the pages, score every course against your words"]
+  snaps --> rank
+  rank --> render["render.js<br>group the sections by instructor, rating beside the name"]
+  render --> page["the page you are looking at"]
+  page -- "change a filter" --> filters["filters.js<br>redraws from memory, no network"]
+  filters --> page
 ```
-you type "CSE 2221" and press Enter
-        |
-        +--> content.osu.edu/v2       the 22 sections, live
-        +--> data/ratings.json        Paolo Bucci, 3.0 from 147 ratings
-        +--> data/seats-1268.json     class 5168 has 32 of 40 seats
-        |
-        |    the two files start downloading when the page opens,
-        |    so a search usually waits on Ohio State alone
-        v
-   rank.js      merge the pages, score every course against your words
-        v
-   render.js    group the sections by instructor, rating beside the name
-        v
-   the page you are looking at
-        |
-        +--> change a filter --> filters.js redraws from memory, no network
-```
+
+The two files start downloading when the page opens, so a search usually waits
+on Ohio State alone.
 
 Only the newest search is allowed to draw, so a slow first search can never
 paint over a fast second one.
 
-That block is only the part a search waits on. Opening the page is 28 requests
+That diagram is only the part a search waits on. Opening the page is 28 requests
 across two hosts, counted in Chrome against a local copy with the cache
 cleared: 27 files from this repo and the term list from `content.osu.edu`. The
 27 are the HTML, two stylesheets, three font files, seventeen modules, the
