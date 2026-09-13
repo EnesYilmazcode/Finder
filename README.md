@@ -55,7 +55,9 @@ No filter touches the network, and nothing a filter hides vanishes quietly:
 the page says how many sections it removed and offers a button that shows
 them anyway. A separate Schedule view lets you keep sections from different
 searches, see them together on the week grid and catch conflicts before you
-register. It stays in this browser unless you choose Share.
+register. Linked labs and recitations come with their section; when several are
+valid, Finder asks which one instead of guessing. The schedule stays in this
+browser unless you choose Share.
 
 Every search is in the address bar, and so is the section you picked, so a
 link opens on the section you meant rather than on the search. The right

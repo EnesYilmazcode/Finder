@@ -918,6 +918,31 @@ body {
 }
 
 .plan-conflicts ul { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; }
+
+.plan-needs {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border-left: 3px solid var(--wait);
+  background: var(--paper);
+}
+
+.plan-choice + .plan-choice { margin-top: 0.8rem; }
+.plan-choice p { margin: 0 0 0.45rem; font-size: 0.85rem; }
+.plan-choice-options { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.plan-choice-button {
+  font: inherit;
+  font-family: var(--data);
+  font-size: 0.72rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.plan-choice-button:hover { border-color: var(--scarlet); }
 .plan-list { list-style: none; margin: 1rem 0 0; padding: 0; border-top: 1px solid var(--rule); }
 
 .plan-item {

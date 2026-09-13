@@ -78,7 +78,11 @@ export function saveSchedule(items, storage = globalThis.localStorage) {
 
 function ranges(item) {
   const found = [];
-  const sections = [item.section, ...(item.included ?? []).map((part) => part.section)];
+  const sections = [
+    item.section,
+    ...(item.included ?? []).map((part) => part.section),
+    ...(item.choice ? [item.choice.section] : []),
+  ];
   for (const section of sections) for (const meeting of distinctMeetings(section)) {
     const start = toMinutes(meeting.startTime);
     if (start == null) continue;
@@ -112,7 +116,12 @@ export function scheduleConflicts(items) {
 export function scheduleEntries(items, term) {
   const entries = new Map();
   for (const item of items.filter((candidate) => String(candidate.term) === String(term))) {
-    for (const part of [{ course: item.course, section: item.section }, ...(item.included ?? [])]) {
+    const parts = [
+      { course: item.course, section: item.section },
+      ...(item.included ?? []),
+      ...(item.choice ? [item.choice] : []),
+    ];
+    for (const part of parts) {
       const key = `${part.course.subject}:${part.course.catalogNumber}`;
       if (!entries.has(key)) entries.set(key, { course: part.course, sections: [] });
       if (!entries.get(key).sections.some((section) => String(section.classNumber) === String(part.section.classNumber))) {
@@ -132,7 +141,7 @@ function conflictText(conflict) {
   return `${courseCode(conflict.a)} and ${courseCode(conflict.b)} overlap on ${days}.`;
 }
 
-export function renderSchedule(items, term, { calendar, onRemove, onClear, onShare }) {
+export function renderSchedule(items, term, { calendar, onRemove, onClear, onShare, onChoose }) {
   const current = items.filter((item) => String(item.term) === String(term));
   const wrap = el("section", "plan");
 
@@ -159,6 +168,32 @@ export function renderSchedule(items, term, { calendar, onRemove, onClear, onSha
   if (!current.length) {
     wrap.append(el("p", "plan-empty", "Open a section from any search and choose Add to schedule."));
     return wrap;
+  }
+
+  const needsChoice = current.filter((item) => item.choices?.length && !item.choice);
+  if (needsChoice.length) {
+    const notice = el("section", "plan-needs");
+    notice.setAttribute("role", "alert");
+    notice.append(el("p", "eyebrow", "Required linked sections"));
+    for (const item of needsChoice) {
+      const group = el("div", "plan-choice");
+      group.append(el("p", null, `${courseCode(item)} section ${item.section.classNumber} needs one of these:`));
+      const options = el("div", "plan-choice-options");
+      for (const part of item.choices) {
+        const meeting = distinctMeetings(part.section)[0];
+        const label = [
+          `${part.section.component ?? "Section"} ${part.section.classNumber}`,
+          meeting ? formatWhen(meeting) : "No set time",
+        ].join(" · ");
+        const button = el("button", "plan-choice-button", label);
+        button.type = "button";
+        button.addEventListener("click", () => onChoose(item, part));
+        options.append(button);
+      }
+      group.append(options);
+      notice.append(group);
+    }
+    wrap.append(notice);
   }
 
   const conflicts = scheduleConflicts(current);
@@ -189,8 +224,9 @@ export function renderSchedule(items, term, { calendar, onRemove, onClear, onSha
     summary.append(el("span", null, meeting ? `${formatWhen(meeting)} · ${formatPlace(meeting, item.section)}` : "No set time"));
     const people = instructorsOf(item.section).map((person) => person.name).join(" & ");
     if (people) summary.append(el("span", null, people));
-    if (item.included?.length) {
-      summary.append(el("span", "plan-included", `Includes section${item.included.length === 1 ? "" : "s"} ${item.included.map((part) => part.section.classNumber).join(", ")}`));
+    const included = [...(item.included ?? []), ...(item.choice ? [item.choice] : [])];
+    if (included.length) {
+      summary.append(el("span", "plan-included", `Includes section${included.length === 1 ? "" : "s"} ${included.map((part) => part.section.classNumber).join(", ")}`));
     }
     const seats = seatsFor(item.section.classNumber, term);
     if (seats) {

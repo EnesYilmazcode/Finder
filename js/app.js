@@ -15,7 +15,7 @@ import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } f
 import { isSortKey, sortEntries, unknownSections } from "./sort.js";
 import {
   addScheduleItem, formatPlan, isScheduled, loadSchedule, parsePlan, removeScheduleItem,
-  renderSchedule, saveSchedule, scheduleEntries, scheduleIds,
+  renderSchedule, saveSchedule, scheduleEntries, scheduleIds, scheduleKey,
 } from "./schedule.js";
 
 const els = {
@@ -391,15 +391,31 @@ function setView(next) {
   paint();
 }
 
-function scheduleItem(found, term, entries = currentEntries) {
-  const included = [];
-  for (const number of linkedTo(found.section.classNumber, term)?.enrolls ?? []) {
+function linkedParts(numbers, entries) {
+  const parts = [];
+  for (const number of numbers) {
     for (const entry of entries) {
       const section = entry.sections.find((candidate) => String(candidate.classNumber) === String(number));
-      if (section) { included.push({ course: entry.course, section }); break; }
+      if (section) { parts.push({ course: entry.course, section }); break; }
     }
   }
-  return { ...found, term, included };
+  return parts;
+}
+
+function scheduleItem(found, term, entries = currentEntries, old = null) {
+  const linked = linkedTo(found.section.classNumber, term);
+  const included = linkedParts(linked?.enrolls ?? [], entries);
+  const alternatives = linkedParts(linked?.enrolledBy ?? [], entries);
+  // One valid partner is a fact, not a choice. With several, preserve a choice
+  // already made but never infer one from a matching clock time.
+  const oldChoice = String(old?.choice?.section?.classNumber ?? "");
+  const choice = alternatives.length === 1
+    ? alternatives[0]
+    : alternatives.find((part) => String(part.section.classNumber) === oldChoice) ?? null;
+  return {
+    ...found, term, included, choice,
+    choices: alternatives.length > 1 ? alternatives : [],
+  };
 }
 
 function planUrl() {
@@ -447,26 +463,65 @@ function shareSchedule() {
 async function refreshSchedule(ids, term) {
   const wanted = [...new Set(ids.map(String))];
   if (!wanted.length || !term) return;
-  const settled = await Promise.allSettled(wanted.map((number) => searchAllPages({ q: number, term })));
-  const found = new Set();
-  settled.forEach((result, index) => {
-    if (result.status !== "fulfilled") return;
-    const number = wanted[index];
-    for (const course of result.value.courses ?? []) {
+
+  // A class-number search is allowed to return only that section. Keep the
+  // whole response long enough to use a sibling when it is present, but ask
+  // for each exact Barrett partner when it is not. Guessing from equal times
+  // is unsafe: some courses have several labs at one hour, and some linked
+  // components meet at different hours entirely.
+  const resolved = new Map();
+  async function resolve(number) {
+    number = String(number);
+    if (resolved.has(number)) return resolved.get(number);
+    const result = await searchAllPages({ q: number, term });
+    let exact = null;
+    for (const course of result.courses ?? []) {
       for (const section of course.sections ?? []) {
-        if (String(section.classNumber) !== number) continue;
-        schedule = addScheduleItem(schedule, scheduleItem(
-          { course: course.course, section }, term, [{ course: course.course, sections: course.sections ?? [] }]
-        ));
-        found.add(number);
+        const found = { course: course.course, section };
+        resolved.set(String(section.classNumber), found);
+        if (String(section.classNumber) === number) exact = found;
       }
     }
+    resolved.set(number, exact);
+    return exact;
+  }
+
+  const bases = await Promise.allSettled(wanted.map(resolve));
+  const baseByNumber = new Map();
+  bases.forEach((result, index) => {
+    if (result.status === "fulfilled" && result.value) baseByNumber.set(wanted[index], result.value);
   });
+
+  const partnerIds = [...new Set([...baseByNumber.keys()].flatMap((number) => {
+    const linked = linkedTo(number, term);
+    return [...(linked?.enrolls ?? []), ...(linked?.enrolledBy ?? [])];
+  }))];
+  const missingPartners = partnerIds.filter((number) => !resolved.get(String(number)));
+  await Promise.allSettled(missingPartners.map(resolve));
+
+  const missingLinked = new Set();
+  const resolvedEntries = [...resolved.values()].filter(Boolean).map((part) => ({
+    course: part.course, sections: [part.section],
+  }));
+  for (const [number, found] of baseByNumber) {
+    const old = schedule.find((item) => scheduleKey(item) === `${term}:${number}`);
+    const linked = linkedTo(number, term);
+    for (const partner of [...(linked?.enrolls ?? []), ...(linked?.enrolledBy ?? [])]) {
+      if (!resolved.get(String(partner))) missingLinked.add(String(partner));
+    }
+    const fallbacks = [
+      ...(old?.included ?? []),
+      ...(old?.choices ?? []),
+      ...(old?.choice ? [old.choice] : []),
+    ].map((part) => ({ course: part.course, sections: [part.section] }));
+    schedule = addScheduleItem(schedule, scheduleItem(found, term, [...resolvedEntries, ...fallbacks], old));
+  }
   saveSchedule(schedule);
-  const missed = wanted.filter((number) => !found.has(number));
-  scheduleNote = missed.length
-    ? `Could not refresh section${missed.length === 1 ? "" : "s"} ${missed.join(", ")}; it may no longer be offered this term.`
-    : "Schedule refreshed from Ohio State.";
+  const missed = wanted.filter((number) => !baseByNumber.has(number));
+  const notes = [];
+  if (missed.length) notes.push(`Could not refresh section${missed.length === 1 ? "" : "s"} ${missed.join(", ")}; ${missed.length === 1 ? "it" : "they"} may no longer be offered this term.`);
+  if (missingLinked.size) notes.push(`Could not load linked section${missingLinked.size === 1 ? "" : "s"} ${[...missingLinked].join(", ")}.`);
+  scheduleNote = notes.join(" ") || "Schedule and linked sections refreshed from Ohio State.";
 }
 
 function paintSchedule(term = els.term.value) {
@@ -489,6 +544,12 @@ function paintSchedule(term = els.term.value) {
       schedule = schedule.filter((item) => String(item.term) !== String(term));
       storeSchedule();
       resetDetail();
+      paintSchedule(term);
+      els.results.focus();
+    },
+    onChoose: (item, choice) => {
+      schedule = addScheduleItem(schedule, { ...item, choice });
+      storeSchedule();
       paintSchedule(term);
       els.results.focus();
     },

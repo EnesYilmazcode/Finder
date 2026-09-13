@@ -74,3 +74,11 @@ test("a linked section rides on the calendar without becoming another selection"
   assert.equal(entries[0].sections.length, 2);
   assert.deepEqual(entries[0].sections.map((found) => found.classNumber), [1011, 1001]);
 });
+
+test("a chosen linked alternative rides on the calendar too", () => {
+  const lecture = item("CSE", "2221", 1001, MWF, "9:00 AM", "9:55 AM");
+  const lab = item("CSE", "2221", 1011, ["tuesday"], "10:20 AM", "11:15 AM");
+  lecture.choices = [{ course: lab.course, section: lab.section }];
+  lecture.choice = lecture.choices[0];
+  assert.deepEqual(scheduleEntries([lecture], TERM)[0].sections.map((found) => found.classNumber), [1001, 1011]);
+});
