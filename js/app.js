@@ -5,6 +5,7 @@ import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratin
 import { loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
+import { loadHeadshots } from "./headshots.js";
 import { applyFilters, hiddenFor, isActive, parseBusy, formatBusy, DEFAULTS } from "./filters.js";
 import { busyLabel } from "./format.js";
 import { renderCalendar } from "./calendar.js";
@@ -81,7 +82,9 @@ let view = "list";
 // A section named by the URL. Applied on the next paint and then forgotten, so
 // changing a filter later does not drag the pane back to it.
 let pendingClass = "";
-let courseCodesTried = false;
+// The two files only the detail pane reads, and whether they have landed.
+let detailFiles = null;
+let detailFilesLanded = false;
 // A `gen` link built before Ohio State reworded the category it names.
 let staleGen = null;
 
@@ -409,20 +412,27 @@ function applySelection(row) {
   showDetail(draw());
   history.replaceState(null, "", link);
 
-  // The course codes behind "52 of 147 ratings are for CSE 2221" are their own file,
-  // fetched on the first section opened instead of at startup. Redrawing the body
-  // rather than calling showDetail again leaves focus where it is. One attempt per
-  // page load either way, because a missing snapshot will not appear on the next click.
-  if (!courseCodesTried) {
+  // Two files only the detail pane reads, fetched on the first section opened
+  // instead of at startup: the course codes behind "52 of 147 ratings are for CSE
+  // 2221", and which instructors have a photo.
+  if (!detailFilesLanded) {
+    // Memoised, so one attempt per page load: a missing snapshot will not appear
+    // on the next click, and a loader that fails drops its own in-flight memo, so
+    // without this every later click would start the dead fetch again.
+    detailFiles ??= Promise.all([
+      loadRatingCourses().catch((error) => console.warn("rating course codes unavailable", error)),
+      loadHeadshots().catch((error) => console.warn("headshots unavailable", error)),
+    ]);
+    // Bound to this row rather than the first one opened, or a section selected
+    // while the files were still in flight would never get its pane back.
+    // Redrawing the body rather than calling showDetail again leaves focus alone.
     const opened = row.dataset.classNumber;
-    loadRatingCourses()
-      .then(() => {
-        if (opened === els.results.querySelector(".is-selected")?.dataset.classNumber) {
-          els.detailBody.replaceChildren(draw());
-        }
-      })
-      .catch((error) => console.warn("rating course codes unavailable", error))
-      .finally(() => { courseCodesTried = true; });
+    detailFiles.then(() => {
+      detailFilesLanded = true;
+      if (opened === els.results.querySelector(".is-selected")?.dataset.classNumber) {
+        els.detailBody.replaceChildren(draw());
+      }
+    });
   }
   return true;
 }

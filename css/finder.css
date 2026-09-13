@@ -594,6 +594,31 @@ body {
 
 .d-name.is-none { color: var(--mute); font-family: var(--body); font-weight: 500; }
 
+/* Photo and monogram share this box so the heading does not move when a photo
+   lands. Sized in rem, not em, because .d-mono changes the font size. */
+.d-face {
+  display: inline-block;
+  vertical-align: middle;
+  width: 2rem;
+  height: 2rem;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--sunk);
+}
+
+.d-mono {
+  font-family: var(--body);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 2rem;
+  letter-spacing: 0;
+  text-align: center;
+  color: var(--mute);
+}
+
+.d-mono::before { content: attr(data-initials); }
+
 .d-sub { margin: 0 0 1rem; color: var(--mute); font-size: 0.85rem; }
 
 .d-figs { display: flex; gap: 1.25rem; align-items: flex-end; margin-bottom: 0.9rem; flex-wrap: wrap; }

@@ -16,6 +16,7 @@ import {
   termListRefusal,
 } from "../scripts/guards.mjs";
 import { courseCodes, courseIndex, previousCount, writeRefusals as ratingsRefusals } from "../scripts/fetch-ratings.mjs";
+import { osuId, snapshot as headshotSnapshot } from "../scripts/fetch-headshots.mjs";
 import { previousIndex, subjectsByTerm, writeRefusals as coursesRefusals } from "../scripts/fetch-courses.mjs";
 import { appendTrend, parseSubjectFile, previousSections, subjectRefusals, termProblem } from "../scripts/fetch-seats.mjs";
 
@@ -388,6 +389,29 @@ test("ratings-courses.json keeps its shape", async () => {
         assert.equal(typeof count, "number");
         assert.ok(count > 0, `${what} ${legacyId} ${name} is ${count}`);
       }
+    }
+  }
+});
+
+test("headshots.json keeps its shape", async () => {
+  const files = [["snapshot", headshotSnapshot(["bucci.2", "gomori.1"])]];
+  try {
+    files.push(["headshots.json", await read("headshots.json")]);
+  } catch {
+    // Not committed until the first weekly run.
+  }
+
+  for (const [what, written] of files) {
+    const keys = ["source", "note", "count", "ids"];
+    assert.deepEqual(Object.keys(written), keys, `${what} is missing a key or reordered one`);
+    assert.equal(written.count, written.ids.length, `${what} does not hold what it says`);
+    assert.equal(new Set(written.ids).size, written.ids.length, `${what} lists someone twice`);
+    // Sorted so a week where nobody's photo changed produces no diff at all.
+    assert.deepEqual(written.ids, [...written.ids].sort(), `${what} is not sorted`);
+    // js/headshots.js looks up the lowercased name.N, so an id it could never
+    // match is an id that silently costs someone their photo.
+    for (const id of written.ids) {
+      assert.equal(osuId(`${id}@osu.edu`), id, `${what} carries an id the page cannot look up: ${id}`);
     }
   }
 });

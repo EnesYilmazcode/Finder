@@ -167,12 +167,17 @@ on Ohio State alone.
 Only the newest search is allowed to draw, so a slow first search can never
 paint over a fast second one.
 
-That diagram is only the part a search waits on. Opening the page is 27 requests
+That diagram is only the part a search waits on. Opening the page is 28 requests
 across two hosts, counted in Chrome against a local copy with the cache
-cleared: 26 files from this repo and the term list from `content.osu.edu`. The
-26 are the HTML, two stylesheets, three font files, sixteen modules, the
+cleared: 27 files from this repo and the term list from `content.osu.edu`. The
+27 are the HTML, two stylesheets, three font files, seventeen modules, the
 ratings snapshot, two seat files and the favicon. The live page adds one more,
 the page-view ping to the analytics worker, which local runs skip.
+
+Opening a section adds requests the page load does not make: the rating course
+codes, the list of instructors who have a photo, and, if this one does, their
+headshot from `opic.osu.edu`. That is Ohio State's own photo service and a third
+host, and the request tells it which instructor was opened.
 
 The share card is not one of them. `og.png` is fetched by whatever is unfurling
 the link and `apple-touch-icon.png` by iOS when someone saves the site to a home
@@ -198,7 +203,7 @@ The snapshot scripts are Node 22:
 node scripts/fetch-seats.mjs 1268
 ```
 
-All three refuse to write a snapshot that came back far short of the one already
+All four refuse to write a snapshot that came back far short of the one already
 committed, and leave the old file in place. `FORCE_WRITE=1`, or the force input
 on the workflow, writes it anyway, which is how a real shrink gets shipped. A
 file that failed to parse is refused either way, and so is a short answer from
@@ -229,6 +234,7 @@ js/
   sort.js             ordering by rating, difficulty, seats or start time
   deeplink.js         the section a link points at
   ratings.js          RMP snapshot and name matching
+  headshots.js        which instructors have a photo, and the initials fallback
   seats.js            Barrett snapshot and the term guard
   trend.js            what moved between two seat snapshots
   courses.js          lazily loaded course index
@@ -236,7 +242,7 @@ js/
   hit.js              one page-view ping, skipped on localhost
   analytics.js        the one place the worker URL lives
   stats.js            the /stats dashboard
-scripts/              the three snapshot jobs
+scripts/              the four snapshot jobs
 data/                 the snapshots, committed
 docs/                 what OSU's API and Barrett's schedule get wrong
 tests/                node:test, zero dependencies

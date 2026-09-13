@@ -7,7 +7,7 @@
 // it, these helpers serve a fixture over a stubbed fetch and let the real
 // loaders run.
 
-import { RATINGS, RATING_COURSES, SEATS_INDEX, SEATS_TERMS, TREND } from "./fixtures.js";
+import { HEADSHOTS, RATINGS, RATING_COURSES, SEATS_INDEX, SEATS_TERMS, TREND } from "./fixtures.js";
 
 /**
  * Swap in a fetch that serves fixtures by URL. Returns a restore function.
@@ -120,6 +120,23 @@ export async function withRatings(data = RATINGS, suffix = "") {
   const restore = stubFetch({ "ratings.json": data });
   try {
     await mod.loadRatings("ratings.json");
+  } finally {
+    restore();
+  }
+  return mod;
+}
+
+/**
+ * Load the headshot snapshot into an instance.
+ *
+ * Only the ids it lists ever get an <img>. An instance left unloaded reads the
+ * same as one whose fetch failed: every instructor draws a monogram.
+ */
+export async function withHeadshots(data = HEADSHOTS, suffix = "") {
+  const mod = await import(`../js/headshots.js${suffix}`);
+  const restore = stubFetch({ "headshots.json": data });
+  try {
+    await mod.loadHeadshots("headshots.json");
   } finally {
     restore();
   }

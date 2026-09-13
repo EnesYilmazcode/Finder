@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { mountApp, until, settle } from "./dom.js";
 import { stubFetch } from "./helpers.js";
-import { RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught } from "./fixtures.js";
+import { RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught, HEADSHOTS } from "./fixtures.js";
 
 // init() runs on import, so the only way to see what first paint waits on is to
 // give app.js a page and hold one answer back. Everything stubbed below is
@@ -164,6 +164,7 @@ test("a welcome example clicked before the term's seats land keeps the results",
     [TERMS_URL, TERMS],
     ["data/ratings.json", RATINGS],
     ["data/ratings-courses.json", RATING_COURSES],
+    ["data/headshots.json", HEADSHOTS],
     ["data/seats.json", SEATS_INDEX],
     ["data/seats-1268.json", SEATS_TERMS["1268"]],
     ["data/trend-1268.json", { ok: false, status: 404, json: async () => null }],
