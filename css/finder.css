@@ -743,6 +743,22 @@ body {
 .spread i.s4 { background: var(--open); opacity: 0.55; }
 .spread i.s5 { background: var(--open); }
 
+/* The grade curve, A on the left. Eleven marks banded into the three colours
+   the rest of the page already uses, because eleven distinguishable hues would
+   be decoration: what this bar has to show is how much is A, how much is the
+   middle, and how much is E. */
+.gspread i.g0  { background: var(--open); }
+.gspread i.g1  { background: var(--open); opacity: 0.75; }
+.gspread i.g2  { background: var(--open); opacity: 0.5; }
+.gspread i.g3  { background: var(--wait); opacity: 0.85; }
+.gspread i.g4  { background: var(--wait); opacity: 0.65; }
+.gspread i.g5  { background: var(--wait); opacity: 0.5; }
+.gspread i.g6  { background: var(--scarlet); opacity: 0.45; }
+.gspread i.g7  { background: var(--scarlet); opacity: 0.6; }
+.gspread i.g8  { background: var(--scarlet); opacity: 0.75; }
+.gspread i.g9  { background: var(--scarlet); opacity: 0.88; }
+.gspread i.g10 { background: var(--scarlet); }
+
 .spread-cap { margin-bottom: 0.6rem; }
 
 .section:focus-visible {

@@ -7,6 +7,7 @@ import { ratingFor, searchUrl, profileUrl, ratingSpread, courseShare } from "./r
 import { faceFor, initials } from "./headshots.js";
 import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { trendFor } from "./trend.js";
+import { SCALE, gradesFor, gradesStatus, gradeSpread, aShare, gradesRange, withheldFor } from "./grades.js";
 import { isIndividualStudy } from "./rank.js";
 
 function el(tag, className, text) {
@@ -232,6 +233,101 @@ function partners(title, numbers, term, entries) {
   return wrap;
 }
 
+/**
+ * The eleven marks as one bar, A on the left.
+ *
+ * Built like spreadBar, but the segments carry a band rather than a score:
+ * eleven colours nobody can tell apart would be decoration, and what a student
+ * reads off this is how much of it is A, how much is the middle, and how much
+ * is E.
+ */
+function gradeBar({ counts, total }) {
+  const bar = el("div", "spread gspread");
+  bar.setAttribute("role", "img");
+  bar.setAttribute("aria-label", counts.map((n, i) => `${n} got ${SCALE[i]}`).filter((_, i) => counts[i] > 0).join(", "));
+  counts.forEach((n, i) => {
+    if (!n) return; // a zero segment is a zero-width element with a tooltip nobody can reach
+    const segment = el("i", `g${i}`);
+    segment.style.width = `${(n / total) * 100}%`;
+    segment.title = `${n} got ${SCALE[i]}`;
+    bar.append(segment);
+  });
+  return bar;
+}
+
+/**
+ * What five years of the registrar's own records say about this instructor in
+ * this course. See docs/osu-grades.md.
+ *
+ * Only for a single named instructor, for the reason the rating block is: a
+ * curve averaged across two people is not either person's curve.
+ *
+ * Every branch here prints a different true sentence rather than a blank. A
+ * course whose sections were all too small to publish, a pass-fail course and a
+ * course nobody has a record for are three different things, and only the first
+ * two are worth saying out loud.
+ */
+function gradeBlock(person, course) {
+  const status = gradesStatus(person, course);
+  // Nothing to say: either the file is not published or it does not know this
+  // pairing. Neither is evidence about how anyone grades.
+  if (status === "unknown" || status === "unpublished") return null;
+
+  const range = gradesRange();
+  const wrap = block(range ? `Grades, ${range.first} to ${range.last}` : "Grades");
+
+  if (status === "withheld") {
+    const n = withheldFor(person, course);
+    wrap.append(el("p", "d-note",
+      `Ohio State withheld this curve: all ${n} of their sections were small enough that a distribution could identify someone.`));
+    return wrap;
+  }
+  if (status === "ungraded") {
+    wrap.append(el("p", "d-note", "This course is graded satisfactory or unsatisfactory, so there is no curve to draw."));
+    return wrap;
+  }
+
+  const curve = gradesFor(person, course);
+  if (!curve) return null;
+
+  const figs = el("div", "d-figs");
+  figs.append(figure(curve.gpa.toFixed(2), "average GPA", "is-rating"));
+  figs.append(figure(`${Math.round(aShare(curve) * 100)}%`, "got A or A-"));
+  figs.append(figure(String(curve.n), "graded"));
+  wrap.append(figs);
+
+  const spread = gradeSpread(curve);
+  if (spread) {
+    wrap.append(gradeBar(spread));
+    wrap.append(el("div", "d-cap spread-cap", "A to E, left to right"));
+  }
+
+  // Withdrawals are outside the mean by definition, which is exactly why they
+  // belong on screen: a course half the class drops has a flattering average.
+  if (curve.withdrew > 0) {
+    const share = Math.round((curve.withdrew / (curve.n + curve.withdrew)) * 100);
+    wrap.append(row("Withdrew", `${curve.withdrew} of ${curve.n + curve.withdrew} (${share}%)`,
+      share >= 15 ? "is-full" : null));
+  }
+
+  const terms = curve.terms === 1 ? "one term" : `${curve.terms} terms`;
+  const sections = curve.sections === 1 ? "one section" : `${curve.sections} sections`;
+  wrap.append(el("p", "d-note", `Across ${sections} over ${terms}.`));
+
+  if (curve.suppressed > 0) {
+    wrap.append(el("p", "d-note",
+      `${curve.suppressed} more ${curve.suppressed === 1 ? "section was" : "sections were"} too small to publish, so they are not in this curve.`));
+  }
+  // One section is one cohort. The same professor teaching the same course to
+  // honours students and to a summer section produces two different curves, and
+  // a single one cannot be told from either.
+  if (curve.n < 30) {
+    wrap.append(el("p", "d-note", `Only ${curve.n} graded students, so treat this as thin evidence.`));
+  }
+
+  return wrap;
+}
+
 export function renderDetail({ section, course, term, entries, formatDate, shareUrl, scheduled = false, onSchedule }) {
   const wrap = document.createDocumentFragment();
   const people = instructorsOf(section);
@@ -269,6 +365,13 @@ export function renderDetail({ section, course, term, entries, formatDate, share
     }
   } else if (people.length === 1) {
     wrap.append(el("p", "d-note", "No RateMyProfessors ratings. Their name links to a search."));
+  }
+
+  // Grades sit under the ratings because they answer the same question from the
+  // other side: what students said, then what the registrar recorded.
+  if (people.length === 1) {
+    const curve = gradeBlock(people[0], course);
+    if (curve) wrap.append(curve);
   }
 
   const flags = sectionFlags(section);

@@ -348,3 +348,91 @@ export function barrettFile(subject, term, rows = [], {
   for (const row of rows) lines.push(typeof row === "string" ? row : barrettLine({ subject, ...row }));
   return lines.join("\n");
 }
+
+// Grade distributions, in the shape scripts/fetch-grades.mjs writes. Counts are
+// positional against js/grades.js's SCALE: A A- B+ B B- C+ C C- D+ D E.
+//
+// Keys are the local part of an OSU address, which is what both the class API
+// and the records request carry. Every instructor here exercises one join or
+// one arithmetic case.
+const GRADE_ROWS = {
+  // The ordinary case: joined by address, several terms, a few sections the
+  // registrar withheld.
+  "bucci.2": {
+    name: "Paolo Bucci",
+    terms: 9,
+    courses: {
+      "CSE 2221": {
+        counts: [180, 120, 95, 140, 60, 45, 70, 25, 15, 20, 90],
+        other: { W: 61, I: 4 },
+        sections: 22,
+        terms: 9,
+        suppressed: 2,
+      },
+      // Same professor, a course whose curve is nothing like the first, so a
+      // per-course lookup can be told from a per-instructor one.
+      "CSE 2231": {
+        counts: [40, 30, 20, 25, 10, 5, 5, 2, 1, 1, 6],
+        other: { W: 9 },
+        sections: 6,
+        terms: 4,
+        suppressed: 0,
+      },
+    },
+  },
+  // No address on the section, so this one can only be reached by name, and
+  // "Diana Ikenberry Kline" has to find it.
+  "kline.1": {
+    name: "Diana Kline",
+    terms: 5,
+    courses: {
+      "MATH 1151": { counts: [10, 8, 12, 20, 14, 9, 11, 6, 3, 4, 7], other: { W: 12 }, sections: 8, terms: 5, suppressed: 0 },
+      // A catalog number with a suffix. 1110.02 must not answer for 1110.01.
+      "ENGLISH 1110.01": { counts: [5, 4, 3, 6, 2, 1, 1, 0, 0, 0, 1], other: {}, sections: 2, terms: 2, suppressed: 0 },
+    },
+  },
+  // Two people, one name, no addresses. A name lookup must refuse both.
+  "reed.7": { name: "Alan Reed", terms: 3, courses: { "PHYSICS 1250": { counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], other: {}, sections: 3, terms: 3, suppressed: 0 } } },
+  "reed.31": { name: "Alan Reed", terms: 2, courses: { "PHYSICS 1250": { counts: [9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0], other: {}, sections: 2, terms: 2, suppressed: 0 } } },
+  // A pass-fail course. Nothing here carries grade points, so there is no mean
+  // to print even though 140 students finished it.
+  "nkemelu.4": {
+    name: "Ada Nkemelu",
+    terms: 4,
+    courses: { "CSE 4998": { counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], other: { S: 120, U: 20, W: 3 }, sections: 4, terms: 4, suppressed: 0 } },
+  },
+  // Every section small enough to be withheld, so the record exists and the
+  // curve does not. The difference has to survive to the screen.
+  "fenwick.9": {
+    name: "Wes Fenwick",
+    terms: 2,
+    courses: { "CSE 5911": { counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], other: {}, sections: 3, terms: 2, suppressed: 3 } },
+  },
+  // Thin but real: one section, eight students, a perfect curve that means
+  // nothing. The pane has to say so rather than print a 4.0.
+  "whitfield.2": {
+    name: "Nora Whitfield",
+    terms: 1,
+    courses: { "CSE 3241": { counts: [6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0], other: {}, sections: 1, terms: 1, suppressed: 0 } },
+  },
+  // Malformed rows a bad parse could write. Both have to read as unknown.
+  "gomori.1": {
+    name: "Stephen Gomori",
+    terms: 1,
+    courses: {
+      "CSE 1223": { counts: [1, 2, 3], other: {}, sections: 1, terms: 1, suppressed: 0 },
+      "CSE 1224": { counts: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, -1], other: {}, sections: 1, terms: 1, suppressed: 0 },
+    },
+  },
+};
+
+export const GRADES = {
+  source: "The Ohio State University, public records request under R.C. 149.43",
+  campus: "col",
+  firstTerm: "Autumn 2021",
+  lastTerm: "Spring 2026",
+  termCount: 15,
+  scale: ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "E"],
+  count: Object.keys(GRADE_ROWS).length,
+  instructors: GRADE_ROWS,
+};
