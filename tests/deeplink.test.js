@@ -62,6 +62,8 @@ test("a retry is the same search, another query is not", () => {
   assert.equal(sameSearch(here, "CSE 2221", "1268"), true);
   assert.equal(sameSearch(here, "CSE 2231", "1268"), false);
   assert.equal(sameSearch(here, "CSE 2221", "1264"), false);
+  assert.equal(sameSearch(here, "CSE 2221", "1268", "nwk"), false);
+  assert.equal(sameSearch(url("?q=CSE+2221&term=1268&campus=nwk"), "CSE 2221", "1268", "nwk"), true);
 });
 
 test("a link with no term rides on the term the page picked", () => {

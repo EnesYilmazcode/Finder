@@ -55,6 +55,12 @@ test("searchClasses sends the campus, term and page alongside the query", async 
   assert.equal(url.searchParams.get("p"), "3");
 });
 
+test("searchClasses can scope a search to a regional campus", async () => {
+  const calls = capture(searchBody);
+  await searchClasses({ q: "CSE", term: "1268", campus: "nwk" });
+  assert.equal(calls[0].searchParams.get("campus"), "nwk");
+});
+
 test("searchClasses defaults to page one and reports the totals", async () => {
   capture(searchBody);
   const result = await searchClasses({ q: "CSE", term: "1268" });

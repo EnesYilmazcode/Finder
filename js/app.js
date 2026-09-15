@@ -1,8 +1,11 @@
-import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } from "./api.js";
+import {
+  fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError,
+  CAMPUSES, DEFAULT_CAMPUS,
+} from "./api.js";
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
-import { linkedTo, loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
+import { linkedTo, loadSeats, seatsFor, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
 import { loadHeadshots } from "./headshots.js";
@@ -14,9 +17,13 @@ import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLo
 import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } from "./deeplink.js";
 import { isSortKey, sortEntries, unknownSections } from "./sort.js";
 import {
-  addScheduleItem, formatPlan, isScheduled, loadSchedule, parsePlan, removeScheduleItem,
-  renderSchedule, saveSchedule, scheduleEntries, scheduleIds, scheduleKey,
+  activeSchedule, addScheduleItem, createSchedulePlan, deleteSchedulePlan, formatPlan,
+  isScheduled, loadScheduleBook, parsePlan, registrationText, removeScheduleItem,
+  renameSchedulePlan, renderSchedule, replaceActiveSchedule, saveScheduleBook,
+  scheduleEntries, scheduleIds, scheduleKey, scheduleTravelWarnings, selectSchedulePlan,
 } from "./schedule.js";
+import { estimateWalk, loadBuildings } from "./buildings.js";
+import { isWatched, loadWatches, reconcileWatches, saveWatches, toggleWatch } from "./watch.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -53,6 +60,7 @@ const els = {
   clear: document.querySelector("#f-clear"),
   query: document.querySelector("#q"),
   term: document.querySelector("#term"),
+  campus: document.querySelector("#campus"),
   submit: document.querySelector("#go"),
   status: document.querySelector("#status"),
   results: document.querySelector("#results"),
@@ -85,8 +93,12 @@ let lastQuery = "";
 // stops matching it.
 let pickedSearch = null;
 let view = "list";
-let schedule = loadSchedule();
+let scheduleBook = loadScheduleBook();
+let schedule = activeSchedule(scheduleBook);
 let scheduleNote = "";
+let buildingRequest = null;
+let watches = loadWatches();
+let watchNotice = "";
 // A section named by the URL. Applied on the next paint and then forgotten, so
 // changing a filter later does not drag the pane back to it.
 let pendingClass = "";
@@ -95,6 +107,12 @@ let detailFiles = null;
 let detailFilesLanded = false;
 // A `gen` link built before Ohio State reworded the category it names.
 let staleGen = null;
+
+function campusCode() {
+  return CAMPUSES.some((campus) => campus.code === els.campus.value)
+    ? els.campus.value
+    : DEFAULT_CAMPUS;
+}
 
 function dayStates() {
   const required = [];
@@ -402,7 +420,7 @@ function linkedParts(numbers, entries) {
   return parts;
 }
 
-function scheduleItem(found, term, entries = currentEntries, old = null) {
+function scheduleItem(found, term, entries = currentEntries, old = null, campus = campusCode()) {
   const linked = linkedTo(found.section.classNumber, term);
   const included = linkedParts(linked?.enrolls ?? [], entries);
   const alternatives = linkedParts(linked?.enrolledBy ?? [], entries);
@@ -413,34 +431,77 @@ function scheduleItem(found, term, entries = currentEntries, old = null) {
     ? alternatives[0]
     : alternatives.find((part) => String(part.section.classNumber) === oldChoice) ?? null;
   return {
-    ...found, term, included, choice,
+    ...found, term, campus, included, choice,
     choices: alternatives.length > 1 ? alternatives : [],
   };
 }
 
 function planUrl() {
   const url = new URL(location.href);
-  const plan = formatPlan(scheduleIds(schedule, els.term.value));
+  const plan = formatPlan(scheduleIds(schedule, els.term.value, campusCode()));
   if (plan) url.searchParams.set("plan", plan); else url.searchParams.delete("plan");
+  if (campusCode() !== DEFAULT_CAMPUS) url.searchParams.set("campus", campusCode());
+  else url.searchParams.delete("campus");
   url.searchParams.delete("class");
   return url;
 }
 
 function storeSchedule() {
-  saveSchedule(schedule);
-  els.scheduleCount.textContent = String(scheduleIds(schedule, els.term.value).length);
+  scheduleBook = replaceActiveSchedule(scheduleBook, schedule);
+  saveScheduleBook(scheduleBook);
+  els.scheduleCount.textContent = String(scheduleIds(schedule, els.term.value, campusCode()).length);
   history.replaceState(null, "", planUrl());
 }
 
 function toggleSchedule(found, term) {
   const number = found.section.classNumber;
-  if (isScheduled(schedule, term, number)) schedule = removeScheduleItem(schedule, term, number);
+  if (isScheduled(schedule, term, number, campusCode())) schedule = removeScheduleItem(schedule, term, number, campusCode());
   else schedule = addScheduleItem(schedule, scheduleItem(found, term));
   storeSchedule();
   if (view === "schedule") paintSchedule(term);
   else {
     const row = els.results.querySelector(`[data-class-number="${number}"]`);
     if (row) applySelection(row);
+  }
+}
+
+function checkSeatWatches(term = els.term.value) {
+  watchNotice = "";
+  const checked = reconcileWatches(watches, term, campusCode(), seatsFor);
+  watches = checked.watches;
+  saveWatches(watches);
+  if (checked.opened.length) {
+    watchNotice = `${checked.opened.map((watch) => watch.courseCode || `Section ${watch.classNumber}`).join(", ")} ${checked.opened.length === 1 ? "has" : "have"} opened since your last visit.`;
+  } else if (checked.changed.length) {
+    watchNotice = `Seat counts changed for ${checked.changed.length} watched section${checked.changed.length === 1 ? "" : "s"}.`;
+  }
+}
+
+function toggleSeatWatch(found, term) {
+  const number = found.section.classNumber;
+  watches = toggleWatch(watches, {
+    term,
+    campus: campusCode(),
+    classNumber: number,
+    courseCode: `${found.course.subject} ${found.course.catalogNumber}`,
+    seats: seatsFor(number, term),
+  });
+  saveWatches(watches);
+  const row = els.results.querySelector(`[data-class-number="${number}"]`);
+  if (row) applySelection(row);
+}
+
+function copyRegistration() {
+  const text = registrationText(schedule, els.term.value, campusCode());
+  if (!text) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(
+      () => { scheduleNote = "Registration class numbers copied."; paintSchedule(); },
+      () => { scheduleNote = "Could not copy the registration class numbers."; paintSchedule(); },
+    );
+  } else {
+    scheduleNote = "Clipboard access is unavailable; use the registration checklist below.";
+    paintSchedule();
   }
 }
 
@@ -460,9 +521,11 @@ function shareSchedule() {
 }
 
 /** Resolve the small class-number-only form a shared link carries against OSU's live API. */
-async function refreshSchedule(ids, term) {
+async function refreshSchedule(ids, term, campus = campusCode()) {
   const wanted = [...new Set(ids.map(String))];
   if (!wanted.length || !term) return;
+  const targetPlan = scheduleBook.active;
+  let refreshed = [...schedule];
 
   // A class-number search is allowed to return only that section. Keep the
   // whole response long enough to use a sibling when it is present, but ask
@@ -473,7 +536,7 @@ async function refreshSchedule(ids, term) {
   async function resolve(number) {
     number = String(number);
     if (resolved.has(number)) return resolved.get(number);
-    const result = await searchAllPages({ q: number, term });
+    const result = await searchAllPages({ q: number, term, campus });
     let exact = null;
     for (const course of result.courses ?? []) {
       for (const section of course.sections ?? []) {
@@ -504,7 +567,7 @@ async function refreshSchedule(ids, term) {
     course: part.course, sections: [part.section],
   }));
   for (const [number, found] of baseByNumber) {
-    const old = schedule.find((item) => scheduleKey(item) === `${term}:${number}`);
+    const old = refreshed.find((item) => scheduleKey(item) === `${term}:${campus}:${number}`);
     const linked = linkedTo(number, term);
     for (const partner of [...(linked?.enrolls ?? []), ...(linked?.enrolledBy ?? [])]) {
       if (!resolved.get(String(partner))) missingLinked.add(String(partner));
@@ -514,9 +577,14 @@ async function refreshSchedule(ids, term) {
       ...(old?.choices ?? []),
       ...(old?.choice ? [old.choice] : []),
     ].map((part) => ({ course: part.course, sections: [part.section] }));
-    schedule = addScheduleItem(schedule, scheduleItem(found, term, [...resolvedEntries, ...fallbacks], old));
+    refreshed = addScheduleItem(refreshed, scheduleItem(found, term, [...resolvedEntries, ...fallbacks], old, campus));
   }
-  saveSchedule(schedule);
+  // A network refresh started for one named plan must never land in a plan the
+  // student switched to while it was in flight.
+  if (scheduleBook.active !== targetPlan) return;
+  schedule = refreshed;
+  scheduleBook = replaceActiveSchedule(scheduleBook, refreshed);
+  saveScheduleBook(scheduleBook);
   const missed = wanted.filter((number) => !baseByNumber.has(number));
   const notes = [];
   if (missed.length) notes.push(`Could not refresh section${missed.length === 1 ? "" : "s"} ${missed.join(", ")}; ${missed.length === 1 ? "it" : "they"} may no longer be offered this term.`);
@@ -526,22 +594,27 @@ async function refreshSchedule(ids, term) {
 
 function paintSchedule(term = els.term.value) {
   view = "schedule";
-  const entries = scheduleEntries(schedule, term);
+  const campus = campusCode();
+  const entries = scheduleEntries(schedule, term, campus);
   currentEntries = entries;
   sectionIndex = new Map(entries.flatMap((entry) => entry.sections.map((section) => [
     String(section.classNumber), { section, course: entry.course },
   ])));
   els.results.replaceChildren(renderSchedule(schedule, term, {
+    campus,
     calendar: renderCalendar,
+    plans: scheduleBook.plans,
+    activePlan: scheduleBook.active,
+    travelWarnings: scheduleTravelWarnings(schedule, term, campus, estimateWalk),
     onRemove: (item) => {
-      schedule = removeScheduleItem(schedule, item.term, item.section.classNumber);
+      schedule = removeScheduleItem(schedule, item.term, item.section.classNumber, campus);
       storeSchedule();
       resetDetail();
       paintSchedule(term);
       els.results.focus();
     },
     onClear: () => {
-      schedule = schedule.filter((item) => String(item.term) !== String(term));
+      schedule = schedule.filter((item) => String(item.term) !== String(term) || String(item.campus || DEFAULT_CAMPUS) !== campus);
       storeSchedule();
       resetDetail();
       paintSchedule(term);
@@ -553,11 +626,49 @@ function paintSchedule(term = els.term.value) {
       paintSchedule(term);
       els.results.focus();
     },
+    onRegister: copyRegistration,
     onShare: shareSchedule,
+    onPlanSelect: (id) => {
+      scheduleBook = selectSchedulePlan(scheduleBook, id);
+      schedule = activeSchedule(scheduleBook);
+      saveScheduleBook(scheduleBook);
+      storeSchedule();
+      paintSchedule(term);
+    },
+    onPlanNew: () => {
+      scheduleBook = createSchedulePlan(scheduleBook);
+      schedule = activeSchedule(scheduleBook);
+      storeSchedule();
+      paintSchedule(term);
+    },
+    onPlanDuplicate: () => {
+      const activeName = scheduleBook.plans.find((plan) => plan.id === scheduleBook.active)?.name ?? "Plan";
+      scheduleBook = createSchedulePlan(scheduleBook, { name: `${activeName} copy`, copy: true });
+      schedule = activeSchedule(scheduleBook);
+      storeSchedule();
+      paintSchedule(term);
+    },
+    onPlanRename: (name) => {
+      scheduleBook = renameSchedulePlan(scheduleBook, scheduleBook.active, name);
+      storeSchedule();
+      paintSchedule(term);
+    },
+    onPlanDelete: () => {
+      scheduleBook = deleteSchedulePlan(scheduleBook, scheduleBook.active);
+      schedule = activeSchedule(scheduleBook);
+      storeSchedule();
+      paintSchedule(term);
+    },
   }));
+  if (!buildingRequest && scheduleIds(schedule, term, campus).length) {
+    buildingRequest = loadBuildings().then(() => {
+      if (view === "schedule" && term === els.term.value && campus === campusCode()) paintSchedule(term);
+    }).catch(() => {});
+  }
   resetDetail();
   els.app.dataset.view = "results";
-  setStatus(scheduleNote);
+  setStatus([watchNotice, scheduleNote].filter(Boolean).join(" "));
+  watchNotice = "";
   scheduleNote = "";
 }
 
@@ -591,8 +702,10 @@ function applySelection(row) {
   const term = lastResult?.term ?? els.term.value;
   const draw = () => renderDetail({
     ...found, term, entries: currentEntries, formatDate, shareUrl: link,
-    scheduled: isScheduled(schedule, term, found.section.classNumber),
+    scheduled: isScheduled(schedule, term, found.section.classNumber, campusCode()),
     onSchedule: () => toggleSchedule(found, term),
+    watched: isWatched(watches, term, campusCode(), found.section.classNumber),
+    onWatch: () => toggleSeatWatch(found, term),
   });
   showDetail(draw());
   history.replaceState(null, "", link);
@@ -688,10 +801,12 @@ function syncUrl(q, term) {
   const url = new URL(location.href);
   // A link's section belongs to the search it arrived with, so retrying that
   // search after a 429 keeps it and searching for anything else drops it.
-  if (!sameSearch(url, q, term)) pendingClass = "";
+  if (!sameSearch(url, q, term, campusCode())) pendingClass = "";
   if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
   if (term) url.searchParams.set("term", term);
-  const plan = formatPlan(scheduleIds(schedule, term));
+  if (campusCode() !== DEFAULT_CAMPUS) url.searchParams.set("campus", campusCode());
+  else url.searchParams.delete("campus");
+  const plan = formatPlan(scheduleIds(schedule, term, campusCode()));
   if (plan) url.searchParams.set("plan", plan); else url.searchParams.delete("plan");
   const gen = genCategory();
   if (gen) url.searchParams.set("gen", gen); else url.searchParams.delete("gen");
@@ -787,7 +902,7 @@ function rerunSearch() {
   runSearch(q, els.term.value, pickedSearch?.q === q ? pickedSearch.subject : null);
 }
 
-async function runSearch(q, term, subject, gen = genCategory()) {
+async function runSearch(q, term, subject, gen = genCategory(), campus = campusCode()) {
   // A new search replaces the results, and collapsed the detail pane is covering
   // them. The empty-query and error paths below never reach paint().
   els.app.dataset.view = "results";
@@ -796,7 +911,7 @@ async function runSearch(q, term, subject, gen = genCategory()) {
     // call for init to run rather than search without a term.
     if (termsError) setStatus(termsError, "error");
     else if (q.trim() || gen) {
-      queued = { q, subject, genCategory: gen };
+      queued = { q, subject, genCategory: gen, campus };
       setStatus("Still loading terms. Your search will run when they arrive.");
     }
     return;
@@ -829,7 +944,7 @@ async function runSearch(q, term, subject, gen = genCategory()) {
     // never redraw. Awaited alongside the search rather than before it, so the
     // cost is the slower of the two and only on the first search.
     const [{ courses, totalItems }] = await Promise.all([
-      searchAllPages({ q, term, subject, genCategory: gen }),
+      searchAllPages({ q, term, subject, genCategory: gen, campus }),
       loadRatings().catch(() => null),
       // Seats are per term since #48, so this term's snapshot has to be in hand
       // before the paint, or the first view after a switch shows none.
@@ -837,7 +952,8 @@ async function runSearch(q, term, subject, gen = genCategory()) {
       loadTrend(term),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
-    lastResult = { ...filterCourses(courses, q), totalItems, term };
+    checkSeatWatches(term);
+    lastResult = { ...filterCourses(courses, q), totalItems, term, campus };
     lastQuery = q.trim();
     paint(term);
   } catch (error) {
@@ -938,7 +1054,7 @@ function hiddenNote(text, offer, extra = "") {
 /** Re-render from the last search. Filters never refetch. */
 function paint(term = els.term.value) {
   markSources(term);
-  els.scheduleCount.textContent = String(scheduleIds(schedule, term).length);
+  els.scheduleCount.textContent = String(scheduleIds(schedule, term, campusCode()).length);
   if (view === "schedule") { paintSchedule(term); return; }
   const filters = readFilters();
   // The clear button tracks the filters, not the result, so it is set before
@@ -956,7 +1072,7 @@ function paint(term = els.term.value) {
   // Class numbers are reused across terms, so repainting these against the new
   // term's snapshot finds a real seat row and draws a full section as open. The
   // `??` keeps a result written without the key from blanking every search.
-  if ((lastResult.term ?? term) !== term) {
+  if ((lastResult.term ?? term) !== term || (lastResult.campus ?? DEFAULT_CAMPUS) !== campusCode()) {
     clearLastSearch();
     showSortNote([], sortKey(), term);
     // The term change started a search, and that search owns the status line
@@ -1023,7 +1139,7 @@ function paint(term = els.term.value) {
 
   // A dead snapshot and a link that missed both describe the page rather than
   // what the search found, so they trail the counts.
-  const notes = [outageNote(term), missed].filter(Boolean).join(" ");
+  const notes = [watchNotice, outageNote(term), missed].filter(Boolean).join(" ");
   const withNotes = (line) => (notes ? `${line} ${notes}` : line);
 
   if (!primary.length) {
@@ -1103,6 +1219,16 @@ async function init() {
   loadSeats(els.term.value).catch((error) => console.warn("seats unavailable", error));
 
   const params = new URLSearchParams(location.search);
+  els.campus.replaceChildren(...CAMPUSES.map(({ code, name }) => {
+    const option = document.createElement("option");
+    option.value = code;
+    option.textContent = name;
+    return option;
+  }));
+  const wantedCampus = params.get("campus") ?? DEFAULT_CAMPUS;
+  els.campus.value = CAMPUSES.some((campus) => campus.code === wantedCampus)
+    ? wantedCampus
+    : DEFAULT_CAMPUS;
   const sharedPlan = parsePlan(params.get("plan"));
   setBusy(false);
   setStatus("Loading terms...");
@@ -1173,10 +1299,13 @@ async function init() {
   els.viewCal.addEventListener("click", () => setView("calendar"));
   els.viewSchedule.addEventListener("click", () => {
     setView("schedule");
-    const ids = scheduleIds(schedule, els.term.value);
+    const ids = scheduleIds(schedule, els.term.value, campusCode());
     if (!ids.length) return;
     setStatus("Refreshing your schedule...");
-    refreshSchedule(ids, els.term.value).then(() => paintSchedule());
+    Promise.allSettled([loadSeats(els.term.value), refreshSchedule(ids, els.term.value, campusCode())]).then(() => {
+      checkSeatWatches(els.term.value);
+      paintSchedule();
+    });
   });
 
   els.filters.addEventListener("change", (event) => {
@@ -1278,10 +1407,33 @@ async function init() {
   els.term.addEventListener("change", () => {
     if (isLoaded()) { fillSubjects(); fillNumbers(); }
     syncUrl(els.query.value, els.term.value);
+    if (view === "schedule") {
+      const ids = scheduleIds(schedule, els.term.value, campusCode());
+      paintSchedule();
+      Promise.allSettled([loadSeats(els.term.value), refreshSchedule(ids, els.term.value, campusCode())]).then(() => {
+        checkSeatWatches(els.term.value);
+        paintSchedule();
+      });
+      return;
+    }
     // Re-run either way, and let runSearch own the snapshot wait. Repainting
     // only when the box had something in it left the previous term's rows on
     // screen under the new term's heading, and an empty box goes through the
     // welcome branch, which re-marks the controls for the new term.
+    rerunSearch();
+  });
+
+  els.campus.addEventListener("change", () => {
+    syncUrl(els.query.value, els.term.value);
+    if (view === "schedule") {
+      const ids = scheduleIds(schedule, els.term.value, campusCode());
+      paintSchedule();
+      Promise.allSettled([loadSeats(els.term.value), refreshSchedule(ids, els.term.value, campusCode())]).then(() => {
+        checkSeatWatches(els.term.value);
+        paintSchedule();
+      });
+      return;
+    }
     rerunSearch();
   });
 
@@ -1336,10 +1488,11 @@ async function init() {
     // The link is the sender's schedule for this term, not an instruction to
     // merge it with whichever sections the recipient already saved locally.
     schedule = schedule.filter((item) => String(item.term) !== String(els.term.value)
+      || String(item.campus || DEFAULT_CAMPUS) !== campusCode()
       || sharedPlan.includes(String(item.section.classNumber)));
     setStatus("Refreshing the shared schedule...");
     await Promise.allSettled([loadRatings(), loadSeats(els.term.value)]);
-    await refreshSchedule(sharedPlan, els.term.value);
+    await refreshSchedule(sharedPlan, els.term.value, campusCode());
     storeSchedule();
     paintSchedule();
     return;
@@ -1351,7 +1504,7 @@ async function init() {
     // Its URL was written before there was a term to write, so the link it left
     // in the address bar names none and reopens on whichever term is default.
     if (queued) replaceParam("term", els.term.value);
-    runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
+    runSearch(pending.q, els.term.value, pending.subject, pending.genCategory, pending.campus ?? campusCode());
   } else {
     // Ratings and the seats index are already in flight; fill the landing screen
     // once they land rather than showing an empty frame. The term's own seats
@@ -1366,7 +1519,7 @@ async function init() {
     const describe = () => {
       if (requestId !== latestRequest) return;
       markSources(term);
-      if (!staleGen) setStatus(outageNote(term));
+      if (!staleGen) setStatus([watchNotice, outageNote(term)].filter(Boolean).join(" "));
       showWelcome(term);
     };
     // Twice on purpose. The first run has the index and can already give the
@@ -1375,7 +1528,7 @@ async function init() {
     // flight and reads clean.
     const seats = loadSeats(term).catch(() => {});
     Promise.allSettled([loadRatings(), loadSeats()]).then(describe);
-    seats.then(describe);
+    seats.then(() => { checkSeatWatches(term); describe(); });
   }
 }
 

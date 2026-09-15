@@ -57,6 +57,9 @@ test("a section can be saved, viewed, opened and removed", async (t) => {
   assert.equal(page.el("#schedule-count").textContent, "1");
   assert.match(page.location.search, /plan=1011/);
   assert.equal(page.el("#detail-body .d-plan").textContent, "Remove from schedule");
+  const watch = page.all("#detail-body .d-act").find((button) => button.textContent === "Watch seats");
+  watch.click();
+  assert.ok(page.all("#detail-body .d-act").some((button) => button.textContent === "Watching seats"));
 
   page.el("#view-schedule").click();
   await until(() => page.el(".plan-item"), "the saved schedule");
@@ -64,9 +67,14 @@ test("a section can be saved, viewed, opened and removed", async (t) => {
   await until(() => /linked sections refreshed/i.test(page.el("#status").textContent), "the completed schedule refresh");
   assert.match(page.el(".plan-item").textContent, /CSE 2221/);
   assert.match(page.el(".plan-item").textContent, /Includes section 1001/);
+  assert.match(page.el(".plan-registration").textContent, /1011.*1001/);
   assert.deepEqual(new Set(page.all(".plan .cal-item").map((node) => node.dataset.classNumber)),
     new Set(["1001", "1011"]), "the required lecture is on the calendar too");
   assert.match(page.el(".plan-ok").textContent, /No time conflicts/);
+  const duplicate = page.all(".plan-variants .plan-action").find((button) => button.textContent === "Duplicate");
+  duplicate.click();
+  assert.equal(page.el(".plan-picker").children.length, 2);
+  assert.match(page.el(".plan-name").value, /copy$/);
 
   page.el(".plan-open").click();
   assert.match(page.el("#detail-body").textContent, /Paolo Bucci/);

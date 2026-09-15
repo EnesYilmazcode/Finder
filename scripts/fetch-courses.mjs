@@ -25,7 +25,6 @@ import { countRefusal, fatal, forceable, refusalMessage, termListRefusal } from 
 
 const API = 'https://content.osu.edu/v2/classes';
 const BARRETT = 'https://www.asc.ohio-state.edu/barrett.3/schedule';
-const CAMPUS = 'col';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_PATH = join(ROOT, 'data', 'courses.json');
 
@@ -149,7 +148,10 @@ async function mapLimit(items, limit, worker) {
 }
 
 function searchUrl(term, params) {
-  const qs = new URLSearchParams({ q: '', campus: CAMPUS, term, sort: SORT, ...params });
+  // No campus means the union Ohio State exposes. The browser scopes live
+  // section searches, but the subject/number picker must know regional-only
+  // offerings before a campus has been searched.
+  const qs = new URLSearchParams({ q: '', term, sort: SORT, ...params });
   return `${API}/search?${qs}`;
 }
 

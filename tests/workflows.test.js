@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const WORKFLOWS = join(dirname(dirname(fileURLToPath(import.meta.url))), ".github", "workflows");
 const read = (name) => readFileSync(join(WORKFLOWS, name), "utf8");
-const FILES = ["seats.json", "seats-1268.json", "ratings.json", "courses.json", "headshots.json"];
+const FILES = ["seats.json", "seats-1268.json", "ratings.json", "courses.json", "headshots.json", "buildings.json"];
 
 // One step out of a job, as its `if:` and the body of its `run:` block.
 function step(yaml, name) {
@@ -71,6 +71,7 @@ test("a commit step stages what it can when a run wrote nothing new", () => {
     ["ratings.yml", ["data/ratings.json"]],
     ["courses.yml", ["data/courses.json"]],
     ["headshots.yml", ["data/headshots.json"]],
+    ["buildings.yml", ["data/buildings.json"]],
   ]) {
     const dir = repo();
     try {

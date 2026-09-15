@@ -71,6 +71,17 @@ test("regression #76: switching term re-runs the picked subject still scoped", a
   assert.equal(url.searchParams.get("subject"), "math", "the re-run dropped back to a keyword search");
 });
 
+test("switching campus re-runs the current search with the regional code", async (t) => {
+  const { page, asked } = await picked(t);
+  page.el("#campus").value = "nwk";
+  fire(page.el("#campus"), "change");
+  await until(() => asked.length > 1, "the campus change to re-run the search");
+  const url = new URL(asked[asked.length - 1]);
+  assert.equal(url.searchParams.get("campus"), "nwk");
+  assert.equal(url.searchParams.get("subject"), "math");
+  assert.equal(new URL(page.location.href).searchParams.get("campus"), "nwk");
+});
+
 // The pickers are filled from the query too, so a search for "CSE 2221" leaves
 // 2221 in the number field. Picking a subject over it used to search nothing at
 // all: the leftover number blocked the search and stayed in the rail, which then

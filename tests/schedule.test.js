@@ -2,8 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  SCHEDULE_STORAGE_KEY, addScheduleItem, formatPlan, isScheduled, loadSchedule,
-  parsePlan, removeScheduleItem, saveSchedule, scheduleConflicts, scheduleEntries,
+  LEGACY_SCHEDULE_STORAGE_KEY, SCHEDULE_STORAGE_KEY, activeSchedule, addScheduleItem,
+  createSchedulePlan, deleteSchedulePlan, formatPlan, isScheduled, loadSchedule,
+  loadScheduleBook, parsePlan, registrationText, removeScheduleItem, renameSchedulePlan,
+  replaceActiveSchedule, saveSchedule, scheduleConflicts, scheduleEntries, scheduleTravelWarnings,
+  selectSchedulePlan,
 } from "../js/schedule.js";
 import { entry, meeting, section, taught } from "./fixtures.js";
 
@@ -26,6 +29,16 @@ test("a schedule adds one copy of a section and removes it by term", () => {
   assert.deepEqual(removeScheduleItem(schedule, TERM, 1001), []);
 });
 
+test("the same class number can be saved independently at two campuses", () => {
+  const columbus = { ...item("CSE", "2221", 1001, MWF, "9:00 AM", "9:55 AM"), campus: "col" };
+  const newark = { ...columbus, campus: "nwk" };
+  const schedule = addScheduleItem(addScheduleItem([], columbus), newark);
+  assert.equal(schedule.length, 2);
+  assert.equal(isScheduled(schedule, TERM, 1001, "col"), true);
+  assert.equal(isScheduled(schedule, TERM, 1001, "nwk"), true);
+  assert.deepEqual(removeScheduleItem(schedule, TERM, 1001, "nwk"), [columbus]);
+});
+
 test("plan links accept unique class numbers only and stay bounded", () => {
   assert.equal(formatPlan([1001, "1001", "nope", 1002]), "1001,1002");
   assert.deepEqual(parsePlan("1001,nope,1002,1001"), ["1001", "1002"]);
@@ -41,6 +54,29 @@ test("storage round trips valid items and survives unavailable storage", () => {
   assert.deepEqual(loadSchedule(storage), schedule);
   assert.deepEqual(loadSchedule({ getItem: () => "broken json" }), []);
   assert.equal(saveSchedule(schedule, { setItem: () => { throw new Error("blocked"); } }), false);
+});
+
+test("legacy storage migrates into named plans and variants stay separate", () => {
+  const memory = new Map();
+  const storage = { getItem: (key) => memory.get(key), setItem: (key, value) => memory.set(key, value) };
+  const original = item("CSE", "2221", 1001, MWF, "9:00 AM", "9:55 AM");
+  memory.set(LEGACY_SCHEDULE_STORAGE_KEY, JSON.stringify({ version: 1, items: [original] }));
+  let book = loadScheduleBook(storage);
+  assert.equal(book.plans[0].name, "Plan A");
+  assert.deepEqual(activeSchedule(book), [original]);
+
+  book = createSchedulePlan(book, { name: "Late days", copy: true });
+  assert.equal(book.plans.length, 2);
+  assert.equal(activeSchedule(book).length, 1);
+  book = renameSchedulePlan(book, book.active, "  Late   start  ");
+  assert.equal(book.plans[1].name, "Late start");
+  const first = book.plans[0].id;
+  book = selectSchedulePlan(book, first);
+  book = replaceActiveSchedule(book, []);
+  assert.equal(activeSchedule(book).length, 0);
+  book = deleteSchedulePlan(book, first);
+  assert.equal(book.plans.length, 1);
+  assert.equal(book.plans[0].name, "Late start");
 });
 
 test("conflicts inspect every meeting and do not flag adjacent classes", () => {
@@ -81,4 +117,22 @@ test("a chosen linked alternative rides on the calendar too", () => {
   lecture.choices = [{ course: lab.course, section: lab.section }];
   lecture.choice = lecture.choices[0];
   assert.deepEqual(scheduleEntries([lecture], TERM)[0].sections.map((found) => found.classNumber), [1001, 1011]);
+});
+
+test("registration copy includes primary and chosen linked class numbers", () => {
+  const lecture = item("CSE", "2221", 1001, MWF, "9:00 AM", "9:55 AM");
+  const lab = item("CSE", "2221", 1011, ["tuesday"], "10:20 AM", "11:15 AM");
+  lecture.choice = { course: lab.course, section: lab.section };
+  assert.equal(registrationText([lecture], TERM), "1001\tCSE 2221\tLecture\n1011\tCSE 2221\tLecture\tLinked choice");
+});
+
+test("walking conflicts compare the gap between consecutive meetings", () => {
+  const a = item("CSE", "2221", 1001, ["tuesday"], "9:00 AM", "10:00 AM");
+  const b = item("MATH", "1151", 2001, ["tuesday"], "10:10 AM", "11:00 AM");
+  a.section.meetings[0].buildingDescription = "Dreese Laboratories 264";
+  b.section.meetings[0].buildingDescription = "Page Hall 10";
+  const warnings = scheduleTravelWarnings([a, b], TERM, "col", () => 14);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].gap, 10);
+  assert.equal(scheduleTravelWarnings([a, b], TERM, "col", () => 8).length, 0);
 });

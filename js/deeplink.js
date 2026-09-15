@@ -27,9 +27,12 @@ export function setClassParam(url, classNumber) {
  * a search for anything else drops it. A link that names no term rides on
  * whichever term the page picked.
  */
-export function sameSearch(url, q, term) {
+export function sameSearch(url, q, term, campus = "col") {
   const was = url.searchParams.get("term");
-  return (url.searchParams.get("q") ?? "") === q && (was === null || was === term);
+  const wasCampus = url.searchParams.get("campus") ?? "col";
+  return (url.searchParams.get("q") ?? "") === q
+    && (was === null || was === term)
+    && wasCampus === campus;
 }
 
 /** Is this class number anywhere in these entries? */
