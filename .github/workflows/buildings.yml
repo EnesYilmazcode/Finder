@@ -1,0 +1,37 @@
+name: Building coordinates
+
+on:
+  schedule:
+    - cron: '20 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: buildings
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fetch building coordinates
+        run: node scripts/fetch-buildings.mjs
+      - name: Commit if changed
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -z "$(git status --porcelain -- data/buildings.json)" ]; then
+            echo "No change in data/buildings.json, nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/buildings.json
+          git commit -m "Update building coordinates"
+          git pull --rebase origin ${{ github.ref_name }}
+          git push origin HEAD:${{ github.ref_name }}

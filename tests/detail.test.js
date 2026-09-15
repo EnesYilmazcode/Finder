@@ -31,9 +31,9 @@ const CSE2221 = { subject: "CSE", catalogNumber: "2221", title: "Software I", mi
 const BLOCKED = "This section cannot be registered: another section in its package is full.";
 
 /** What app.js does with the fragment renderDetail hands back. */
-function pane(target, { course = CSE2221, term = "1268", entries = [], formatDate } = {}) {
+function pane(target, { course = CSE2221, term = "1268", entries = [], formatDate, ...extra } = {}) {
   const host = document.createElement("div");
-  host.append(renderDetail({ section: target, course, term, entries, formatDate }));
+  host.append(renderDetail({ section: target, course, term, entries, formatDate, ...extra }));
   return host;
 }
 
@@ -60,6 +60,22 @@ function rowNamed(block, label) {
 function notes(host) {
   return host.querySelectorAll(".d-note").map((n) => n.textContent);
 }
+
+test("the pane hands the course to Ohio State's syllabus library", () => {
+  const host = pane(section(1001));
+  const link = host.querySelector(".d-syllabus");
+  assert.match(link.href, /^https:\/\/osu\.simplesyllabus\.com\//);
+  assert.match(link.closest(".d-block").textContent, /CSE 2221.*Autumn 2026/);
+});
+
+test("the pane exposes a local seat watch toggle", () => {
+  let clicked = false;
+  const host = pane(section(1001), { watched: true, onWatch: () => { clicked = true; } });
+  const button = host.querySelectorAll(".d-act").find((node) => /Watching seats/.test(node.textContent));
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+  button.click();
+  assert.equal(clicked, true);
+});
 
 // #67. The pane carries the child side of a package, which the row deliberately
 // does not.

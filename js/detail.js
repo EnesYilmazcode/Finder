@@ -8,6 +8,7 @@ import { faceFor, initials } from "./headshots.js";
 import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { trendFor } from "./trend.js";
 import { isIndividualStudy } from "./rank.js";
+import { publicSyllabusExpected, SYLLABUS_LIBRARY_URL, termLabel } from "./syllabus.js";
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -42,7 +43,7 @@ function figure(value, label, tone) {
  * The class number and the two things students do with it: type it into
  * BuckeyeLink, and send the section to a friend.
  */
-function sectionHead(section, course, shareUrl, scheduled, onSchedule) {
+function sectionHead(section, course, shareUrl, scheduled, onSchedule, watched, onWatch) {
   const head = el("div", "d-head");
   head.append(el("p", "eyebrow", `Section ${section.classNumber}`));
 
@@ -83,6 +84,14 @@ function sectionHead(section, course, shareUrl, scheduled, onSchedule) {
     plan.setAttribute("aria-pressed", String(Boolean(scheduled)));
     plan.addEventListener("click", onSchedule);
     head.append(plan);
+  }
+  if (onWatch) {
+    const watch = el("button", "d-act", watched ? "Watching seats" : "Watch seats");
+    watch.type = "button";
+    watch.setAttribute("aria-pressed", String(Boolean(watched)));
+    watch.title = "Finder checks for seat changes when you return to this term.";
+    watch.addEventListener("click", onWatch);
+    head.append(watch);
   }
   return head;
 }
@@ -232,11 +241,14 @@ function partners(title, numbers, term, entries) {
   return wrap;
 }
 
-export function renderDetail({ section, course, term, entries, formatDate, shareUrl, scheduled = false, onSchedule }) {
+export function renderDetail({
+  section, course, term, entries, formatDate, shareUrl,
+  scheduled = false, onSchedule, watched = false, onWatch,
+}) {
   const wrap = document.createDocumentFragment();
   const people = instructorsOf(section);
 
-  wrap.append(sectionHead(section, course, shareUrl, scheduled, onSchedule));
+  wrap.append(sectionHead(section, course, shareUrl, scheduled, onSchedule, watched, onWatch));
   wrap.append(people.length ? instructorHeading(people) : el("h2", "d-name is-none", "Instructor not listed"));
 
   const units = formatUnits(course);
@@ -335,6 +347,20 @@ export function renderDetail({ section, course, term, entries, formatDate, share
   if (section.instructionMode) meets.append(row("Mode", section.instructionMode));
   if (section.startDate && section.endDate) meets.append(row("Runs", `${section.startDate} to ${section.endDate}`));
   wrap.append(meets);
+
+  const syllabus = block("Syllabus");
+  const syllabusLink = el("a", "d-syllabus", "Open Ohio State's syllabus library");
+  syllabusLink.href = SYLLABUS_LIBRARY_URL;
+  syllabusLink.target = "_blank";
+  syllabusLink.rel = "noopener noreferrer";
+  syllabus.append(syllabusLink);
+  const expected = publicSyllabusExpected(course, term)
+    ? "Ohio State's public-library policy covers this undergraduate course."
+    : Number.parseInt(String(course.catalogNumber), 10) <= 5999
+      ? "Public-library coverage expands to undergraduate courses beginning Autumn 2026."
+      : "Availability varies for graduate and professional courses.";
+  syllabus.append(el("p", "d-syllabus-note", `Search for ${course.subject} ${course.catalogNumber} in ${termLabel(term)}. ${expected}`));
+  wrap.append(syllabus);
 
   const attributes = attributesOf(course, section);
   if (attributes.length) {

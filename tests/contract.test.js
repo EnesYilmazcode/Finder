@@ -122,6 +122,20 @@ test("courses.json keeps its shape", async () => {
   }
 });
 
+test("buildings.json keeps compact OSU GIS coordinates", async () => {
+  const snapshot = await read("buildings.json");
+  assert.deepEqual(Object.keys(snapshot), ["source", "updated", "fields", "buildings"]);
+  assert.match(snapshot.source, /^https:\/\/gissvc\.osu\.edu\//);
+  assert.ok(snapshot.buildings.length >= 100);
+  for (const row of snapshot.buildings) {
+    assert.equal(row.length, 4);
+    assert.equal(typeof row[0], "string");
+    assert.ok(row[1]);
+    assert.equal(typeof row[2], "number");
+    assert.equal(typeof row[3], "number");
+  }
+});
+
 test("seats.json and the term files it lists agree", async () => {
   const index = await read("seats.json");
   assert.deepEqual(Object.keys(index), ["source", "fields", "note", "terms"]);

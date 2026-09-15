@@ -135,7 +135,7 @@ body {
 
 .search {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 0.5rem;
   margin-left: auto;
   min-width: min(28rem, 100%);
@@ -685,6 +685,8 @@ body {
 }
 
 .d-block { margin-bottom: 1.1rem; }
+.d-syllabus { color: var(--scarlet); font-size: 0.88rem; font-weight: 600; }
+.d-syllabus-note { margin: 0.35rem 0 0; color: var(--mute); font-size: 0.78rem; }
 
 .d-row {
   display: flex;
@@ -920,6 +922,30 @@ body {
 
 /* Schedule --------------------------------------------------------------- */
 
+.plan-variants {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.plan-variants label { display: grid; gap: 0.25rem; margin: 0; }
+.plan-picker,
+.plan-name {
+  min-height: 2rem;
+  max-width: 12rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
 .plan-head {
   display: flex;
   align-items: flex-start;
@@ -935,7 +961,7 @@ body {
   letter-spacing: -0.02em;
 }
 
-.plan-actions { display: flex; gap: 0.4rem; }
+.plan-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
 .plan-action,
 .plan-remove {
@@ -961,6 +987,26 @@ body {
 }
 
 .plan-conflicts ul { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; }
+
+.plan-travel {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border-left: 3px solid var(--wait);
+  background: var(--paper);
+}
+
+.plan-travel ul { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; }
+
+.plan-registration {
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+.plan-registration ol { margin: 0; padding-left: 1.4rem; font-family: var(--data); font-size: 0.75rem; }
+.plan-registration li + li { margin-top: 0.25rem; }
 
 .plan-needs {
   margin: 0 0 1rem;
@@ -1017,6 +1063,7 @@ body {
 .plan-remove { color: var(--scarlet); border-color: var(--rule); }
 
 @media (max-width: 46rem) {
+  .plan-head { flex-direction: column; }
   .plan-open { grid-template-columns: 1fr auto; }
   .plan-open span:nth-child(n + 3) { grid-column: 1 / -1; }
 }

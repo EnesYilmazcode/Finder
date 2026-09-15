@@ -53,7 +53,7 @@ The main endpoint.
 | Parameter | Notes |
 |---|---|
 | `q` | Free text. Matches subject, catalog number, course title, and instructor name. Multi-word queries are a union, not an intersection: `CSE 2331` matches anything with `CSE` or `2331` |
-| `campus` | `col` for Columbus |
+| `campus` | `col` Columbus, `lma` Lima, `mns` Mansfield, `mrn` Marion, `nwk` Newark, `wst` Wooster. Omit it for the union of campuses (still subject to the 10,000-result cap) |
 | `term` | A `strm` code, for example `1268` |
 | `p` | 1-based page number |
 | `sort` | `catalogNumber`, `subject`, or `-` prefixed for descending. Default is relevance, which is the source of the paging trouble below |
@@ -329,6 +329,9 @@ everywhere, which is the difference the test keys on.
 Everything above describes searching. Building the subject and number pickers
 needs the opposite, a complete list of what exists, and that is a different
 problem. `scripts/fetch-courses.mjs` solves it and writes `data/courses.json`.
+The picker index omits `campus`, so it knows regional-only course numbers. Live
+searches add the campus the visitor selected and are not exposed to that union's
+10,000-result cap.
 
 ### Search takes a subject filter
 
@@ -344,7 +347,9 @@ putting the code in `q`, because `q=CSE` also matches titles and instructor
 names: for Autumn 2026 it returned 1236 sections spread over nine subjects,
 while `subject=cse` returned exactly the 1064 that are actually CSE. Those 1064
 match the union of three pulls recorded in the paging note above, so the subject
-filter's `totalItems` is the honest count of a subject.
+filter's `totalItems` is the honest Columbus count of a subject. The picker
+builder uses the same scoped subject walks without `campus`, producing the union
+needed by all six campus choices.
 
 The same trick gives `catalog-number` (buckets `1xxx` through `8xxx`),
 `academic-career`, `academic-program`, `component`, `class-session`,

@@ -1,7 +1,15 @@
 // Client for OSU's public class API. See docs/osu-api.md.
 
 const BASE = "https://content.osu.edu/v2";
-const CAMPUS = "col";
+export const DEFAULT_CAMPUS = "col";
+export const CAMPUSES = [
+  { code: "col", name: "Columbus" },
+  { code: "lma", name: "Lima" },
+  { code: "mns", name: "Mansfield" },
+  { code: "mrn", name: "Marion" },
+  { code: "nwk", name: "Newark" },
+  { code: "wst", name: "Wooster" },
+];
 const TIMEOUT_MS = 12000;
 // Relevance is the upstream default and it reshuffles between identical
 // requests. Catalog order does not. See docs/osu-api.md.
@@ -143,11 +151,11 @@ export const GEN_CATEGORIES = [
  * documented in docs/osu-api.md. `subject` has to be lowercase: `subject=CSE`
  * returns zero.
  */
-export async function searchClasses({ q, term, page = 1, sort, subject, genCategory }) {
+export async function searchClasses({ q, term, campus = DEFAULT_CAMPUS, page = 1, sort, subject, genCategory }) {
   if (!term) throw new ApiError("Pick a term before searching.");
   const data = await getJson("/classes/search", {
     q: q ?? "",
-    campus: CAMPUS,
+    campus,
     term,
     p: page,
     sort,
@@ -214,10 +222,12 @@ function pickedScope(raw, subject) {
  * when the answer does not fit, the relevance pass runs as well and both are
  * merged. rank.js dedupes by class number, so the extra page is free coverage.
  */
-export async function searchAllPages({ q, term, maxPages = 5, subject, genCategory }) {
+export async function searchAllPages({ q, term, campus = DEFAULT_CAMPUS, maxPages = 5, subject, genCategory }) {
   const picked = pickedScope(q, subject);
   const scope = picked ?? subjectScope(q);
-  let params = scope ? { q: scope.q, subject: scope.subject, genCategory } : { q, genCategory };
+  let params = scope
+    ? { q: scope.q, subject: scope.subject, genCategory, campus }
+    : { q, genCategory, campus };
 
   let first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
 
@@ -225,7 +235,7 @@ export async function searchAllPages({ q, term, maxPages = 5, subject, genCatego
   // subject code. Nothing matches a subject that is not offered. A picked code
   // is not a guess, so zero results there are real.
   if (scope && !picked && first.totalItems === 0) {
-    params = { q, genCategory };
+    params = { q, genCategory, campus };
     first = await searchClasses({ ...params, term, sort: SORT, page: 1 });
   }
 

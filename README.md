@@ -32,7 +32,7 @@ carries a LECTURE or LABORATORY chip.](docs/screenshots/finder-desktop.png)
 - **Filters.** Days, time window, busy times, minimum rating, rated only, hide full,
   hide online, hide permission-only, undergraduate only. A sort control sits above them.
 - **Middle.** The same sections as a list by instructor, or on a week grid.
-- **Right pane.** Rating, difficulty, take-again, seats, room, description.
+- **Right pane.** Rating, difficulty, take-again, seats, room, syllabus handoff and description.
 
 The grid is the same sections placed by when they meet, and whichever one you
 picked stays open beside it.
@@ -54,15 +54,19 @@ and a seat bar reading 33 of 40.](docs/screenshots/finder-phone.png)
 No filter touches the network, and nothing a filter hides vanishes quietly:
 the page says how many sections it removed and offers a button that shows
 them anyway. A separate Schedule view lets you keep sections from different
-searches, see them together on the week grid and catch conflicts before you
-register. Linked labs and recitations come with their section; when several are
-valid, Finder asks which one instead of guessing. The schedule stays in this
-browser unless you choose Share.
+searches, save named alternatives, see them together on the week grid and catch
+time or walking conflicts before you register. Its registration checklist
+copies every class number, including the linked lab or recitation you chose.
+Finder supports Columbus, Lima, Mansfield, Marion, Newark and Wooster searches.
+Linked components come with their section; when several are valid, Finder asks
+which one instead of guessing. Plans and seat watches stay in this browser
+unless you choose Share.
 
 Every search is in the address bar, and so is the section you picked, so a
 link opens on the section you meant rather than on the search. The right
-pane copies the class number BuckeyeLink asks for, and offers Share on the
-browsers that have it.
+pane copies the class number BuckeyeLink asks for, links to Ohio State's public
+syllabus library, and can watch a seat count for changes the next time you
+return. It offers Share on browsers that have it.
 
 ## Where the data comes from
 
@@ -170,10 +174,10 @@ on Ohio State alone.
 Only the newest search is allowed to draw, so a slow first search can never
 paint over a fast second one.
 
-That diagram is only the part a search waits on. Opening the page is 29 requests
+That diagram is only the part a search waits on. Opening the page is 32 requests
 across two hosts, counted in Chrome against a local copy with the cache
-cleared: 28 files from this repo and the term list from `content.osu.edu`. The
-28 are the HTML, two stylesheets, three font files, eighteen modules, the
+cleared: 31 files from this repo and the term list from `content.osu.edu`. The
+31 are the HTML, two stylesheets, three font files, 21 modules, the
 ratings snapshot, two seat files and the favicon. The live page adds one more,
 the page-view ping to the analytics worker, which local runs skip.
 
@@ -181,6 +185,10 @@ Opening a section adds requests the page load does not make: the rating course
 codes, the list of instructors who have a photo, and, if this one does, their
 headshot from `opic.osu.edu`. That is Ohio State's own photo service and a third
 host, and the request tells it which instructor was opened.
+
+Opening a non-empty schedule also loads `data/buildings.json`, a weekly snapshot
+of Ohio State's public GIS layer. Coordinates stay in the browser and are used
+only for conservative walking-time warnings.
 
 The share card is not one of them. `og.png` is fetched by whatever is unfurling
 the link and `apple-touch-icon.png` by iOS when someone saves the site to a home
@@ -206,7 +214,7 @@ The snapshot scripts are Node 22:
 node scripts/fetch-seats.mjs 1268
 ```
 
-All four refuse to write a snapshot that came back far short of the one already
+The roster, course, seat and headshot jobs refuse to write a snapshot that came back far short of the one already
 committed, and leave the old file in place. `FORCE_WRITE=1`, or the force input
 on the workflow, writes it anyway, which is how a real shrink gets shipped. A
 file that failed to parse is refused either way, and so is a short answer from
@@ -233,6 +241,9 @@ js/
   render.js           list view, grouped by instructor
   calendar.js         week grid
   schedule.js         saved sections, sharing and conflict detection
+  buildings.js        building lookup and walking estimates
+  watch.js            local seat-change watches
+  syllabus.js         official syllabus-library handoff
   detail.js           right pane
   filters.js          client-side filtering
   sort.js             ordering by rating, difficulty, seats or start time
@@ -246,7 +257,7 @@ js/
   hit.js              one page-view ping, skipped on localhost
   analytics.js        the one place the worker URL lives
   stats.js            the /stats dashboard
-scripts/              the four snapshot jobs
+scripts/              the five snapshot jobs
 data/                 the snapshots, committed
 docs/                 what OSU's API and Barrett's schedule get wrong
 tests/                node:test, zero dependencies
@@ -264,7 +275,10 @@ stats/                the page that reads the counter
 - A shared schedule refreshes each section separately, so a long schedule makes
   several requests to Ohio State when it opens.
 - Changing a filter clears whichever section you had selected.
-- Columbus only, and only the three terms OSU's API exposes at a time.
+- Only the terms OSU's API exposes at a time.
+- Seat watches check when Finder is open; they are not push notifications.
+- Walking warnings use a conservative estimate from building coordinates, not
+  turn-by-turn accessible routing.
 - A section listed in two rooms of the same building at the same hour shows
   one of them.
 
