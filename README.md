@@ -147,6 +147,50 @@ The counts live in `data/ratings-courses.json`, 151 KB gzipped and read
 only by the detail pane, so it is fetched when you open the first section
 rather than when the page loads.
 
+### What the registrar recorded, next to what students said
+
+A rating is what people felt. `data/grades.json` is what Ohio State wrote
+down: five academic years of per-section grade distributions, Autumn 2021
+through Spring 2026, obtained under Ohio's public records law because OSU
+publishes nothing like it. `scripts/fetch-grades.mjs` folds that spreadsheet
+into one curve per instructor per course.
+
+This is the one join in Finder that does not have to guess. RateMyProfessors
+has to be matched on a name, which is why two professors called Alan Reed get
+no rating at all. The records request asked for the instructor's OSU address,
+which `content.osu.edu` already publishes beside every section, so a curve is
+keyed on `bucci.2` and lands on one person or on nobody.
+
+The pane leads with the average and the share who got an A or A-, because the
+two disagree exactly where it matters. A section that is half A and half E
+averages the same as a section that is entirely B, and only one of them is a
+coin flip.
+
+Withdrawals sit beside the curve rather than inside it. Nobody who withdrew
+has a grade, so they cannot move a mean, which means a course a third of the
+class drops can post a flattering one. The number that explains it has to be
+on screen next to it.
+
+### A curve is a cohort, not a grading style
+
+The same professor teaching the same course to honours students in Autumn and
+to a summer section averages two different curves, and neither is their
+"difficulty". Finder prints how many sections and how many terms went into
+each one so the number carries its own sample size, and says so outright under
+thirty students. It cannot tell you who the students were, and that is usually
+the larger half of the answer.
+
+Sections too small to publish are missing on purpose. A distribution over four
+students can identify one of them, so Ohio State withholds those, and the
+request asked for the withheld rows to be marked rather than dropped. That is
+why the pane can say "two more sections were too small to publish" instead of
+quietly showing a curve with a hole in it. A course where every section was
+withheld says that too, rather than looking like a professor with no record.
+
+`data/grades.json` is absent until the request is fulfilled. The loader reads
+a 404 as "not published yet" rather than as a failure, so the block simply does
+not appear, and nothing else on the page changes.
+
 ## What one search does
 
 ```mermaid
@@ -170,16 +214,16 @@ on Ohio State alone.
 Only the newest search is allowed to draw, so a slow first search can never
 paint over a fast second one.
 
-That diagram is only the part a search waits on. Opening the page is 29 requests
+That diagram is only the part a search waits on. Opening the page is 30 requests
 across two hosts, counted in Chrome against a local copy with the cache
-cleared: 28 files from this repo and the term list from `content.osu.edu`. The
-28 are the HTML, two stylesheets, three font files, eighteen modules, the
+cleared: 29 files from this repo and the term list from `content.osu.edu`. The
+29 are the HTML, two stylesheets, three font files, nineteen modules, the
 ratings snapshot, two seat files and the favicon. The live page adds one more,
 the page-view ping to the analytics worker, which local runs skip.
 
 Opening a section adds requests the page load does not make: the rating course
-codes, the list of instructors who have a photo, and, if this one does, their
-headshot from `opic.osu.edu`. That is Ohio State's own photo service and a third
+codes, the grade curves, the list of instructors who have a photo, and, if this
+one does, their headshot from `opic.osu.edu`. That is Ohio State's own photo service and a third
 host, and the request tells it which instructor was opened.
 
 The share card is not one of them. `og.png` is fetched by whatever is unfurling
@@ -238,6 +282,7 @@ js/
   sort.js             ordering by rating, difficulty, seats or start time
   deeplink.js         the section a link points at
   ratings.js          RMP snapshot and name matching
+  grades.js           five years of grade curves, joined by OSU address
   headshots.js        which instructors have a photo, and the initials fallback
   seats.js            Barrett snapshot and the term guard
   trend.js            what moved between two seat snapshots
@@ -246,9 +291,9 @@ js/
   hit.js              one page-view ping, skipped on localhost
   analytics.js        the one place the worker URL lives
   stats.js            the /stats dashboard
-scripts/              the four snapshot jobs
+scripts/              the four snapshot jobs, and the records import
 data/                 the snapshots, committed
-docs/                 what OSU's API and Barrett's schedule get wrong
+docs/                 what OSU's API, Barrett's schedule and the records get wrong
 tests/                node:test, zero dependencies
 wireframes/           three layouts considered first
 analytics/            the page-view counter, a Cloudflare Worker

@@ -7,7 +7,7 @@
 // it, these helpers serve a fixture over a stubbed fetch and let the real
 // loaders run.
 
-import { HEADSHOTS, RATINGS, RATING_COURSES, SEATS_INDEX, SEATS_TERMS, TREND } from "./fixtures.js";
+import { GRADES, HEADSHOTS, RATINGS, RATING_COURSES, SEATS_INDEX, SEATS_TERMS, TREND } from "./fixtures.js";
 
 /**
  * Swap in a fetch that serves fixtures by URL. Returns a restore function.
@@ -183,4 +183,24 @@ export function cssRules(source, where = "the stylesheet") {
       .map((d) => [d.slice(0, d.indexOf(":")).trim(), d.slice(d.indexOf(":") + 1).trim()])
       .filter(([prop, value]) => prop && value)));
   };
+}
+
+/**
+ * Load the grade snapshot into an instance.
+ *
+ * `data` set to null serves the 404 the site really gets until the records
+ * request is fulfilled, which is the state the feature ships in.
+ */
+export async function withGrades(data = GRADES, suffix = "") {
+  const mod = await import(`../js/grades.js${suffix}`);
+  const body = data === null
+    ? { ok: false, status: 404, json: async () => ({}) }
+    : data;
+  const restore = stubFetch({ "grades.json": body });
+  try {
+    await mod.loadGrades("grades.json");
+  } finally {
+    restore();
+  }
+  return mod;
 }

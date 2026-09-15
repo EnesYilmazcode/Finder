@@ -2,6 +2,7 @@ import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } fro
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
+import { loadGrades } from "./grades.js";
 import { linkedTo, loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
@@ -597,9 +598,9 @@ function applySelection(row) {
   showDetail(draw());
   history.replaceState(null, "", link);
 
-  // Two files only the detail pane reads, fetched on the first section opened
+  // Three files only the detail pane reads, fetched on the first section opened
   // instead of at startup: the course codes behind "52 of 147 ratings are for CSE
-  // 2221", and which instructors have a photo.
+  // 2221", which instructors have a photo, and the grade curves.
   if (!detailFilesLanded) {
     // Memoised, so one attempt per page load: a missing snapshot will not appear
     // on the next click, and a loader that fails drops its own in-flight memo, so
@@ -607,6 +608,8 @@ function applySelection(row) {
     detailFiles ??= Promise.all([
       loadRatingCourses().catch((error) => console.warn("rating course codes unavailable", error)),
       loadHeadshots().catch((error) => console.warn("headshots unavailable", error)),
+      // Resolves to null, not an error, until the records request is fulfilled.
+      loadGrades().catch((error) => console.warn("grade curves unavailable", error)),
     ]);
     // Bound to this row rather than the first one opened, or a section selected
     // while the files were still in flight would never get its pane back.
