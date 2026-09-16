@@ -107,10 +107,18 @@ export function trendLabel(trend) {
 /** Instructors for a section, deduped, since they hang off each meeting. */
 export function instructorsOf(section) {
   const seen = new Map();
-  for (const meeting of section?.meetings ?? []) {
-    for (const person of meeting?.instructors ?? []) {
+  const groups = [
+    ...(section?.meetings ?? []).map((meeting) => meeting?.instructors ?? []),
+    section?.fallbackInstructors ?? [],
+  ];
+  for (const people of groups) {
+    for (const person of people) {
       const name = person?.displayName?.trim();
-      if (name && !seen.has(name)) seen.set(name, { name, email: person.email ?? null, role: person.role ?? null });
+      if (name && !seen.has(name)) {
+        const found = { name, email: person.email ?? null, role: person.role ?? null };
+        if (person.source) found.source = person.source;
+        seen.set(name, found);
+      }
     }
   }
   return [...seen.values()];

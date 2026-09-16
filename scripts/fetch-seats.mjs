@@ -213,6 +213,17 @@ function parseDays(line) {
   return out;
 }
 
+// The area after column 94 usually holds instructors, but short-session rows
+// use it for markers such as {7W1}. Every instructor token Barrett publishes
+// starts with an initial and a dot; require that shape for every comma-separated
+// person so a session marker can never become a professor on screen.
+function instructorListing(raw) {
+  const value = raw.trim();
+  if (!value) return '';
+  const people = value.split(/,\s+/);
+  return people.every((person) => /^[A-Za-z][A-Za-z'-]*\.[^\s].*/.test(person)) ? value : '';
+}
+
 // A file whose shape is not the one the column map describes is a layout
 // change, not a stray line, so a caller that tolerates a few bad subjects has
 // to rethrow this rather than count it as one of them.
@@ -271,7 +282,7 @@ function parseSubjectFile(subject, term, text) {
       enrolled: Number(tail[2]),
       limit: Number(tail[3]),
       waitlist: tail[4] ? Number(tail[4]) : 0,
-      instructor: line.slice(INSTRUCTOR_START).trim(),
+      instructor: instructorListing(line.slice(INSTRUCTOR_START)),
     });
   }
 
@@ -401,7 +412,13 @@ async function snapshotTerm(term, subjects) {
   const sections = {};
   for (const key of [...byClass.keys()].sort((a, b) => Number(a) - Number(b))) {
     const s = byClass.get(key);
-    sections[key] = [s.enrolled, s.limit, s.waitlist];
+    // Barrett sometimes publishes the instructor before Ohio State's class
+    // API does. Keep the raw listing beside the seat counts so the browser can
+    // use it only as a fallback; an empty fourth field costs nothing useful and
+    // old three-column snapshots remain readable.
+    sections[key] = s.instructor
+      ? [s.enrolled, s.limit, s.waitlist, s.instructor]
+      : [s.enrolled, s.limit, s.waitlist];
   }
 
   const groups = linkGroups([...byClass.values()]);
@@ -694,8 +711,8 @@ async function main() {
   // not publish from one it has simply not fetched yet.
   const indexBytes = await writeJson(join(OUT_DIR, INDEX_NAME), {
     source: `${BASE}/`,
-    fields: ['enrolled', 'limit', 'waitlist'],
-    note: 'Barrett rebuilds a live term once a day around 06:50 Eastern and freezes a term once it is over, so sourceUpdated differs per term. A missing class number means unknown, not zero.',
+    fields: ['enrolled', 'limit', 'waitlist', 'instructor'],
+    note: 'Barrett rebuilds a live term once a day around 06:50 Eastern and freezes a term once it is over, so sourceUpdated differs per term. Instructor is Barrett\'s compact listing and is used only when Ohio State has not published a primary instructor. A missing class number means unknown, not zero.',
     terms: entries,
   });
   console.log(`wrote data/${INDEX_NAME} (${indexBytes} bytes)`);

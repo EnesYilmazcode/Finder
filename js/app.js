@@ -3,7 +3,7 @@ import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
 import { loadGrades } from "./grades.js";
-import { linkedTo, loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed } from "./seats.js";
+import { linkedTo, loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed, withSeatInstructors } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
 import { loadHeadshots } from "./headshots.js";
@@ -840,7 +840,10 @@ async function runSearch(q, term, subject, gen = genCategory()) {
       loadTrend(term),
     ]);
     if (requestId !== latestRequest) return; // a newer search already answered
-    lastResult = { ...filterCourses(courses, q), totalItems, term };
+    // Barrett's nightly file can name an instructor before the live class API
+    // does. It is already awaited above for seats, so applying the fallback
+    // adds no request to a course search.
+    lastResult = { ...filterCourses(withSeatInstructors(courses, term), q), totalItems, term };
     lastQuery = q.trim();
     paint(term);
   } catch (error) {

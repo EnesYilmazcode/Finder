@@ -12,6 +12,33 @@ test("seatsFor reports an open section", () => {
   assert.deepEqual(seats.seatsFor("1001", "1268"), { enrolled: 30, limit: 40, waitlist: 0, full: false });
 });
 
+test("Barrett instructors are parsed without changing seat reads", () => {
+  assert.deepEqual(seats.instructorsFor("1001", "1268"), [
+    { displayName: "P. Bucci", email: null, role: "PI", source: "barrett" },
+  ]);
+  assert.deepEqual(seats.instructorsFor("1002", "1268"), [
+    { displayName: "S. Gomori", email: null, role: "PI", source: "barrett" },
+    { displayName: "A. Meghrazi", email: null, role: "TA", source: "barrett" },
+    { displayName: "J. Weiler", email: null, role: "SI", source: "barrett" },
+  ]);
+  assert.deepEqual(seats.instructorsFor("1003", "1268"), [], "old three-column rows stay compatible");
+});
+
+test("Barrett fills an unpublished primary instructor without replacing Ohio State's", () => {
+  const missing = [{ course: {}, sections: [{ classNumber: "1001", meetings: [] }] }];
+  const [filled] = seats.withSeatInstructors(missing, "1268");
+  assert.equal(filled.sections[0].fallbackInstructors[0].displayName, "P. Bucci");
+  assert.notEqual(filled.sections[0], missing[0].sections[0], "the API response is not mutated");
+
+  const published = [{ course: {}, sections: [{
+    classNumber: "1001",
+    meetings: [{ instructors: [{ displayName: "Paolo Bucci", role: "PI" }] }],
+  }] }];
+  const [kept] = seats.withSeatInstructors(published, "1268");
+  assert.equal(kept.sections[0], published[0].sections[0]);
+  assert.equal(kept.sections[0].fallbackInstructors, undefined);
+});
+
 test("seatsFor calls a section at capacity full", () => {
   const row = seats.seatsFor("1002", "1268");
   assert.equal(row.full, true);

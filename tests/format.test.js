@@ -212,6 +212,14 @@ test("instructorsOf survives missing meetings and missing instructors", () => {
   assert.deepEqual(instructorsOf({ meetings: [{ startTime: "9:00 AM" }] }), []);
 });
 
+test("instructorsOf uses an early Barrett listing kept off the meeting", () => {
+  const people = instructorsOf({
+    meetings: [],
+    fallbackInstructors: [{ displayName: "P. Bucci", role: "PI", source: "barrett" }],
+  });
+  assert.deepEqual(people, [{ name: "P. Bucci", email: null, role: "PI", source: "barrett" }]);
+});
+
 // Regression, #82. CSE 2112 class 8823 comes back with ten meetings for one
 // Tuesday class, alternating the room label between BE 120 and Baker Syst.
 // Printing a line per meeting turned that row into nine repeats.

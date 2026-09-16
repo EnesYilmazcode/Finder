@@ -71,7 +71,7 @@ export function taught(classNumber, days, start, end, names, opts = {}) {
 // one file per term, so the loader under test does the real two-step fetch.
 export const SEATS_INDEX = {
   source: "https://www.asc.ohio-state.edu/barrett.3/schedule/",
-  fields: ["enrolled", "limit", "waitlist"],
+  fields: ["enrolled", "limit", "waitlist", "instructor"],
   note: "A missing class number means unknown, not zero.",
   terms: [
     { term: "1262", termName: "Spring 2026", sourceUpdated: "2026-04-27", sections: 2, file: "seats-1262.json" },
@@ -83,8 +83,8 @@ export const SEATS_TERMS = {
   "1268": {
     term: "1268",
     sections: {
-      "1001": [30, 40, 0],    // open
-      "1002": [40, 40, 3],    // exactly full, three waiting
+      "1001": [30, 40, 0, "P.Bucci"], // open, with Barrett's earlier instructor listing
+      "1002": [40, 40, 3, "S.Gomori, A.Meghrazi (TA), J.Weiler (SI)"], // exactly full, three waiting
       "1003": [41, 40, 1],    // over cap, which OSU's own API calls open
       "1004": [0, 0, 1],      // no published capacity, someone already waiting
       "1005": [12],           // malformed, too short

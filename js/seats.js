@@ -162,6 +162,62 @@ export function seatsFor(classNumber, term) {
   };
 }
 
+/**
+ * The instructor listing Barrett publishes for one section, or an empty list.
+ *
+ * Barrett writes compact names such as `P.Bucci` and can list several with a
+ * comma. A parenthesized suffix is its role: TA and graduate assistants are
+ * not promoted to primary instructors. Old snapshots have only three fields,
+ * so this naturally reads as absent until the nightly refresh writes the new
+ * column.
+ */
+export function instructorsFor(classNumber, term) {
+  if (!term) return [];
+  const raw = loaded.get(String(term))?.sections?.[String(classNumber)]?.[3];
+  if (typeof raw !== "string" || !raw.trim()) return [];
+
+  return raw.split(/,\s+/).map((listing) => {
+    const match = /^(.+?)(?:\s+\(([^)]+)\))?$/.exec(listing.trim());
+    const compact = match?.[1]?.trim() ?? "";
+    if (!compact) return null;
+    const dot = compact.indexOf(".");
+    const name = dot > 0 ? `${compact.slice(0, dot + 1)} ${compact.slice(dot + 1)}` : compact;
+    const code = match?.[2]?.trim().toUpperCase() ?? "";
+    return {
+      displayName: name,
+      email: null,
+      // An unqualified name is the primary listing. Preserve every explicit
+      // Barrett role (TA, SI, GR, GY, LA, GS...) so none is accidentally
+      // promoted merely because a new code appeared upstream.
+      role: code || "PI",
+      source: "barrett",
+    };
+  }).filter(Boolean);
+}
+
+/**
+ * Add Barrett's earlier instructor assignment to sections for which Ohio
+ * State has not published a primary instructor yet. The fallback lives on the
+ * section instead of being spliced into a fake meeting, so it cannot invent a
+ * time or room. Returns new entries and sections; the API response stays
+ * untouched for cached searches and tests.
+ */
+export function withSeatInstructors(entries, term) {
+  return (entries ?? []).map((entry) => ({
+    ...entry,
+    sections: (entry.sections ?? []).map((section) => {
+      const apiPeople = (section.meetings ?? []).flatMap((meeting) => meeting?.instructors ?? []);
+      if (apiPeople.some((person) => person?.role === "PI")) return section;
+      // This feature fills the professor assignment. Barrett also names TAs
+      // and graduate assistants, but adding those beside an API-published TA
+      // can duplicate the same person in compact and full-name forms.
+      const fallbackInstructors = instructorsFor(section.classNumber, term)
+        .filter((person) => person.role === "PI");
+      return fallbackInstructors.length ? { ...section, fallbackInstructors } : section;
+    }),
+  }));
+}
+
 // Both directions of a term's packages, built once per term. The snapshot
 // stores each one parent first, which is where the direction lives. A section
 // can sit under two parents, so the child side is a list.
