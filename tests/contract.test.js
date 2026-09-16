@@ -125,7 +125,7 @@ test("courses.json keeps its shape", async () => {
 test("seats.json and the term files it lists agree", async () => {
   const index = await read("seats.json");
   assert.deepEqual(Object.keys(index), ["source", "fields", "note", "terms"]);
-  assert.deepEqual(index.fields, ["enrolled", "limit", "waitlist"]);
+  assert.deepEqual(index.fields, ["enrolled", "limit", "waitlist", "instructor"]);
   assert.ok(index.terms.length > 0);
 
   for (const entry of index.terms) {
@@ -141,8 +141,13 @@ test("seats.json and the term files it lists agree", async () => {
     assert.equal(rows.length, entry.sections, `${entry.file} does not hold what the index says`);
     for (const [classNumber, row] of rows) {
       assert.match(classNumber, /^\d+$/);
-      assert.equal(row.length, 3, `${entry.file} ${classNumber} is not enrolled/limit/waitlist`);
-      for (const value of row) assert.equal(typeof value, "number");
+      assert.ok(row.length === 3 || row.length === 4,
+        `${entry.file} ${classNumber} is not enrolled/limit/waitlist[/instructor]`);
+      for (const value of row.slice(0, 3)) assert.equal(typeof value, "number");
+      if (row.length === 4) {
+        assert.equal(typeof row[3], "string");
+        assert.ok(row[3].trim(), `${entry.file} ${classNumber} has an empty instructor column`);
+      }
     }
   }
 });

@@ -61,6 +61,14 @@ function notes(host) {
   return host.querySelectorAll(".d-note").map((n) => n.textContent);
 }
 
+test("an early Barrett instructor is named and sourced", () => {
+  const target = section(1001);
+  target.fallbackInstructors = [{ displayName: "P. Bucci", role: "PI", source: "barrett" }];
+  const host = pane(target);
+  assert.equal(host.querySelector(".d-name")?.textContent, "P. Bucci");
+  assert.ok(notes(host).some((line) => /listed early by Barrett/.test(line)));
+});
+
 // #67. The pane carries the child side of a package, which the row deliberately
 // does not.
 

@@ -102,6 +102,13 @@ The Ohio State address in that picture does not. It sends one header,
 `Access-Control-Allow-Origin: *`, which is standing permission for any page
 to read it. That header is why Finder can exist with no server.
 
+Barrett's file also carries a compact instructor listing, and it can land
+there before the primary instructor appears in Ohio State's class API. The
+nightly snapshot keeps that fourth field beside the seat counts. Finder uses
+it only when the live response has no primary instructor, labels the earlier
+source in the detail pane, and gives the live Ohio State assignment precedence
+as soon as it appears.
+
 ### OSU's API reports enrollment wrong per section
 
 OSU's class API returns one enrollment number per course and stamps it onto

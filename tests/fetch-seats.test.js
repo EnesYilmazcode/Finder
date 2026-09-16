@@ -96,6 +96,14 @@ describe("where the column header is", () => {
     assert.deepEqual(out.failures, []);
     assert.equal(out.sections.length, 2);
   });
+
+  test("a short-session marker is not stored as an instructor", () => {
+    const text = barrettFile("CSE", "1268", [
+      { catalog: "2501", classNumber: "7099", enrolled: 0, limit: 5, instructor: "{7W2}" },
+    ]);
+    const out = parseSubjectFile("CSE", "1268", text);
+    assert.equal(out.sections[0].instructor, "");
+  });
 });
 
 describe("what holds a term back", () => {
@@ -125,7 +133,7 @@ describe("what holds a term back", () => {
       assert.equal(stats.sectionsParsed, 44, "the other 11 subjects still parsed");
       assert.match(fetchErrors[0], /SUBJ07/);
       assert.match(fetchErrors[0], /403/);
-      assert.deepEqual(snapshot.sections["10000"], [26, 40, 0], "SUBJ00 is in the snapshot");
+      assert.deepEqual(snapshot.sections["10000"], [26, 40, 0, "M.Mallon"], "SUBJ00 is in the snapshot");
       assert.equal(snapshot.sections["10700"], undefined, "SUBJ07 is not, its sections read as unknown");
     } finally {
       restore();
