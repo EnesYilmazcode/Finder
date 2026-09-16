@@ -335,10 +335,6 @@ export function renderDetail({ section, course, term, entries, formatDate, share
   wrap.append(sectionHead(section, course, shareUrl, scheduled, onSchedule));
   wrap.append(people.length ? instructorHeading(people) : el("h2", "d-name is-none", "Instructor not listed"));
 
-  if (people.some((person) => person.source === "barrett")) {
-    wrap.append(el("p", "d-note", "Instructor listed early by Barrett's schedule; Ohio State's class search has not published the primary assignment yet."));
-  }
-
   const units = formatUnits(course);
   const bits = [`${course.subject} ${course.catalogNumber}`, section.component, units].filter(Boolean);
   wrap.append(el("p", "d-sub", bits.join(" · ")));

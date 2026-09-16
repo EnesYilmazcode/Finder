@@ -105,9 +105,8 @@ to read it. That header is why Finder can exist with no server.
 Barrett's file also carries a compact instructor listing, and it can land
 there before the primary instructor appears in Ohio State's class API. The
 nightly snapshot keeps that fourth field beside the seat counts. Finder uses
-it only when the live response has no primary instructor, labels the earlier
-source in the detail pane, and gives the live Ohio State assignment precedence
-as soon as it appears.
+it only when the live response has no primary instructor and gives the live
+Ohio State assignment precedence as soon as it appears.
 
 ### OSU's API reports enrollment wrong per section
 
