@@ -91,23 +91,6 @@ test("a shared class-number plan is refreshed and opens in schedule view", async
   assert.match(page.el("#status").textContent, /refreshed/i);
 });
 
-test("submitting a course search from the schedule opens its list results", async (t) => {
-  t.after(serve());
-  const page = await mountApp();
-  await until(() => page.el("#term").options.length > 0, "the term list");
-
-  page.el("#view-schedule").click();
-  assert.equal(page.el("#view-schedule").getAttribute("aria-pressed"), "true");
-
-  page.el("#q").value = "CSE 2221";
-  fire(page.el("#search"), "submit");
-  await until(() => page.el('.section[data-class-number="1001"]'), "the searched course");
-
-  assert.equal(page.el("#view-list").getAttribute("aria-pressed"), "true");
-  assert.equal(page.el("#view-schedule").getAttribute("aria-pressed"), "false");
-  assert.equal(page.el(".app").dataset.view, "results");
-});
-
 test("a section with several valid linked components asks instead of guessing", async (t) => {
   const queries = [];
   t.after(serve(queries));

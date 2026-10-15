@@ -8,19 +8,6 @@ import { instructorsOf } from "./format.js";
 const SUBJECT_RE = /^[A-Z]{2,8}$/;
 const NUMBER_RE = /^\d{3,4}(\.\d+)?[A-Z]*$/;
 
-// A base catalog number names its decimal variants too: STAT 3470 is the
-// family containing STAT 3470.01 and 3470.02. A query that names a variant is
-// still exact, and suffixes such as 3470H are separate courses rather than
-// members of the decimal family.
-function catalogMatch(query, catalog) {
-  const wanted = String(query ?? "").toUpperCase();
-  const actual = String(catalog ?? "").toUpperCase();
-  if (!wanted || !actual) return 0;
-  if (actual === wanted) return 2;
-  if (/^\d{3,4}$/.test(wanted) && actual.startsWith(`${wanted}.`)) return 1;
-  return 0;
-}
-
 export function parseQuery(raw) {
   const tokens = (raw ?? "").trim().toUpperCase().split(/\s+/).filter(Boolean);
   return {
@@ -58,18 +45,16 @@ function scoreCourse({ course, sections }, parsed) {
 
   let score = 0;
   const subjectHit = parsed.subject && subject === parsed.subject;
-  const numberMatch = parsed.number ? catalogMatch(parsed.number, number) : 0;
-  const numberHit = numberMatch === 2;
+  const numberHit = parsed.number && number === parsed.number;
 
   if (subjectHit && numberHit) score += 1000;
-  else if (subjectHit && numberMatch === 1) score += 900;
   else {
     if (subjectHit) score += 120;
     if (numberHit) score += 90;
   }
 
   // A bare number query should still favour the course someone meant.
-  if (!parsed.subject && numberMatch) score += numberHit ? 60 : 50;
+  if (!parsed.subject && numberHit) score += 60;
 
   for (const token of parsed.tokens) {
     if (token === subject || token === number) continue;
@@ -84,10 +69,9 @@ function scoreCourse({ course, sections }, parsed) {
     }
   }
 
-  // Inside an explicitly requested course family, catalog order is the useful
-  // stable order (.01, .02, ...). For loose matches, prefer the larger, more
-  // commonly taken offering.
-  if (!(subjectHit && numberMatch)) score += Math.min(sections.length, 30) / 100;
+  // Break ties toward the course people are more likely to want: more sections
+  // means a bigger, more commonly taken offering.
+  score += Math.min(sections.length, 30) / 100;
   return score;
 }
 
@@ -137,13 +121,12 @@ export function filterCourses(entries, rawQuery) {
   // requirement browse under "related" and then report 25 as the whole answer.
   if (!parsed.tokens.length) return { primary: pool, related: setAside, reason: "all" };
 
-  // A subject plus catalog number is unambiguous. An unsuffixed number names
-  // its decimal family, while a query that includes .01 or .02 stays exact.
+  // An exact subject plus number is unambiguous. Answer the question asked.
   if (parsed.subject && parsed.number) {
     const exact = pool.filter(
       (e) =>
         (e.course.subject ?? "").toUpperCase() === parsed.subject &&
-        catalogMatch(parsed.number, e.course.catalogNumber) > 0
+        (e.course.catalogNumber ?? "").toUpperCase() === parsed.number
     );
     if (exact.length) {
       const rest = [...pool.filter((e) => !exact.includes(e)), ...setAside];

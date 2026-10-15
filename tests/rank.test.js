@@ -139,18 +139,6 @@ test("rankCourses puts an exact subject and number first", () => {
   );
 });
 
-test("rankCourses puts decimal variants of a requested base number first in catalog order", () => {
-  const ranked = rankCourses(
-    [
-      entry("STAT", "1350.01", "Elementary Statistics", Array.from({ length: 20 }, (_, i) => section(100 + i))),
-      entry("STAT", "3470.02", "Probability and Statistics", Array.from({ length: 10 }, (_, i) => section(200 + i))),
-      entry("STAT", "3470.01", "Probability and Statistics", [section(300)]),
-    ],
-    "STAT 3470"
-  );
-  assert.deepEqual(ranked.map((e) => e.course.catalogNumber), ["3470.01", "3470.02", "1350.01"]);
-});
-
 test("rankCourses lifts a course because of who teaches it", () => {
   const ranked = rankCourses(corpus(), "GOMORI");
   assert.equal(ranked[0].course.catalogNumber, "2331");
@@ -198,44 +186,6 @@ test("filterCourses answers an exact subject and number with that course alone",
   assert.equal(primary[0].course.subject, "CSE");
   assert.equal(primary[0].course.catalogNumber, "2321");
   assert.equal(related.length, 5);
-});
-
-test("filterCourses treats an unsuffixed catalog query as its decimal family", () => {
-  const results = [
-    entry("STAT", "1350.01", "Elementary Statistics", [section(100)]),
-    entry("STAT", "3470.02", "Probability and Statistics", [section(200)]),
-    entry("STAT", "3470.01", "Probability and Statistics", [section(300)]),
-    entry("STAT", "3470H", "Honors Probability and Statistics", [section(400)]),
-    entry("STAT", "347", "Other Statistics", [section(500)]),
-  ];
-  const { primary, related, reason } = filterCourses(results, "STAT 3470");
-
-  assert.equal(reason, "exact");
-  assert.deepEqual(primary.map((e) => e.course.catalogNumber), ["3470.01", "3470.02"]);
-  assert.deepEqual(related.map((e) => e.course.catalogNumber), ["1350.01", "347", "3470H"]);
-});
-
-test("filterCourses keeps a requested decimal variant exact", () => {
-  const results = [
-    entry("STAT", "3470.01", "Probability and Statistics", [section(100)]),
-    entry("STAT", "3470.02", "Probability and Statistics", [section(200)]),
-  ];
-  const { primary, related, reason } = filterCourses(results, "STAT 3470.02");
-
-  assert.equal(reason, "exact");
-  assert.deepEqual(primary.map((e) => e.course.catalogNumber), ["3470.02"]);
-  assert.deepEqual(related.map((e) => e.course.catalogNumber), ["3470.01"]);
-});
-
-test("an exact base course precedes the decimal variants in its family", () => {
-  const results = [
-    entry("STAT", "3470.02", "Probability and Statistics", [section(100)]),
-    entry("STAT", "3470", "Probability and Statistics", [section(200)]),
-    entry("STAT", "3470.01", "Probability and Statistics", [section(300)]),
-  ];
-  const { primary } = filterCourses(results, "STAT 3470");
-
-  assert.deepEqual(primary.map((e) => e.course.catalogNumber), ["3470", "3470.01", "3470.02"]);
 });
 
 test("filterCourses demotes independent study out of a subject search", () => {
