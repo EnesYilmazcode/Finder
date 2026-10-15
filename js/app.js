@@ -375,15 +375,20 @@ function searchFromPickers() {
   els.query.value = q;
   pickedSearch = { q, subject: code };
   syncUrl(q, els.term.value);
+  selectView("list");
   runSearch(q, els.term.value, code);
 }
 
-function setView(next) {
+function selectView(next) {
   view = next;
   for (const [button, name] of [[els.viewList, "list"], [els.viewCal, "calendar"], [els.viewSchedule, "schedule"]]) {
     button.classList.toggle("is-on", name === next);
     button.setAttribute("aria-pressed", String(name === next));
   }
+}
+
+function setView(next) {
+  selectView(next);
   if (next !== "schedule" && !lastResult) {
     els.results.replaceChildren();
     resetDetail();
@@ -1172,6 +1177,7 @@ async function init() {
 
   els.gen.addEventListener("change", () => {
     syncUrl(els.query.value, els.term.value);
+    selectView("list");
     rerunSearch();
   });
 
@@ -1278,6 +1284,9 @@ async function init() {
     const q = els.query.value;
     reflectQuery(q);
     syncUrl(q, els.term.value);
+    // A submitted search is a request to see its results. Keeping Schedule
+    // selected completed the request invisibly until the student clicked List.
+    selectView("list");
     runSearch(q, els.term.value);
   });
 
