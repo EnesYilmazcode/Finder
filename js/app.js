@@ -567,8 +567,7 @@ function paintSchedule(term = els.term.value) {
     },
     onShare: shareSchedule,
     onGenerate: () => {
-      selectView("generator");
-      paintGenerator(term);
+      setView("generator");
       els.results.focus();
     },
   }));
@@ -715,8 +714,7 @@ function useGeneratedSchedule(result, term = els.term.value) {
   }
   scheduleNote = `Using generated schedule with ${result.packages.length} courses.`;
   storeSchedule();
-  selectView("schedule");
-  paintSchedule(term);
+  setView("schedule");
   els.results.focus();
 }
 
@@ -725,7 +723,7 @@ function paintGenerator(term = els.term.value) {
   els.welcome.hidden = true;
   els.results.replaceChildren(renderGenerator({
     ...generator,
-    onBack: () => { selectView("schedule"); paintSchedule(term); },
+    onBack: () => setView("schedule"),
     onAdd: addDesiredCourse,
     onRemove: removeDesiredCourse,
     onGenerate: runGenerator,
