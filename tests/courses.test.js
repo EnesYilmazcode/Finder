@@ -9,7 +9,15 @@ const INDEX = {
     1268: {
       subjects: [
         { code: "MATH", name: "Mathematics", courses: [["1151", "Calculus I", 5, 5], ["1172", "Engineering Calculus", 5, 5]] },
-        { code: "CSE", name: "Computer Science and Engineering", courses: [["2221", "Software I", 4, 4]] },
+        { code: "CSE", name: "Computer Science and Engineering", courses: [
+          ["2221", "Software I", 4, 4],
+          ["2421", "Systems I: Low-Level Programming", 4, 4],
+          ["2431", "Systems II: Operating Systems", 3, 3],
+        ] },
+        { code: "ENGLISH", name: "English", courses: [
+          ["1110.01", "First-Year English Composition", 3, 3],
+          ["1110.02", "First-Year English Composition", 3, 3],
+        ] },
         // 15 subjects upstream have no name of their own.
         { code: "CYBRSEC", name: "CYBRSEC", courses: [] },
         { code: "NONAME", courses: [] },
@@ -52,7 +60,7 @@ test("regression #79: a failed loadCourses is not cached, so the next call retri
 });
 
 test("subjectsFor sorts by code and is scoped to one term", () => {
-  assert.deepEqual(courses.subjectsFor("1268").map((s) => s.code), ["CSE", "CYBRSEC", "MATH", "NONAME"]);
+  assert.deepEqual(courses.subjectsFor("1268").map((s) => s.code), ["CSE", "CYBRSEC", "ENGLISH", "MATH", "NONAME"]);
   assert.deepEqual(courses.subjectsFor(1262).map((s) => s.code), ["CSE"]);
   assert.deepEqual(courses.subjectsFor("9999"), []);
 });
@@ -81,7 +89,7 @@ test("coursesFor unpacks the compact course tuples", () => {
 });
 
 test("coursesFor accepts a lowercase code and is empty for an unknown one", () => {
-  assert.equal(courses.coursesFor("1268", "cse").length, 1);
+  assert.equal(courses.coursesFor("1268", "cse").length, 3);
   assert.deepEqual(courses.coursesFor("1268", "NOPE"), []);
   assert.deepEqual(courses.coursesFor("1268", null), []);
   assert.deepEqual(courses.coursesFor("1268", "CYBRSEC"), []);
@@ -94,4 +102,19 @@ test("codeFromInput pulls the bare code out of a picker label", () => {
   assert.equal(courses.codeFromInput("CYBRSEC"), "CYBRSEC");
   assert.equal(courses.codeFromInput(""), "");
   assert.equal(courses.codeFromInput(null), "");
+});
+
+test("course suggestions find partial numbers and title words", () => {
+  assert.deepEqual(courses.courseSuggestions("1268", "CSE 24").map((item) => item.code), [
+    "CSE 2421", "CSE 2431",
+  ]);
+  assert.equal(courses.courseSuggestions("1268", "systems")[0].code, "CSE 2421");
+  assert.match(courses.courseSuggestions("1268", "CSE 2421")[0].title, /Systems I/);
+});
+
+test("an absent base number offers an explicit decimal family and its variants", () => {
+  const found = courses.courseSuggestions("1268", "ENGLISH 1110");
+  assert.deepEqual(found.map((item) => item.code), ["ENGLISH 1110", "ENGLISH 1110.01", "ENGLISH 1110.02"]);
+  assert.deepEqual(found[0].codes, ["ENGLISH 1110.01", "ENGLISH 1110.02"]);
+  assert.equal(found[0].family, true);
 });
