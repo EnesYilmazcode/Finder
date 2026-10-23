@@ -1064,13 +1064,37 @@ body {
 
 .gen-add {
   display: grid;
-  grid-template-columns: minmax(10rem, 20rem) auto;
+  grid-template-columns: minmax(10rem, 20rem) max-content;
   align-items: end;
   gap: 0.45rem;
   margin-bottom: 0.65rem;
 }
 
 .gen-add .f-label { grid-column: 1 / -1; margin: 0; }
+.gen-input-wrap { position: relative; }
+.gen-input-wrap > .f-ctl { width: 100%; }
+
+.gen-suggestions {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 0.2rem);
+  right: 0;
+  left: 0;
+  margin: 0;
+  padding: 0.25rem;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: 0 0.45rem 1rem rgb(0 0 0 / 12%);
+  list-style: none;
+}
+
+.gen-suggestions[hidden] { display: none; }
+.gen-suggestion { display: grid; width: 100%; padding: 0.45rem; border: 0; border-radius: 0.2rem; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.gen-suggestion:hover,
+.gen-suggestion:focus-visible { background: var(--wash); }
+.gen-suggestion strong { font-family: var(--data); font-size: 0.8rem; }
+.gen-suggestion span { color: var(--mute); font-size: 0.75rem; }
 
 .gen-add-button,
 .gen-generate,
@@ -1138,6 +1162,24 @@ body {
   font-size: 0.8rem;
 }
 
+.gen-help { color: var(--mute); cursor: help; font-size: 0.76rem; }
+.gen-help:focus-visible { outline: 2px solid var(--scarlet); outline-offset: 2px; }
+
+.gen-modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 1rem;
+  margin: 0.9rem 0 0;
+  padding: 0.7rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.gen-modes .f-label { width: 100%; margin: 0; }
+.gen-modes .gen-check { min-height: 1.8rem; }
+.gen-mode-note { width: 100%; color: var(--mute); font-size: 0.72rem; }
+
 .gen-weights {
   display: grid;
   grid-template-columns: repeat(2, minmax(12rem, 1fr));
@@ -1147,7 +1189,7 @@ body {
 
 .gen-weight {
   display: grid;
-  grid-template-columns: minmax(8rem, 1fr) minmax(6rem, 1fr);
+  grid-template-columns: minmax(9rem, 1fr) minmax(6rem, 1fr) 5.5rem;
   align-items: center;
   gap: 0.6rem;
   color: var(--mute);
@@ -1155,6 +1197,7 @@ body {
 }
 
 .gen-weight input { width: 100%; accent-color: var(--scarlet); }
+.gen-weight-value { color: var(--ink); font-size: 0.7rem; text-align: right; }
 .gen-note { margin: 0 0 1rem; color: var(--mute); font-size: 0.85rem; }
 .gen-note.is-error { color: var(--scarlet); }
 .gen-results { margin-top: 1.4rem; }
@@ -1168,12 +1211,13 @@ body {
 }
 
 .gen-result:first-of-type { border-color: var(--open); }
+.gen-factors { margin: 0.25rem 0 0; color: var(--mute); font-size: 0.72rem; }
 .gen-use { background: transparent; color: var(--scarlet); }
 .gen-use:hover { background: var(--scarlet); color: var(--paper); }
 
 .gen-metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(5.5rem, 1fr));
+  grid-template-columns: repeat(4, minmax(5.5rem, 1fr));
   gap: 0.6rem;
   margin: 0.9rem 0;
 }
@@ -1185,6 +1229,10 @@ body {
 .gen-sections { margin: 0; padding: 0; border-top: 1px solid var(--rule); list-style: none; }
 .gen-sections li { display: grid; grid-template-columns: 8rem 1fr 1fr; gap: 0.7rem; padding: 0.55rem 0; border-bottom: 1px solid var(--rule); }
 .gen-sections span { color: var(--mute); font-size: 0.78rem; }
+.gen-section-name { display: flex; align-items: center; gap: 0.4rem; }
+.gen-pin { padding: 0.12rem 0.35rem; border: 1px solid var(--field); border-radius: 999px; background: transparent; color: var(--mute); font: inherit; font-size: 0.68rem; cursor: pointer; }
+.gen-pin:hover,
+.gen-pin.is-pinned { border-color: var(--scarlet); color: var(--scarlet); }
 
 @media (max-width: 46rem) {
   .gen-head { display: block; }

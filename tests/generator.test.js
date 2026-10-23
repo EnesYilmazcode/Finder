@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { describePackage, expandCoursePackages, generateSchedules, scoreCombination } from "../js/generator.js";
+import {
+  describePackage, expandCoursePackages, generateSchedules, instructionModeOf, packageKey, scoreCombination,
+} from "../js/generator.js";
 import { entry, taught } from "./fixtures.js";
 
 const TERM = "1268";
@@ -10,11 +12,10 @@ function linked(rows) {
   return (number) => rows[String(number)] ?? null;
 }
 
-function providers(seats = {}, ratings = {}, grades = {}) {
+function providers(seats = {}, ratings = {}) {
   return {
     seatsFor: (number) => seats[String(number)] ?? null,
     ratingFor: (name) => ratings[name] ?? null,
-    gradesFor: (person) => grades[person.name] ?? null,
   };
 }
 
@@ -71,13 +72,18 @@ test("package evidence uses the scarcest linked section and ignores thin ratings
   const pkg = describePackage({ course: found.course, sections: found.sections }, TERM, providers(
     { 1001: { enrolled: 30, limit: 40 }, 1011: { enrolled: 19, limit: 20 } },
     { "Ada Teacher": { avgRating: 4.5, numRatings: 20 }, "Thin Teacher": { avgRating: 5, numRatings: 1 } },
-    { "Ada Teacher": { gpa: 3.4, n: 80 } },
   ));
   assert.equal(pkg.minSeats, 1);
   assert.equal(pkg.hasFull, false);
   assert.equal(pkg.rating, 4.5);
-  assert.equal(pkg.gpa, 3.4);
   assert.equal(pkg.ranges.length, 2);
+});
+
+test("instruction modes distinguish asynchronous online sections from arranged meetings", () => {
+  assert.equal(instructionModeOf({ instructionMode: "Distance Learning", meetings: [] }), "distance");
+  assert.equal(instructionModeOf({ instructionMode: "Hybrid Delivery", meetings: [] }), "hybrid");
+  assert.equal(instructionModeOf({ instructionMode: "In Person", meetings: [] }), "inPerson");
+  assert.equal(instructionModeOf({ meetings: [] }), "arranged");
 });
 
 test("a known full linked section is excluded even when another has unknown seats", () => {
@@ -113,7 +119,7 @@ function candidate(subject, number, classNumber, days, start, end, metrics = {})
     })))),
     minSeats: metrics.minSeats ?? 5,
     rating: metrics.rating ?? 4,
-    gpa: metrics.gpa ?? 3,
+    modes: metrics.modes ?? ["inPerson"],
   };
 }
 
@@ -147,7 +153,7 @@ test("earliest and latest bounds apply to every linked meeting", () => {
   assert.deepEqual(generated.results.map((result) => result.packages[0].sections[0].classNumber), [1002]);
 });
 
-test("ranking rewards seats, evidence and compact schedules", () => {
+test("ranking rewards seats, instructor ratings and compact schedules", () => {
   const strong = [
     candidate("CSE", "2221", 1001, ["monday"], "10:00", "11:00", { minSeats: 10, rating: 4.5, gpa: 3.7 }),
     candidate("MATH", "1151", 2001, ["monday"], "11:00", "12:00", { minSeats: 8, rating: 4.2, gpa: 3.5 }),
@@ -159,6 +165,50 @@ test("ranking rewards seats, evidence and compact schedules", () => {
   assert.ok(scoreCombination(strong).score > scoreCombination(weak).score);
   assert.equal(scoreCombination(strong).metrics.days, 1);
   assert.equal(scoreCombination(strong).metrics.gaps, 0);
+});
+
+test("instruction-mode filters and pins constrain complete packages", () => {
+  const inPerson = candidate("CSE", "2221", 1001, ["monday"], "10:00", "11:00");
+  const distance = candidate("CSE", "2221", 1002, [], "10:00", "11:00", { modes: ["distance"] });
+  const group = { key: "CSE 2221", course: inPerson.course, packages: [inPerson, distance] };
+
+  assert.deepEqual(generateSchedules([group], { allowedModes: ["distance"] }).results
+    .map((result) => result.packages[0].sections[0].classNumber), [1002]);
+  assert.deepEqual(generateSchedules([group], { pins: { "CSE 2221": packageKey(inPerson.sections) } }).results
+    .map((result) => result.packages[0].sections[0].classNumber), [1001]);
+});
+
+test("empty results explain blocking constraints and course conflicts", () => {
+  const full = candidate("CSE", "2221", 1001, ["monday"], "10:00", "11:00", { minSeats: 0 });
+  const blocked = generateSchedules([{ key: "CSE 2221", label: "CSE 2221", packages: [full] }]);
+  assert.equal(blocked.diagnostics.blockedGroups[0].removed.full, 1);
+
+  const cse = candidate("CSE", "2221", 1002, ["monday"], "10:00", "11:00");
+  const math = candidate("MATH", "1151", 2001, ["monday"], "10:00", "11:00");
+  cse.desiredLabel = "CSE 2221";
+  math.desiredLabel = "MATH 1151";
+  const conflict = generateSchedules([
+    { key: "CSE 2221", packages: [cse] },
+    { key: "MATH 1151", packages: [math] },
+  ]);
+  assert.deepEqual(conflict.diagnostics.conflicts[0], {
+    a: "CSE 2221", b: "MATH 1151", count: 1, days: ["monday"],
+  });
+});
+
+test("ranked results prefer alternatives that change more than one course", () => {
+  const groups = ["CSE", "MATH", "STAT"].map((subject, groupIndex) => ({
+    key: `${subject} 1000`,
+    packages: [0, 1].map((variant) => candidate(
+      subject, "1000", groupIndex * 10 + variant,
+      [groupIndex === 0 ? "monday" : groupIndex === 1 ? "tuesday" : "wednesday"],
+      `${9 + variant}:00`, `${10 + variant}:00`, { minSeats: 10 - variant },
+    )),
+  }));
+  const generated = generateSchedules(groups, { maxResults: 2 });
+  const changed = generated.results[0].packages.filter((pkg, index) =>
+    packageKey(pkg.sections) !== packageKey(generated.results[1].packages[index].sections)).length;
+  assert.ok(changed >= 2);
 });
 
 test("generation reports when its work budget truncates the search", () => {
