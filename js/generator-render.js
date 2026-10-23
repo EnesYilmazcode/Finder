@@ -118,7 +118,7 @@ export function renderGenerator({
   const input = el("input", "f-ctl");
   input.setAttribute("id", "gen-course");
   input.type = "text";
-  input.placeholder = "CSE 24 or systems";
+  input.placeholder = "Course number or name";
   input.autocomplete = "off";
   input.setAttribute("aria-autocomplete", "list");
   input.setAttribute("aria-controls", "gen-suggestions");
