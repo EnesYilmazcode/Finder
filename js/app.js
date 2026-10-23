@@ -1,9 +1,9 @@
 import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } from "./api.js";
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
-import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingsFailed } from "./ratings.js";
-import { loadGrades } from "./grades.js";
-import { linkedTo, loadSeats, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed, withSeatInstructors } from "./seats.js";
+import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingFor, ratingsFailed } from "./ratings.js";
+import { gradesFor, loadGrades } from "./grades.js";
+import { linkedTo, loadSeats, seatsFor, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed, withSeatInstructors } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
 import { loadHeadshots } from "./headshots.js";
@@ -18,6 +18,8 @@ import {
   addScheduleItem, formatPlan, isScheduled, loadSchedule, parsePlan, removeScheduleItem,
   renderSchedule, saveSchedule, scheduleEntries, scheduleIds, scheduleKey,
 } from "./schedule.js";
+import { DEFAULT_GENERATOR_WEIGHTS, describePackage, expandCoursePackages, generateSchedules } from "./generator.js";
+import { renderGenerator } from "./generator-render.js";
 
 const els = {
   app: document.querySelector(".app"),
@@ -88,6 +90,14 @@ let pickedSearch = null;
 let view = "list";
 let schedule = loadSchedule();
 let scheduleNote = "";
+let generator = {
+  desired: [],
+  preferences: { earliest: "", latest: "", excludeFull: true, weights: { ...DEFAULT_GENERATOR_WEIGHTS } },
+  results: [],
+  phase: "idle",
+  note: "",
+};
+let generatorRequest = 0;
 // A section named by the URL. Applied on the next paint and then forgotten, so
 // changing a filter later does not drag the pane back to it.
 let pendingClass = "";
@@ -380,9 +390,10 @@ function searchFromPickers() {
 
 function setView(next) {
   view = next;
+  const selected = next === "generator" ? "schedule" : next;
   for (const [button, name] of [[els.viewList, "list"], [els.viewCal, "calendar"], [els.viewSchedule, "schedule"]]) {
-    button.classList.toggle("is-on", name === next);
-    button.setAttribute("aria-pressed", String(name === next));
+    button.classList.toggle("is-on", name === selected);
+    button.setAttribute("aria-pressed", String(name === selected));
   }
   if (next !== "schedule" && !lastResult) {
     els.results.replaceChildren();
@@ -555,11 +566,173 @@ function paintSchedule(term = els.term.value) {
       els.results.focus();
     },
     onShare: shareSchedule,
+    onGenerate: () => {
+      selectView("generator");
+      paintGenerator(term);
+      els.results.focus();
+    },
   }));
   resetDetail();
   els.app.dataset.view = "results";
   setStatus(scheduleNote);
   scheduleNote = "";
+}
+
+const COURSE_CODE = /^([A-Za-z]{2,8})\s+(\d{3,4}(?:\.\d+)?[A-Za-z]*)$/;
+
+function normalizeCourseCode(raw) {
+  const match = COURSE_CODE.exec(String(raw ?? "").trim());
+  return match ? `${match[1].toUpperCase()} ${match[2].toUpperCase()}` : "";
+}
+
+function addDesiredCourse(raw) {
+  const code = normalizeCourseCode(raw);
+  if (!code) {
+    generator.note = "Enter a subject and course number, like CSE 2221.";
+    generator.phase = "error";
+    paintGenerator();
+    return false;
+  }
+  if (!generator.desired.includes(code)) generator.desired.push(code);
+  generator.results = [];
+  generator.phase = "idle";
+  generator.note = "";
+  paintGenerator();
+  return true;
+}
+
+function removeDesiredCourse(code) {
+  generator.desired = generator.desired.filter((candidate) => candidate !== code);
+  generator.results = [];
+  generator.phase = "idle";
+  generator.note = "";
+  paintGenerator();
+}
+
+function exactCourse(courses, code) {
+  const [subject, catalogNumber] = code.split(" ");
+  return (courses ?? []).find((entry) =>
+    String(entry.course?.subject).toUpperCase() === subject
+    && String(entry.course?.catalogNumber).toUpperCase() === catalogNumber
+  ) ?? null;
+}
+
+async function coursePackages(code, term) {
+  const result = await searchAllPages({ q: code, term });
+  let entry = exactCourse(result.courses, code);
+  if (!entry) return { code, packages: [], missingCourse: true, missingLinked: [] };
+  entry = withSeatInstructors([entry], term)[0];
+
+  // An exact course search normally carries every sibling section. If the API
+  // omits a linked partner, resolve that class number exactly before refusing
+  // to generate incomplete registration packages.
+  let expanded = expandCoursePackages(entry, term, linkedTo);
+  if (expanded.missing.length) {
+    const pulled = await Promise.allSettled(expanded.missing.map((number) => searchAllPages({ q: number, term })));
+    const additions = [];
+    pulled.forEach((answer, index) => {
+      if (answer.status !== "fulfilled") return;
+      const wanted = expanded.missing[index];
+      for (const found of answer.value.courses ?? []) {
+        const section = (found.sections ?? []).find((candidate) => String(candidate.classNumber) === String(wanted));
+        if (section) additions.push(section);
+      }
+    });
+    entry = { ...entry, sections: [...entry.sections, ...additions] };
+    expanded = expandCoursePackages(entry, term, linkedTo);
+  }
+
+  return {
+    code,
+    packages: expanded.packages.map((pkg) => describePackage(pkg, term, { seatsFor, ratingFor, gradesFor })),
+    missingCourse: false,
+    missingLinked: expanded.missing,
+  };
+}
+
+async function runGenerator(preferences) {
+  generator.preferences = preferences;
+  generator.phase = "loading";
+  generator.note = `Reading sections for ${generator.desired.length} courses…`;
+  generator.results = [];
+  paintGenerator();
+
+  const request = ++generatorRequest;
+  const term = els.term.value;
+  try {
+    await Promise.all([
+      loadSeats(term),
+      loadRatings().catch(() => null),
+      loadGrades().catch(() => null),
+    ]);
+    const groups = await Promise.all(generator.desired.map((code) => coursePackages(code, term)));
+    if (request !== generatorRequest) return;
+
+    const missing = groups.filter((group) => group.missingCourse).map((group) => group.code);
+    const incomplete = groups.filter((group) => group.missingLinked.length);
+    if (missing.length || incomplete.length) {
+      const notes = [];
+      if (missing.length) notes.push(`Not offered: ${missing.join(", ")}.`);
+      if (incomplete.length) notes.push(`Could not resolve every linked section for ${incomplete.map((group) => group.code).join(", ")}.`);
+      generator.phase = "error";
+      generator.note = notes.join(" ");
+      paintGenerator();
+      return;
+    }
+
+    const generated = generateSchedules(groups, {
+      busy: busyBlocks(),
+      weights: preferences.weights,
+      earliest: fieldMinutes(preferences.earliest),
+      latest: fieldMinutes(preferences.latest),
+      excludeFull: preferences.excludeFull,
+    });
+    generator.results = generated.results;
+    generator.phase = "ready";
+    const suffix = generated.truncated ? " Finder stopped after checking 100,000 choices, so this is the best set checked rather than every possible schedule." : "";
+    generator.note = generated.results.length
+      ? `${generated.results.length} best conflict-free schedules from ${generated.visited.toLocaleString()} compatible choices.${suffix}`
+      : "No conflict-free schedule fits these courses and constraints. Try widening the time window, allowing full sections, or changing a busy period.";
+    paintGenerator();
+  } catch (error) {
+    if (request !== generatorRequest) return;
+    generator.phase = "error";
+    generator.note = error instanceof ApiError ? error.message : "Could not generate schedules. Try again.";
+    paintGenerator();
+  }
+}
+
+function useGeneratedSchedule(result, term = els.term.value) {
+  schedule = schedule.filter((item) => String(item.term) !== String(term));
+  for (const pkg of result.packages) {
+    const base = [...pkg.sections].sort((a, b) =>
+      (linkedTo(b.classNumber, term)?.enrolls.length ?? 0) - (linkedTo(a.classNumber, term)?.enrolls.length ?? 0)
+    )[0];
+    const included = pkg.sections
+      .filter((section) => String(section.classNumber) !== String(base.classNumber))
+      .map((section) => ({ course: pkg.course, section }));
+    schedule = addScheduleItem(schedule, { term, course: pkg.course, section: base, included });
+  }
+  scheduleNote = `Using generated schedule with ${result.packages.length} courses.`;
+  storeSchedule();
+  selectView("schedule");
+  paintSchedule(term);
+  els.results.focus();
+}
+
+function paintGenerator(term = els.term.value) {
+  view = "generator";
+  els.results.replaceChildren(renderGenerator({
+    ...generator,
+    onBack: () => { selectView("schedule"); paintSchedule(term); },
+    onAdd: addDesiredCourse,
+    onRemove: removeDesiredCourse,
+    onGenerate: runGenerator,
+    onUse: (result) => useGeneratedSchedule(result, term),
+  }));
+  resetDetail();
+  els.app.dataset.view = "results";
+  setStatus(generator.note);
 }
 
 function sectionLink(classNumber) {
@@ -946,6 +1119,7 @@ function paint(term = els.term.value) {
   markSources(term);
   els.scheduleCount.textContent = String(scheduleIds(schedule, term).length);
   if (view === "schedule") { paintSchedule(term); return; }
+  if (view === "generator") { paintGenerator(term); return; }
   const filters = readFilters();
   // The clear button tracks the filters, not the result, so it is set before
   // the bail below.

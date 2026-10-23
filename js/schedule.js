@@ -141,7 +141,7 @@ function conflictText(conflict) {
   return `${courseCode(conflict.a)} and ${courseCode(conflict.b)} overlap on ${days}.`;
 }
 
-export function renderSchedule(items, term, { calendar, onRemove, onClear, onShare, onChoose }) {
+export function renderSchedule(items, term, { calendar, onRemove, onClear, onShare, onChoose, onGenerate }) {
   const current = items.filter((item) => String(item.term) === String(term));
   const wrap = el("section", "plan");
 
@@ -152,6 +152,12 @@ export function renderSchedule(items, term, { calendar, onRemove, onClear, onSha
   head.append(heading);
 
   const actions = el("div", "plan-actions");
+  if (onGenerate) {
+    const generate = el("button", "plan-action plan-generate", "Build schedule");
+    generate.type = "button";
+    generate.addEventListener("click", onGenerate);
+    actions.append(generate);
+  }
   const share = el("button", "plan-action", "Share");
   share.type = "button";
   share.disabled = !current.length;
