@@ -220,10 +220,10 @@ on Ohio State alone.
 Only the newest search is allowed to draw, so a slow first search can never
 paint over a fast second one.
 
-That diagram is only the part a search waits on. Opening the page is 30 requests
+That diagram is only the part a search waits on. Opening the page is 32 requests
 across two hosts, counted in Chrome against a local copy with the cache
-cleared: 29 files from this repo and the term list from `content.osu.edu`. The
-29 are the HTML, two stylesheets, three font files, nineteen modules, the
+cleared: 31 files from this repo and the term list from `content.osu.edu`. The
+31 are the HTML, two stylesheets, three font files, 21 modules, the
 ratings snapshot, two seat files and the favicon. The live page adds one more,
 the page-view ping to the analytics worker, which local runs skip.
 
@@ -283,6 +283,8 @@ js/
   render.js           list view, grouped by instructor
   calendar.js         week grid
   schedule.js         saved sections, sharing and conflict detection
+  generator.js        linked packages, conflict search and schedule scoring
+  generator-render.js automatic builder controls and ranked choices
   detail.js           right pane
   filters.js          client-side filtering
   sort.js             ordering by rating, difficulty, seats or start time
