@@ -2,7 +2,7 @@
 // fetches: app.js supplies complete course entries and the snapshots already
 // loaded for the selected term.
 
-import { instructorsOf } from "./format.js";
+import { instructorsOf, isOnlineMeeting } from "./format.js";
 import { toMinutes } from "./filters.js";
 
 const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -10,12 +10,12 @@ const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "satur
 export const DEFAULT_GENERATOR_WEIGHTS = {
   seats: 1,
   rating: 1,
-  grades: 1,
   lateStart: 1,
   earlyEnd: 1,
-  compactDays: 1,
   compactGaps: 1,
 };
+
+export const INSTRUCTION_MODES = ["inPerson", "hybrid", "distance", "arranged"];
 
 function clamp(value, min = 0, max = 100) {
   return Math.min(max, Math.max(min, value));
@@ -55,8 +55,18 @@ function uniqueSections(sections) {
   return [...new Map(sections.map((section) => [String(section.classNumber), section])).values()];
 }
 
-function packageKey(sections) {
+export function packageKey(sections) {
   return sections.map((section) => String(section.classNumber)).sort().join(",");
+}
+
+export function instructionModeOf(section) {
+  const mode = String(section?.instructionMode ?? "").toLowerCase();
+  if (mode.includes("hybrid") || mode.includes("enhanced")) return "hybrid";
+  if (mode.includes("distance") || mode.includes("online")) return "distance";
+  const meetings = section?.meetings ?? [];
+  if (meetings.length && meetings.every(isOnlineMeeting)) return "distance";
+  if (mode.includes("person") || meetings.length) return "inPerson";
+  return "arranged";
 }
 
 /**
@@ -122,7 +132,7 @@ function knownAverage(values) {
 }
 
 /** Add ranges and ranking evidence to a registration package. */
-export function describePackage(pkg, term, { seatsFor, ratingFor, gradesFor }) {
+export function describePackage(pkg, term, { seatsFor, ratingFor }) {
   const sections = uniqueSections(pkg.sections ?? []);
   const ranges = sections.flatMap(sectionRanges);
   const seatCounts = sections.map((section) => {
@@ -140,14 +150,11 @@ export function describePackage(pkg, term, { seatsFor, ratingFor, gradesFor }) {
   }
 
   const ratings = [];
-  const grades = [];
   for (const person of people.values()) {
     const rating = ratingFor(person.name);
     if (rating && rating.numRatings >= 5 && Number.isFinite(Number(rating.avgRating))) {
       ratings.push(Number(rating.avgRating));
     }
-    const curve = gradesFor(person, pkg.course);
-    if (curve && Number.isFinite(Number(curve.gpa)) && curve.n >= 10) grades.push(Number(curve.gpa));
   }
 
   return {
@@ -157,7 +164,7 @@ export function describePackage(pkg, term, { seatsFor, ratingFor, gradesFor }) {
     minSeats: seatCounts.length === sections.length ? Math.min(...seatCounts) : null,
     hasFull,
     rating: knownAverage(ratings),
-    gpa: knownAverage(grades),
+    modes: [...new Set(sections.map(instructionModeOf))],
   };
 }
 
@@ -198,15 +205,12 @@ export function scoreCombination(packages, weights = DEFAULT_GENERATOR_WEIGHTS) 
   const minSeats = packages.every((pkg) => Number.isFinite(pkg.minSeats))
     ? Math.min(...packages.map((pkg) => pkg.minSeats)) : null;
   const rating = knownAverage(packages.map((pkg) => pkg.rating));
-  const gpa = knownAverage(packages.map((pkg) => pkg.gpa));
 
   const factors = {
     seats: minSeats == null ? null : clamp(minSeats * 10),
     rating: rating == null ? null : clamp((rating - 1) * 25),
-    grades: gpa == null ? null : clamp(gpa * 25),
     lateStart: shape.averageStart == null ? null : clamp((shape.averageStart - 420) / 6.6),
     earlyEnd: shape.averageEnd == null ? null : clamp((1320 - shape.averageEnd) / 7.2),
-    compactDays: shape.days ? clamp((6 - shape.days) * 20) : null,
     compactGaps: clamp(100 - shape.gaps / 4.8),
   };
 
@@ -221,7 +225,7 @@ export function scoreCombination(packages, weights = DEFAULT_GENERATOR_WEIGHTS) 
 
   return {
     score: totalWeight ? points / totalWeight : 0,
-    metrics: { minSeats, rating, gpa, ...shape },
+    metrics: { minSeats, rating, ...shape },
     factors,
   };
 }
@@ -233,34 +237,58 @@ export function scoreCombination(packages, weights = DEFAULT_GENERATOR_WEIGHTS) 
  */
 export function generateSchedules(coursePackages, {
   busy = [], weights = DEFAULT_GENERATOR_WEIGHTS, maxResults = 25, maxVisited = 100000,
-  excludeFull = true, earliest = null, latest = null,
+  excludeFull = true, earliest = null, latest = null, allowedModes = INSTRUCTION_MODES,
+  pins = {},
 } = {}) {
   const busyRanges = busy.flatMap((block) => (block.days ?? []).map((day) => ({ day, start: block.start, end: block.end })));
-  const prepared = coursePackages.map((group) => ({
-    ...group,
-    packages: (group.packages ?? []).filter((pkg) => {
-      if (excludeFull && (pkg.hasFull || pkg.minSeats === 0)) return false;
-      if (hasInternalConflict(pkg.ranges)) return false;
-      if (Number.isFinite(earliest) && pkg.ranges.some((range) => range.start < earliest)) return false;
-      if (Number.isFinite(latest) && pkg.ranges.some((range) => range.end > latest)) return false;
-      return !hasConflict(pkg.ranges, busyRanges);
-    }),
-  })).sort((a, b) => a.packages.length - b.packages.length);
+  const allowed = new Set(allowedModes);
+  const blockedGroups = [];
+  const prepared = coursePackages.map((group) => {
+    const removed = { full: 0, internal: 0, time: 0, busy: 0, mode: 0, pin: 0 };
+    const wantedPin = pins[group.key];
+    const packages = (group.packages ?? []).filter((pkg) => {
+      if (wantedPin && packageKey(pkg.sections) !== wantedPin) { removed.pin += 1; return false; }
+      if (excludeFull && (pkg.hasFull || pkg.minSeats === 0)) { removed.full += 1; return false; }
+      if (hasInternalConflict(pkg.ranges)) { removed.internal += 1; return false; }
+      if (Number.isFinite(earliest) && pkg.ranges.some((range) => range.start < earliest)) { removed.time += 1; return false; }
+      if (Number.isFinite(latest) && pkg.ranges.some((range) => range.end > latest)) { removed.time += 1; return false; }
+      if (pkg.modes?.some((mode) => !allowed.has(mode))) { removed.mode += 1; return false; }
+      if (hasConflict(pkg.ranges, busyRanges)) { removed.busy += 1; return false; }
+      return true;
+    });
+    if (!packages.length) blockedGroups.push({ key: group.key, label: group.label ?? group.key, total: group.packages?.length ?? 0, removed });
+    return { ...group, packages };
+  }).sort((a, b) => a.packages.length - b.packages.length);
 
   if (prepared.some((group) => !group.packages.length)) {
-    return { results: [], visited: 0, truncated: false };
+    return { results: [], visited: 0, truncated: false, diagnostics: { blockedGroups, conflicts: [] } };
   }
 
   const results = [];
+  const conflicts = new Map();
   let visited = 0;
   let truncated = false;
+
+  function recordConflict(pkg, chosen) {
+    for (const other of chosen) {
+      const pairs = pkg.ranges.flatMap((a) => other.ranges.filter((b) => overlaps(a, b)).map((b) => [a, b]));
+      if (!pairs.length) continue;
+      const labels = [pkg.desiredLabel ?? `${pkg.course.subject} ${pkg.course.catalogNumber}`,
+        other.desiredLabel ?? `${other.course.subject} ${other.course.catalogNumber}`].sort();
+      const key = labels.join("|");
+      const row = conflicts.get(key) ?? { a: labels[0], b: labels[1], count: 0, days: new Set() };
+      row.count += 1;
+      for (const [range] of pairs) row.days.add(range.day);
+      conflicts.set(key, row);
+    }
+  }
 
   function keep(packages) {
     const scored = scoreCombination(packages, weights);
     const key = packages.map((pkg) => packageKey(pkg.sections)).sort().join("|");
     results.push({ packages: [...packages], ...scored, key });
     results.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
-    if (results.length > maxResults) results.length = maxResults;
+    if (results.length > maxResults * 8) results.length = maxResults * 8;
   }
 
   function walk(index, chosen, occupied) {
@@ -270,12 +298,34 @@ export function generateSchedules(coursePackages, {
     for (const pkg of prepared[index].packages) {
       visited += 1;
       if (visited > maxVisited) { truncated = true; return; }
-      if (hasConflict(pkg.ranges, occupied)) continue;
+      if (hasConflict(pkg.ranges, occupied)) { recordConflict(pkg, chosen); continue; }
       walk(index + 1, [...chosen, pkg], [...occupied, ...pkg.ranges]);
       if (truncated) return;
     }
   }
 
   walk(0, [], []);
-  return { results, visited, truncated };
+  const diverse = [];
+  const remaining = [...results];
+  const signature = (result) => new Map(result.packages.map((pkg) => [pkg.desiredKey ?? `${pkg.course.subject} ${pkg.course.catalogNumber}`, packageKey(pkg.sections)]));
+  const differences = (left, right) => {
+    const a = signature(left);
+    const b = signature(right);
+    return [...a].reduce((count, [key, value]) => count + (b.get(key) === value ? 0 : 1), 0);
+  };
+  while (remaining.length && diverse.length < maxResults) {
+    const index = diverse.length === 0 ? 0 : remaining.findIndex((candidate) =>
+      diverse.every((picked) => differences(candidate, picked) >= (candidate.packages.length >= 3 ? 2 : 1))
+    );
+    if (index < 0) break;
+    diverse.push(remaining.splice(index, 1)[0]);
+  }
+  for (const result of remaining) {
+    if (diverse.length >= maxResults) break;
+    diverse.push(result);
+  }
+  const explained = [...conflicts.values()]
+    .sort((a, b) => b.count - a.count)
+    .map((row) => ({ ...row, days: [...row.days].sort() }));
+  return { results: diverse, visited, truncated, diagnostics: { blockedGroups, conflicts: explained } };
 }
