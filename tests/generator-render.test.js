@@ -19,6 +19,7 @@ test("the builder exposes clear constraints and only available ranking prioritie
   const page = setupDom();
   const view = renderGenerator(options());
   page.document.body.append(view);
+  assert.equal(view.querySelector("#gen-course").placeholder, "Course number or name");
   assert.equal(view.querySelectorAll(".gen-course-chip").length, 2);
   assert.equal(view.querySelectorAll(".gen-weight input").length, 5);
   assert.match(view.textContent, /Open seats/);
