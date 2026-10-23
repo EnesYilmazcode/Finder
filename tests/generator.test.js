@@ -74,9 +74,30 @@ test("package evidence uses the scarcest linked section and ignores thin ratings
     { "Ada Teacher": { gpa: 3.4, n: 80 } },
   ));
   assert.equal(pkg.minSeats, 1);
+  assert.equal(pkg.hasFull, false);
   assert.equal(pkg.rating, 4.5);
   assert.equal(pkg.gpa, 3.4);
   assert.equal(pkg.ranges.length, 2);
+});
+
+test("a known full linked section is excluded even when another has unknown seats", () => {
+  const found = entry("CSE", "2221", "Software 1", [
+    taught(1001, ["monday"], "9:00 AM", "9:55 AM", ["Ada Teacher"]),
+    taught(1011, ["tuesday"], "10:00 AM", "10:55 AM", ["Ada Teacher"], { component: "Laboratory" }),
+  ]);
+  const pkg = describePackage({ course: found.course, sections: found.sections }, TERM, providers({
+    1011: { enrolled: 20, limit: 20, full: true },
+  }));
+  assert.equal(pkg.minSeats, null);
+  assert.equal(pkg.hasFull, true);
+  assert.equal(generateSchedules([{ course: found.course, packages: [pkg] }]).results.length, 0);
+});
+
+test("a registration package whose own linked meetings overlap is invalid", () => {
+  const a = candidate("CSE", "2221", 1001, ["monday"], "9:00", "10:00");
+  const b = candidate("CSE", "2221", 1011, ["monday"], "9:00", "10:00");
+  const pkg = { ...a, sections: [...a.sections, ...b.sections], ranges: [...a.ranges, ...b.ranges] };
+  assert.equal(generateSchedules([{ course: a.course, packages: [pkg] }]).results.length, 0);
 });
 
 function candidate(subject, number, classNumber, days, start, end, metrics = {}) {
@@ -88,6 +109,7 @@ function candidate(subject, number, classNumber, days, start, end, metrics = {})
       day,
       start: Number(start.split(":")[0]) * 60,
       end: Number(end.split(":")[0]) * 60,
+      classNumber: String(classNumber),
     })))),
     minSeats: metrics.minSeats ?? 5,
     rating: metrics.rating ?? 4,
@@ -118,7 +140,7 @@ test("earliest and latest bounds apply to every linked meeting", () => {
   const late = candidate("CSE", "2221", 1003, ["monday"], "5:00", "6:00");
   // The helper uses hour values directly; replace the afternoon ranges to keep
   // the fixture terse without teaching it am/pm parsing.
-  late.ranges = [{ day: "monday", start: 17 * 60, end: 18 * 60 }];
+  late.ranges = [{ day: "monday", start: 17 * 60, end: 18 * 60, classNumber: "1003" }];
   const generated = generateSchedules([
     { course: middle.course, packages: [early, middle, late] },
   ], { earliest: 9 * 60, latest: 17 * 60 });

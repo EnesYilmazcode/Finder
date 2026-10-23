@@ -27,7 +27,9 @@ function sectionRanges(section) {
     const start = toMinutes(meeting.startTime);
     if (start == null) continue;
     const end = toMinutes(meeting.endTime) ?? start + 55;
-    for (const day of DAY_KEYS) if (meeting[day]) found.push({ day, start, end });
+    for (const day of DAY_KEYS) {
+      if (meeting[day]) found.push({ day, start, end, classNumber: String(section.classNumber) });
+    }
   }
   return found;
 }
@@ -38,6 +40,15 @@ function overlaps(a, b) {
 
 function hasConflict(left, right) {
   return left.some((a) => right.some((b) => overlaps(a, b)));
+}
+
+function hasInternalConflict(ranges) {
+  for (let i = 0; i < ranges.length; i++) {
+    for (let j = i + 1; j < ranges.length; j++) {
+      if (ranges[i].classNumber !== ranges[j].classNumber && overlaps(ranges[i], ranges[j])) return true;
+    }
+  }
+  return false;
 }
 
 function uniqueSections(sections) {
@@ -118,6 +129,7 @@ export function describePackage(pkg, term, { seatsFor, ratingFor, gradesFor }) {
     const seats = seatsFor(section.classNumber, term);
     return seats ? Math.max(0, seats.limit - seats.enrolled) : null;
   }).filter(Number.isFinite);
+  const hasFull = sections.some((section) => seatsFor(section.classNumber, term)?.full === true);
 
   const people = new Map();
   for (const section of sections) {
@@ -143,6 +155,7 @@ export function describePackage(pkg, term, { seatsFor, ratingFor, gradesFor }) {
     sections,
     ranges,
     minSeats: seatCounts.length === sections.length ? Math.min(...seatCounts) : null,
+    hasFull,
     rating: knownAverage(ratings),
     gpa: knownAverage(grades),
   };
@@ -226,7 +239,8 @@ export function generateSchedules(coursePackages, {
   const prepared = coursePackages.map((group) => ({
     ...group,
     packages: (group.packages ?? []).filter((pkg) => {
-      if (excludeFull && pkg.minSeats === 0) return false;
+      if (excludeFull && (pkg.hasFull || pkg.minSeats === 0)) return false;
+      if (hasInternalConflict(pkg.ranges)) return false;
       if (Number.isFinite(earliest) && pkg.ranges.some((range) => range.start < earliest)) return false;
       if (Number.isFinite(latest) && pkg.ranges.some((range) => range.end > latest)) return false;
       return !hasConflict(pkg.ranges, busyRanges);
