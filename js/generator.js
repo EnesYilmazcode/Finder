@@ -220,13 +220,15 @@ export function scoreCombination(packages, weights = DEFAULT_GENERATOR_WEIGHTS) 
  */
 export function generateSchedules(coursePackages, {
   busy = [], weights = DEFAULT_GENERATOR_WEIGHTS, maxResults = 25, maxVisited = 100000,
-  excludeFull = true,
+  excludeFull = true, earliest = null, latest = null,
 } = {}) {
   const busyRanges = busy.flatMap((block) => (block.days ?? []).map((day) => ({ day, start: block.start, end: block.end })));
   const prepared = coursePackages.map((group) => ({
     ...group,
     packages: (group.packages ?? []).filter((pkg) => {
       if (excludeFull && pkg.minSeats === 0) return false;
+      if (Number.isFinite(earliest) && pkg.ranges.some((range) => range.start < earliest)) return false;
+      if (Number.isFinite(latest) && pkg.ranges.some((range) => range.end > latest)) return false;
       return !hasConflict(pkg.ranges, busyRanges);
     }),
   })).sort((a, b) => a.packages.length - b.packages.length);

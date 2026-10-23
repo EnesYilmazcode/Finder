@@ -112,6 +112,19 @@ test("generation rejects course conflicts, busy periods and full packages", () =
   assert.deepEqual(generated.results[0].packages.map((pkg) => pkg.sections[0].classNumber).sort(), [1001, 2002]);
 });
 
+test("earliest and latest bounds apply to every linked meeting", () => {
+  const early = candidate("CSE", "2221", 1001, ["monday"], "8:00", "9:00");
+  const middle = candidate("CSE", "2221", 1002, ["monday"], "10:00", "11:00");
+  const late = candidate("CSE", "2221", 1003, ["monday"], "5:00", "6:00");
+  // The helper uses hour values directly; replace the afternoon ranges to keep
+  // the fixture terse without teaching it am/pm parsing.
+  late.ranges = [{ day: "monday", start: 17 * 60, end: 18 * 60 }];
+  const generated = generateSchedules([
+    { course: middle.course, packages: [early, middle, late] },
+  ], { earliest: 9 * 60, latest: 17 * 60 });
+  assert.deepEqual(generated.results.map((result) => result.packages[0].sections[0].classNumber), [1002]);
+});
+
 test("ranking rewards seats, evidence and compact schedules", () => {
   const strong = [
     candidate("CSE", "2221", 1001, ["monday"], "10:00", "11:00", { minSeats: 10, rating: 4.5, gpa: 3.7 }),
