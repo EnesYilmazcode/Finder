@@ -1064,7 +1064,7 @@ body {
 
 .gen-add {
   display: grid;
-  grid-template-columns: minmax(10rem, 20rem) auto;
+  grid-template-columns: minmax(10rem, 20rem) max-content;
   align-items: end;
   gap: 0.45rem;
   margin-bottom: 0.65rem;
