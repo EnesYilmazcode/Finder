@@ -1070,7 +1070,7 @@ body {
   margin-bottom: 0.65rem;
 }
 
-.gen-add .f-label { grid-column: 1; margin: 0; }
+.gen-add .f-label { grid-column: 1 / -1; margin: 0; }
 
 .gen-add-button,
 .gen-generate,

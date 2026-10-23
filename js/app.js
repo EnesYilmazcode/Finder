@@ -722,6 +722,7 @@ function useGeneratedSchedule(result, term = els.term.value) {
 
 function paintGenerator(term = els.term.value) {
   view = "generator";
+  els.welcome.hidden = true;
   els.results.replaceChildren(renderGenerator({
     ...generator,
     onBack: () => { selectView("schedule"); paintSchedule(term); },

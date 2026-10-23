@@ -84,7 +84,7 @@ export function renderGenerator({
   back.addEventListener("click", onBack);
   head.append(heading, back);
   wrap.append(head);
-  wrap.append(el("p", "gen-intro", "Add each course you want. Finder will keep linked lectures, labs and recitations together, then rank complete schedules using the priorities below."));
+  wrap.append(el("p", "gen-intro", "Add each course you want. Finder will keep linked lectures, labs and recitations together, apply the busy times in Filters, then rank complete schedules using the priorities below."));
 
   const addForm = el("form", "gen-add");
   const label = el("label", "f-label", "Desired course");
