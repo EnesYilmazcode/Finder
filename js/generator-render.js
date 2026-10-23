@@ -138,8 +138,8 @@ export function renderGenerator({
       const button = el("button", "gen-suggestion");
       button.type = "button";
       button.append(el("strong", null, choice.code), el("span", null, choice.title));
-      button.addEventListener("click", () => {
-        if (onAdd(choice)) input.value = "";
+      button.addEventListener("click", async () => {
+        if (await onAdd(choice)) input.value = "";
         suggestions.hidden = true;
       });
       item.append(button);
@@ -154,9 +154,9 @@ export function renderGenerator({
   const add = el("button", "gen-add-button", "Add course");
   add.type = "submit";
   addForm.append(label, inputWrap, add);
-  addForm.addEventListener("submit", (event) => {
+  addForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (onAdd(input.value)) {
+    if (await onAdd(input.value)) {
       input.value = "";
       suggestions.hidden = true;
     }

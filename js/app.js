@@ -2,7 +2,7 @@ import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } fro
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingFor, ratingsFailed } from "./ratings.js";
-import { gradesFor, loadGrades } from "./grades.js";
+import { loadGrades } from "./grades.js";
 import { linkedTo, loadSeats, seatsFor, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed, withSeatInstructors } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
@@ -11,14 +11,16 @@ import { applyFilters, hiddenFor, isActive, parseBusy, formatBusy, DEFAULTS } fr
 import { busyLabel } from "./format.js";
 import { renderCalendar } from "./calendar.js";
 import { formatCoverage } from "./format.js";
-import { loadCourses, subjectsFor, subjectLabel, coursesFor, codeFromInput, isLoaded } from "./courses.js";
+import { loadCourses, subjectsFor, subjectLabel, coursesFor, courseSuggestions, codeFromInput, isLoaded } from "./courses.js";
 import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } from "./deeplink.js";
 import { isSortKey, sortEntries, unknownSections } from "./sort.js";
 import {
   addScheduleItem, formatPlan, isScheduled, loadSchedule, parsePlan, removeScheduleItem,
   renderSchedule, saveSchedule, scheduleEntries, scheduleIds, scheduleKey,
 } from "./schedule.js";
-import { DEFAULT_GENERATOR_WEIGHTS, describePackage, expandCoursePackages, generateSchedules } from "./generator.js";
+import {
+  DEFAULT_GENERATOR_WEIGHTS, INSTRUCTION_MODES, describePackage, expandCoursePackages, generateSchedules, packageKey,
+} from "./generator.js";
 import { renderGenerator } from "./generator-render.js";
 
 const els = {
@@ -92,7 +94,11 @@ let schedule = loadSchedule();
 let scheduleNote = "";
 let generator = {
   desired: [],
-  preferences: { earliest: "", latest: "", excludeFull: true, weights: { ...DEFAULT_GENERATOR_WEIGHTS } },
+  preferences: {
+    earliest: "", latest: "", excludeFull: true,
+    allowedModes: [...INSTRUCTION_MODES], weights: { ...DEFAULT_GENERATOR_WEIGHTS },
+  },
+  pins: {},
   results: [],
   phase: "idle",
   note: "",
@@ -589,15 +595,39 @@ function normalizeCourseCode(raw) {
   return match ? `${match[1].toUpperCase()} ${match[2].toUpperCase()}` : "";
 }
 
-function addDesiredCourse(raw) {
-  const code = normalizeCourseCode(raw);
-  if (!code) {
-    generator.note = "Enter a subject and course number, like CSE 2221.";
+async function generatorSuggestions(raw) {
+  if (!String(raw ?? "").trim()) return [];
+  await loadCourses();
+  return courseSuggestions(els.term.value, raw);
+}
+
+async function addDesiredCourse(raw) {
+  let choice = typeof raw === "object" && raw ? raw : null;
+  if (!choice) {
+    const code = normalizeCourseCode(raw);
+    if (!code) {
+      generator.note = "Type part of a course number or title, then choose a course.";
+      generator.phase = "error";
+      paintGenerator();
+      return false;
+    }
+    try {
+      const suggestions = await generatorSuggestions(code);
+      choice = suggestions.find((candidate) => candidate.key === code || candidate.code === code) ?? null;
+    } catch {
+      generator.note = "Could not load the course list. Try again.";
+      generator.phase = "error";
+      paintGenerator();
+      return false;
+    }
+  }
+  if (!choice) {
+    generator.note = "Choose an offered course from the suggestions.";
     generator.phase = "error";
     paintGenerator();
     return false;
   }
-  if (!generator.desired.includes(code)) generator.desired.push(code);
+  if (!generator.desired.some((candidate) => candidate.key === choice.key)) generator.desired.push(choice);
   generator.results = [];
   generator.phase = "idle";
   generator.note = "";
@@ -605,8 +635,9 @@ function addDesiredCourse(raw) {
   return true;
 }
 
-function removeDesiredCourse(code) {
-  generator.desired = generator.desired.filter((candidate) => candidate !== code);
+function removeDesiredCourse(key) {
+  generator.desired = generator.desired.filter((candidate) => candidate.key !== key);
+  delete generator.pins[key];
   generator.results = [];
   generator.phase = "idle";
   generator.note = "";
@@ -621,7 +652,7 @@ function exactCourse(courses, code) {
   ) ?? null;
 }
 
-async function coursePackages(code, term) {
+async function packagesForExactCourse(code, term) {
   const result = await searchAllPages({ q: code, term });
   let entry = exactCourse(result.courses, code);
   if (!entry) return { code, packages: [], missingCourse: true, missingLinked: [] };
@@ -648,10 +679,54 @@ async function coursePackages(code, term) {
 
   return {
     code,
-    packages: expanded.packages.map((pkg) => describePackage(pkg, term, { seatsFor, ratingFor, gradesFor })),
+    packages: expanded.packages.map((pkg) => describePackage(pkg, term, { seatsFor, ratingFor })),
     missingCourse: false,
     missingLinked: expanded.missing,
   };
+}
+
+async function coursePackages(choice, term) {
+  const variants = await Promise.all(choice.codes.map((code) => packagesForExactCourse(code, term)));
+  const packages = variants.flatMap((variant) => variant.packages).map((pkg) => ({
+    ...pkg,
+    desiredKey: choice.key,
+    desiredLabel: choice.family ? `${choice.code} (any version)` : choice.code,
+    packageKey: packageKey(pkg.sections),
+  }));
+  return {
+    key: choice.key,
+    label: choice.family ? `${choice.code} (any version)` : choice.code,
+    course: packages[0]?.course,
+    packages,
+    missingCourse: variants.every((variant) => variant.missingCourse),
+    missingLinked: choice.family && packages.length
+      ? []
+      : [...new Set(variants.flatMap((variant) => variant.missingLinked))],
+  };
+}
+
+function generatorFailureNote(diagnostics) {
+  const blocked = diagnostics?.blockedGroups?.[0];
+  if (blocked) {
+    const reasons = Object.entries(blocked.removed).sort((a, b) => b[1] - a[1]);
+    const reason = reasons[0]?.[1] ? reasons[0][0] : "unknown";
+    const messages = {
+      full: "all of its registration choices are full",
+      internal: "its linked sections overlap each other",
+      time: "all choices fall outside your time limits",
+      busy: "all choices overlap a busy period",
+      mode: "all choices use an excluded instruction mode",
+      pin: "the pinned section is no longer available",
+      unknown: "it has no complete registration choices",
+    };
+    return `${blocked.label} cannot be scheduled because ${messages[reason]}.`;
+  }
+  const conflict = diagnostics?.conflicts?.[0];
+  if (conflict) {
+    const days = conflict.days.map((day) => day[0].toUpperCase() + day.slice(1)).join(" and ");
+    return `${conflict.a} conflicts with ${conflict.b}${days ? ` on ${days}` : ""}. Try another course, change a pin, or widen your constraints.`;
+  }
+  return "No conflict-free schedule fits these courses and constraints. Try widening the time window, allowing full classes, or changing a busy period.";
 }
 
 async function runGenerator(preferences) {
@@ -667,17 +742,16 @@ async function runGenerator(preferences) {
     await Promise.all([
       loadSeats(term),
       loadRatings().catch(() => null),
-      loadGrades().catch(() => null),
     ]);
-    const groups = await Promise.all(generator.desired.map((code) => coursePackages(code, term)));
+    const groups = await Promise.all(generator.desired.map((choice) => coursePackages(choice, term)));
     if (request !== generatorRequest) return;
 
-    const missing = groups.filter((group) => group.missingCourse).map((group) => group.code);
+    const missing = groups.filter((group) => group.missingCourse).map((group) => group.label);
     const incomplete = groups.filter((group) => group.missingLinked.length);
     if (missing.length || incomplete.length) {
       const notes = [];
       if (missing.length) notes.push(`Not offered: ${missing.join(", ")}.`);
-      if (incomplete.length) notes.push(`Could not resolve every linked section for ${incomplete.map((group) => group.code).join(", ")}.`);
+      if (incomplete.length) notes.push(`Could not resolve every linked section for ${incomplete.map((group) => group.label).join(", ")}.`);
       generator.phase = "error";
       generator.note = notes.join(" ");
       paintGenerator();
@@ -690,13 +764,15 @@ async function runGenerator(preferences) {
       earliest: fieldMinutes(preferences.earliest),
       latest: fieldMinutes(preferences.latest),
       excludeFull: preferences.excludeFull,
+      allowedModes: preferences.allowedModes,
+      pins: generator.pins,
     });
     generator.results = generated.results;
     generator.phase = "ready";
     const suffix = generated.truncated ? " Finder stopped after checking 100,000 choices, so this is the best set checked rather than every possible schedule." : "";
     generator.note = generated.results.length
       ? `${generated.results.length} best conflict-free schedules from ${generated.visited.toLocaleString()} compatible choices.${suffix}`
-      : "No conflict-free schedule fits these courses and constraints. Try widening the time window, allowing full sections, or changing a busy period.";
+      : generatorFailureNote(generated.diagnostics);
     paintGenerator();
   } catch (error) {
     if (request !== generatorRequest) return;
@@ -723,6 +799,13 @@ function useGeneratedSchedule(result, term = els.term.value) {
   els.results.focus();
 }
 
+function toggleGeneratorPin(pkg) {
+  const key = pkg.desiredKey ?? `${pkg.course.subject} ${pkg.course.catalogNumber}`;
+  if (generator.pins[key] === pkg.packageKey) delete generator.pins[key];
+  else generator.pins[key] = pkg.packageKey;
+  runGenerator(generator.preferences);
+}
+
 function paintGenerator(term = els.term.value) {
   view = "generator";
   els.welcome.hidden = true;
@@ -731,8 +814,10 @@ function paintGenerator(term = els.term.value) {
     onBack: () => setView("schedule"),
     onAdd: addDesiredCourse,
     onRemove: removeDesiredCourse,
+    onSuggest: generatorSuggestions,
     onGenerate: runGenerator,
     onUse: (result) => useGeneratedSchedule(result, term),
+    onPin: toggleGeneratorPin,
   }));
   resetDetail();
   els.app.dataset.view = "results";
