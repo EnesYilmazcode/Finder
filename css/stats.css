@@ -211,3 +211,31 @@ main[hidden]{ display: none; }
 .foot { color: var(--mute); font-size: 0.82rem; }
 .foot p { margin: 0 0 0.4rem; max-width: 46rem; }
 .stamp { font-family: var(--data); font-size: 0.75rem; }
+.visits th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: var(--mute);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 0.6rem 0.5rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.visits td {
+  padding: 0.45rem 0.6rem 0.45rem 0;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.visits td:first-child { font-family: var(--data); font-size: 0.78rem; color: var(--mute); }
+.visits tr:last-child td { border-bottom: 0; }
+
+.empty { color: var(--mute); font-size: 0.9rem; margin: 0; }
+
+.foot { color: var(--mute); font-size: 0.82rem; }
+.foot p { margin: 0 0 0.4rem; max-width: 46rem; }
+.stamp { font-family: var(--data); font-size: 0.75rem; }

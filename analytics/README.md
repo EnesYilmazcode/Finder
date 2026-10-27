@@ -13,10 +13,15 @@ is involved, and no IP address ever reaches storage.
 
 ## How a visitor is counted
 
-`visitor` is `SHA-256(salt + day + ip + user-agent)`, truncated. The day is part
-of the input, so the hash rotates every midnight UTC. That means one person is
-counted once per day and cannot be followed across days, and it is why the
-dashboard says "a visitor is one person per day".
+`js/hit.js` keeps a random id in `localStorage` (`finder-v`) and sends it with
+each beacon, so someone who comes back next week is still one visitor. When
+storage is blocked there is no id, and the worker falls back to
+`SHA-256(salt + day + ip + user-agent)`, truncated, which rotates every midnight
+UTC. The worker refuses to store hits if the `SALT` secret is missing.
+
+Each row also carries city, region and network (`request.cf`, Cloudflare's guess
+from the connection) and browser, OS and device parsed from the user-agent. The
+IP itself is only ever an input to the hash.
 
 ## Deploy
 
@@ -25,6 +30,7 @@ cd analytics
 npx wrangler login
 npx wrangler d1 create finder-analytics       # paste database_id into wrangler.toml
 npx wrangler d1 execute finder-analytics --remote --file=schema.sql
+# an existing database from before 2026-10-27 needs migrate-2026-10-27.sql instead
 npx wrangler secret put SALT                  # any long random string
 npx wrangler deploy
 ```

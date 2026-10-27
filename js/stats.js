@@ -80,6 +80,37 @@ function drawList(id, rows, label) {
   }));
 }
 
+function when(ts) {
+  return new Date(ts * 1000).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
+function drawRecent(rows) {
+  const dash = (v) => v || '–';
+  $('l-recent').replaceChildren(...rows.map((r) => {
+    const place = r.city
+      ? [r.city, r.region, r.country].filter(Boolean).join(', ')
+      : countryName(r.country);
+    const device = [r.device, r.os, r.browser].filter(Boolean).join(' · ');
+    const tr = document.createElement('tr');
+    // Same six characters on two rows means the same browser.
+    const who = r.who ? (r.days_seen > 1 ? `${r.who} · ${r.days_seen} days` : r.who) : '–';
+    for (const text of [when(r.ts), who, r.path, place, dash(r.org), dash(device), dash(r.ref)]) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      td.title = text;
+      tr.append(td);
+    }
+    return tr;
+  }));
+  if (!rows.length) {
+    const tr = document.createElement('tr');
+    tr.append(Object.assign(document.createElement('td'), { colSpan: 7, className: 'empty', textContent: 'Nothing yet.' }));
+    $('l-recent').replaceChildren(tr);
+  }
+}
+
 function render(data) {
   const series = fillDays(data.daily, data.days, data.since);
   const peak = series.reduce((a, b) => (b.views > a.views ? b : a), series[0]);
@@ -88,12 +119,20 @@ function render(data) {
   $('t-visitors').textContent = nf.format(data.totals.visitors);
   $('t-peak').textContent = nf.format(peak.views);
   $('t-peak-day').textContent = peak.views ? shortDay(peak.day) : '';
+  $('t-returning').textContent = nf.format(data.totals.returning || 0);
   $('t-countries').textContent = nf.format(data.countries.length);
 
   drawChart(series);
   drawList('l-paths', data.paths, (p) => p);
   drawList('l-countries', data.countries, countryName);
   drawList('l-referrers', data.referrers, (r) => r);
+  // Older workers and rows from before 2026-10-25 have none of these fields.
+  drawList('l-cities', data.cities || [], (c) => c);
+  drawList('l-networks', data.networks || [], (o) => o);
+  drawList('l-browsers', data.browsers || [], (b) => b);
+  drawList('l-systems', data.systems || [], (o) => o);
+  drawList('l-devices', data.devices || [], (d) => d);
+  drawRecent(data.recent || []);
 
   $('stamp').textContent = `Updated ${new Date(data.generated).toLocaleString()}. Counts can lag by up to two minutes.`;
   $('status').hidden = true;
