@@ -56,7 +56,8 @@ test("a section can be saved, viewed, opened and removed", async (t) => {
 
   assert.equal(page.el("#schedule-count").textContent, "1");
   assert.match(page.location.search, /plan=1011/);
-  assert.equal(page.el("#detail-body .d-plan").textContent, "Remove from schedule");
+  assert.equal(page.el("#detail-body .d-plan").getAttribute("aria-label"), "Remove from schedule");
+  assert.equal(page.el("#detail-body .d-plan").textContent, "Saved");
 
   page.el("#view-schedule").click();
   await until(() => page.el(".plan-item"), "the saved schedule");

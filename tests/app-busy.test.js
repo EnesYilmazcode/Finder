@@ -16,7 +16,7 @@ const MWF = ["monday", "wednesday", "friday"];
 const DASH = "\u2013";
 // Monday 9:00 to 10:00, which only the 9:00 section overlaps.
 const MONDAY_MORNING = "Mo-540-600";
-const HINT = "Block out a class you already have. Sections that overlap it drop out.";
+const HINT = ""; // Keep the control quiet until validation has something to say.
 
 const COURSES = [
   entry("CSE", "2221", "Software 1", [

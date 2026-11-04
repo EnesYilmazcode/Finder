@@ -183,7 +183,7 @@ test("a welcome example clicked before the term's seats land keeps the results",
   await until(() => page.el("#welcome").hidden === false, "the welcome screen to paint");
   assert.equal(landed, false, "the term's seats landed before the click, so nothing raced");
 
-  page.el(".w-example").click();
+  page.el(".quick-courses button").click();
   assert.equal(page.el("#welcome").hidden, true, "the search never took the screen");
 
   release();

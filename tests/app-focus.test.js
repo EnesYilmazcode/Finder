@@ -124,7 +124,7 @@ test("a welcome example hands focus on before the welcome screen goes", async (t
   const page = await mountApp({ term: TERM, url: PAGE });
   await until(() => page.el("#welcome").hidden === false, "the welcome screen");
 
-  page.el(".w-example").click();
+  page.el(".quick-courses button").click();
   await until(() => page.all(".section").length > 0, "the results");
 
   assert.equal(page.el("#welcome").hidden, true, "the button is still on screen, so nothing was lost");

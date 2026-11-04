@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Finder</title>
-  <meta name="description" content="Find who teaches your Ohio State classes before everyone else.">
+  <meta name="description" content="Search Ohio State courses and professors. Compare historical grades, student ratings, and open seats.">
 
   <!-- Unfurlers do not resolve a relative image URL, so og:image is absolute.
        Twitter falls back to the og: tags when the twitter: ones are missing,
@@ -12,7 +12,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Finder">
   <meta property="og:title" content="Finder, Ohio State course search">
-  <meta property="og:description" content="Find who teaches your Ohio State classes before everyone else.">
+  <meta property="og:description" content="Search Ohio State courses and professors. Compare historical grades, student ratings, and open seats.">
   <meta property="og:url" content="https://enesyilmazcode.github.io/Finder/">
   <meta property="og:image" content="https://enesyilmazcode.github.io/Finder/og.png">
   <meta property="og:image:width" content="1200">
@@ -25,26 +25,20 @@
 
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/finder.css">
+  <link rel="stylesheet" href="css/workspace.css">
 </head>
 <body>
   <div class="app">
 
     <header class="topbar">
       <h1 class="wordmark">Finder</h1>
-      <p class="tagline">Who teaches it, before everyone else finds out.</p>
-
-      <form class="search" id="search" role="search" aria-label="Course search">
-        <label class="visually-hidden" for="q">Course or professor</label>
-        <input id="q" name="q" type="search" autocomplete="off" autocapitalize="none"
-               autocorrect="off" spellcheck="false" enterkeyhint="search"
-               aria-controls="results" aria-describedby="status"
-               placeholder="CSE 2221, or a professor's name">
-
-        <label class="visually-hidden" for="term">Term</label>
-        <select id="term" name="term" disabled></select>
-
-        <button id="go" type="submit">Search</button>
-      </form>
+      <span class="school-mark">Ohio State</span>
+      <button class="search-launch" id="search-launch" type="button" aria-label="Search courses and professors" aria-haspopup="dialog" aria-controls="search-dialog">
+        <span class="search-launch-icon" aria-hidden="true">⌕</span>
+        <span id="search-label">Search courses & professors</span><kbd>Ctrl K</kbd>
+      </button>
+      <label class="visually-hidden" for="term">Term</label>
+      <select id="term" name="term" class="term-select" disabled></select>
 
       <!-- After the search in the DOM as well as on screen: the collapsed
            layout paints it below the search box, and #38 measured the tab
@@ -54,8 +48,9 @@
     </header>
 
     <aside class="rail" id="rail" aria-label="Filters">
+      <div class="filter-heading"><h2>Filters</h2><button id="filter-close" class="icon-button" type="button" aria-label="Close filters">×</button></div>
       <form id="picker" class="picker">
-        <p class="eyebrow">Find a course</p>
+        <div hidden>
         <label class="f-label" for="p-subject">Subject</label>
         <input class="f-ctl" id="p-subject" list="subject-list" autocomplete="off"
                placeholder="CSE, or computer" aria-describedby="p-hint">
@@ -66,16 +61,16 @@
                placeholder="2331, or foundations" disabled>
         <datalist id="number-list"></datalist>
         <p class="f-hint" id="p-hint">Pick a subject to browse its courses. You can still type a course or a professor in the search box.</p>
+        </div>
 
         <label class="f-label" for="p-gen">Fulfills</label>
         <select class="f-ctl" id="p-gen" aria-describedby="p-gen-hint">
           <option value="">Any requirement</option>
         </select>
-        <p class="f-hint" id="p-gen-hint">Every course that counts for a GE requirement, across all subjects.</p>
+        <p class="visually-hidden" id="p-gen-hint">Filter by GE requirement.</p>
       </form>
 
       <div class="f-set">
-        <p class="eyebrow">Order</p>
         <label class="f-label" for="f-sort">Sort by</label>
         <select class="f-ctl" id="f-sort" aria-describedby="f-sort-note">
           <option value="">Relevance</option>
@@ -102,7 +97,6 @@
             <button type="button" class="f-day" data-day="friday" data-state="any"
                     aria-label="Friday: any"><span>Fr</span></button>
           </div>
-          <p class="f-hint">Click once to require a day, twice to avoid it.</p>
         </fieldset>
 
         <fieldset class="f-set">
@@ -154,7 +148,7 @@
           </div>
           <button class="f-add" id="f-busy-add" type="button" aria-describedby="f-busy-hint">Add busy time</button>
           <ul class="f-chips" id="f-busy-list"></ul>
-          <p class="f-hint" id="f-busy-hint" aria-live="polite">Block out a class you already have. Sections that overlap it drop out.</p>
+          <p class="f-hint" id="f-busy-hint" aria-live="polite"></p>
         </fieldset>
 
         <fieldset class="f-set">
@@ -198,23 +192,36 @@
       <div class="results" id="results" role="region" aria-label="Search results" tabindex="-1"></div>
 
       <section class="welcome" id="welcome" hidden>
+        <div class="welcome-intro"><span class="welcome-symbol" aria-hidden="true">f.</span><h2>Good classes.<br>Better decisions.</h2><p>Professors, grades, and open seats. One search.</p><div class="quick-courses"><button type="button" data-q="CSE 2221">CSE 2221 <span aria-hidden="true">↗</span></button><button type="button" data-q="MATH 1151">MATH 1151 <span aria-hidden="true">↗</span></button><button type="button" data-q="ENGLISH 1110">ENGLISH 1110 <span aria-hidden="true">↗</span></button></div></div>
         <p class="w-stats" id="w-stats"></p>
-        <h2 class="w-head">Highest rated instructors at Ohio State</h2>
+        <h2 class="w-head">Student favorites</h2>
         <p class="w-sub" id="w-sub"></p>
         <ul class="w-list" id="w-list"></ul>
-        <p class="w-foot">Or pick a subject in the rail, or type a course like
-          <button type="button" class="w-example" data-q="CSE 2221">CSE 2221</button>.</p>
       </section>
     </main>
 
     <aside class="detail" id="detail" aria-label="Section detail" tabindex="-1">
-      <button class="detail-back" id="detail-back" type="button">Back to results</button>
+      <button class="detail-back" id="detail-back" type="button" aria-label="Close detail">×</button>
       <div id="detail-body">
         <p class="detail-idle">Pick a section to see the instructor, seats and room.</p>
       </div>
     </aside>
 
   </div>
+
+  <dialog id="search-dialog" class="search-dialog" aria-label="Search courses and professors">
+    <form class="search" id="search" role="search" aria-label="Course search">
+      <span id="palette-search-icon" aria-hidden="true"></span>
+      <label class="visually-hidden" for="q">Course or professor</label>
+      <input id="q" name="q" type="search" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="search"
+        placeholder="Course, professor, or a little of either…" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-options" aria-describedby="search-feedback">
+      <button id="go" class="palette-submit" type="submit" aria-label="Search">↵</button>
+      <button id="search-close" type="button" class="palette-close" aria-label="Close search">Esc</button>
+    </form>
+    <div id="search-feedback" class="search-feedback" role="status" aria-live="polite"></div>
+    <div id="search-options" class="search-options" role="listbox" aria-label="Suggestions"></div>
+    <footer class="palette-footer"><span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span><span><kbd>↵</kbd> Open</span><span>Courses & people at Ohio State</span></footer>
+  </dialog>
 
   <script type="module" src="js/app.js"></script>
   <script type="module" src="js/hit.js"></script>

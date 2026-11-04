@@ -135,4 +135,7 @@ test("courses without letter grades retain all other outcomes without a zero GPA
   assert.equal(card.querySelector(".grade-chart"), null);
   assert.match(card.textContent, /No letter grades in this selection/);
   assert.ok(card.querySelectorAll(".grade-table")[0].querySelectorAll("tbody tr").length > 11);
+  const comparison = card.querySelectorAll(".grade-table")[1];
+  assert.match(comparison.textContent, /OutcomesEnrolled/);
+  assert.doesNotMatch(comparison.querySelector("thead").textContent, /GPA/);
 });

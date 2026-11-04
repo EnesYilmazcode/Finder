@@ -1,279 +1,125 @@
 # Finder
 
-Find who teaches your classes before everyone else.
+Ohio State courses, professors, grades, and open seats.
 
-**Live: https://enesyilmazcode.github.io/Finder/**
+**[Open Finder](https://enesyilmazcode.github.io/Finder/)**
 
-Ohio State's class search will confirm that CSE 2221 exists. It will not
-tell you which of its sections still has a seat, or which instructor people
-warn you about. Finder answers both. Search a course and you get every
-section grouped by instructor, with a rating next to each name and real
-seat counts where they exist.
+## One search
 
----
+Click the search field or press **Ctrl+K / Cmd+K**. Type a course number, course
+title, subject, or professor. Suggestions tolerate small spelling mistakes and
+partial words. Arrow keys navigate; Enter opens; Escape closes and returns focus.
+Course suggestions show the title. Professor suggestions show a photo when an
+OSU address and a verified photo are available, and initials otherwise.
 
-## Why this exists
+Selecting a professor searches that person and keeps only sections naming them.
+It does not promote unrelated instructors who share one part of a name. Selecting
+a course searches that exact code. The term stays next to search; there is no
+second search form in the filters.
 
-[osucoursesearch.org](https://osucoursesearch.org) did roughly this job and
-went down. Its database stopped answering and its author moved on, so the
-site now returns a Django error page instead of course data.
+![Finder in dark mode, with a flat instructor comparison list and a wider grade
+history panel.](docs/screenshots/finder-desktop.png)
 
-Finder has no server and no database behind its search, so there is no
-equivalent piece to fail. It is a folder of files on GitHub Pages.
+## Compare, then open
 
-## What you see
+Results group classes under their instructors, with ratings, available seat
+counts, and historical course GPA where records match. Click an instructor or
+section to open details. Grade history comes first: select a term, inspect the
+letter-grade chart, expand the exact grade breakdown or compare terms. Courses
+using S/U or pass marks show those outcomes instead of a misleading zero GPA.
 
-![Finder on a laptop, searching CSE 2221 in Autumn 2026. The filters run down
-the left, the middle pane lists all 22 sections grouped under each instructor
-and their rating, and the right pane is open on section 5168. Full sections
-read 40/40 in scarlet, sections with room read 33/40 in green, and every row
-carries a LECTURE or LABORATORY chip.](docs/screenshots/finder-desktop.png)
+Student reviews, methodology and supporting detail use progressive disclosure.
+Copying a class number is a small labeled icon; **Save** adds the section to the
+optional schedule. **Filters** opens a compact panel for days, time, availability,
+ratings and GE requirements. List, calendar and saved schedule views share the
+same data. Linked labs and recitations are preserved in registration packages.
 
-- **Filters.** Days, time window, busy times, minimum rating, rated only, hide full,
-  hide online, hide permission-only, undergraduate only. A sort control sits above them.
-- **Middle.** The same sections as a list by instructor, or on a week grid.
-- **Right pane.** Rating, difficulty, take-again, seats, room, description.
+![The single search palette with professor suggestions and keyboard navigation.](docs/screenshots/finder-search.png)
 
-The grid is the same sections placed by when they meet, and whichever one you
-picked stays open beside it.
+On phones, details replace results and the close button returns to the selected
+section. The palette, filters and scrollbars follow the system light/dark theme.
+Transitions respect reduced-motion preferences.
 
-![The middle and right panes of that search on the week grid. Tuesday through
-Friday hold blocks from 8am down, each naming an instructor, their rating and
-the seat count, edged green where seats are left and scarlet where the section
-is full. Section 5168 is outlined at 8am Tuesday and its detail pane is open on
-the right.](docs/screenshots/finder-calendar.png)
+## The records
 
-On a phone the filters move behind a Filters button and the right pane takes
-over the screen, so you get the same three panes one at a time.
+Ohio State fulfilled public records request **27-0272** on November 4, 2026:
+25 Excel workbooks, **Spring 2018 through Spring 2026**. Finder includes
+92,242 distinct Columbus classes associated with 8,419 normalized instructor
+names. SEI evaluation data is still pending.
 
-![Finder on a 390 pixel phone screen. The search box, the term and a Filters
-button stack down the top, and below them section 5168 fills the width: a Back
-to results button, Paolo Bucci at 3.0 from 147 ratings, the five per-score bars,
-and a seat bar reading 33 of 40.](docs/screenshots/finder-phone.png)
+Every source row reconciles to its enrollment total. EN (non-attendance) counts
+as E for GPA; withdrawals and other non-letter marks stay outside the mean.
+Whole classes under 10 students and classes taught by student instructors were
+omitted by OSU. Team-taught outcomes are labeled. The files contain names without
+emails, so matching uses full names and refuses ambiguous abbreviated matches.
+These are past cohort outcomes, not predictions of an individual student's grade.
 
-No filter touches the network, and nothing a filter hides vanishes quietly:
-the page says how many sections it removed and offers a button that shows
-them anyway. A separate Schedule view lets you keep sections from different
-searches, see them together on the week grid and catch conflicts before you
-register. Linked labs and recitations come with their section; when several are
-valid, Finder asks which one instead of guessing. The schedule stays in this
-browser unless you choose Share.
-
-Every search is in the address bar, and so is the section you picked, so a
-link opens on the section you meant rather than on the search. The right
-pane copies the class number BuckeyeLink asks for, and offers Share on the
-browsers that have it.
-
-## Where the data comes from
-
-```mermaid
-flowchart TB
-  accTitle: Where Finder's data comes from
-  accDescr: RateMyProfessors and Barrett's schedule both refuse to answer a web page, so a job on GitHub reads them every morning and commits each answer to this repo as a file the site serves. Ohio State's own class API answers a web page directly, so your browser asks it the moment you search.
-
-  subgraph nightly ["Earlier today, on a computer at GitHub"]
-    direction TB
-    rmp["ratemyprofessors.com<br>refuses a web page"] --> ratings["data/ratings.json<br>every rated OSU professor"]
-    ratings ~~~ barrett["asc.ohio-state.edu<br>refuses a web page"]
-    barrett --> seats["data/seats-1268.json<br>Autumn 2026 seat counts"]
-  end
-
-  ratings --> committed["committed to the repo,<br>served like any other file"]
-  seats --> committed
-
-  subgraph browser ["Right now, in your browser"]
-    direction TB
-    typed["you search CSE 2221"] --> osu["content.osu.edu/v2<br>answers a web page,<br>every section seconds old"]
-  end
-
-  committed --> page["the page in front of you"]
-  osu --> page
-```
-
-`data/ratings-courses.json` rides along with the ratings, and
-`data/courses.json` is rebuilt the same way once a week.
-
-Only the saved files can go stale, which is why the page prints the date
-the seat counts came from.
-
-The split is not a preference. A website can refuse to be read by a page
-from another website, and RateMyProfessors and Barrett's schedule both do.
-The Ohio State address in that picture does not. It sends one header,
-`Access-Control-Allow-Origin: *`, which is standing permission for any page
-to read it. That header is why Finder can exist with no server.
-
-Barrett's file also carries a compact instructor listing, and it can land
-there before the primary instructor appears in Ohio State's class API. The
-nightly snapshot keeps that fourth field beside the seat counts. Finder uses
-it only when the live response has no primary instructor and gives the live
-Ohio State assignment precedence as soon as it appears.
-
-### OSU's API reports enrollment wrong per section
-
-OSU's class API returns one enrollment number per course and stamps it onto
-every section. It publishes no per-section enrollment cap at all. For
-CSE 2221 in Autumn 2026 it calls all 22 sections open. 12 of them are full.
-Class 4831 is 41 people in a 40-seat room with two waiting, still listed
-open.
-
-Seats come from Barrett's schedule instead, a fixed-width text file that
-`asc.ohio-state.edu` rebuilds once a day around 06:50 Eastern. Barrett
-lists fewer sections than the API, 407 of Autumn 2026's 1,064 CSE sections
-when I checked on August 20, so some rows show no seat numbers. That beats
-printing a zero nobody checked.
-
-### Most instructors are not on RateMyProfessors
-
-About 36% are, measured across 757 instructors in 8 subjects for Autumn
-2026. Unrated is the ordinary case, so it costs nothing on screen. Every
-name is a link either way, to a profile when there is a match and to a
-RateMyProfessors search when there is not. Matching drops middle names and
-suffixes, so OSU's "Diana Ikenberry Kline" finds RateMyProfessors' "Diana
-Kline". When two professors share a first and last name the lookup returns
-nothing rather than picking one, because a wrong rating is worse than no
-rating.
-
-### An average hides two things a student needs
-
-A 3.0 can be a pile of threes or two camps that never met, and it can be
-earned in a course nobody on screen is taking. The detail pane draws the
-five per-score counts as a bar, and says how many of the ratings name the
-course you are looking at. Paolo Bucci, pulled on August 21: his 3.0 is
-32 ones and 38 fives, and 52 of his 147 ratings are for CSE 2221.
-
-Those course names are free text raters typed, so "CSE 2221", "cse2221",
-"CS2221" and "COMPUTERSCIENCE2221" all count, and so does a bare "2221"
-unless the same professor also wrote that number under another subject, in
-which case it is too ambiguous to give to either. The pre-semester CSE 321
-never counts, because nothing says the old number is the new course. OSU
-writes 23% of its catalog as "1110.01", which no rater types, so those
-match on the 1110 and the line says 1110 back.
-
-The counts live in `data/ratings-courses.json`, 151 KB gzipped and read
-only by the detail pane, so it is fetched when you open the first section
-rather than when the page loads.
-
-### What the registrar recorded, next to what students said
-
-Ohio State fulfilled request 27-0272 on November 4, 2026 with 25 workbooks,
-covering Spring 2018 through Spring 2026. Finder includes 92,242 distinct
-Columbus classes associated with 8,419 instructor names. SEI evaluations are
-still pending; these are registrar grade counts, separate from student ratings.
-
-Open a section to see the instructor's historical grades for that exact course:
-average GPA, the share receiving A or A-, a labeled grade chart, and a selector
-for individual terms. Expand **Every grade & recorded outcome** for counts and
-percentages, or **Compare terms** for the historical table. Withdrawals and
-other marks stay visible outside the GPA. EN (non-attendance) counts as E,
-as OSU's faculty rules require.
-
-The release contains names without emails. Finder tries the full normalized
-name first, then a unique first/last match; ambiguous matches stay blank. It
-does not merge different middle names during import. Team-taught classes are
-associated with each listed instructor and labeled as shared outcomes, counted
-once per instructor. Small classes (under 10 students) and student instructors
-were omitted entirely by OSU, so their number cannot be inferred.
-
-`data/grades.json` holds the identity index. `data/grades/<SUBJECT>.json` holds
-history downloaded only when a section in that subject is opened. No grade
-archive loads at startup. The original files remain locally preserved; the
-committed provenance file records their SHA-256 hashes, row counts and coverage.
-
-To rebuild from the original XLSX attachments with Python 3 (no dependencies):
+The global identity index is small. History is split by subject, fetched only
+for a searched subject or an opened section. To rebuild from the original XLSX
+attachments (Python standard library only):
 
 ```bash
 python scripts/import-grade-records.py .local/grade-records
 ```
 
-Every source row must reconcile to its enrollment total before anything is
-written. See [the records documentation](docs/osu-grades.md) for methodology
-and limitations. Historical outcomes describe past cohorts; they cannot
-predict an individual student's grade.
+Original files remain preserved locally. The committed provenance records their
+SHA-256 hashes, row counts and coverage. See [grade methodology](docs/osu-grades.md).
 
-![The historical grade card for CSE 2221: a term selector, average GPA, A share,
-eleven labeled grade bars, exact outcome counts and a term comparison table.](docs/screenshots/finder-grades-desktop.png)
+## Sources and network behavior
 
-## What one search does
+Finder runs on GitHub Pages, with no application server or build step. Ohio
+State's class API serves live course and instructor information. GitHub jobs
+snapshot RateMyProfessors ratings, Barrett's per-section seats, the course
+catalog and the list of available OSU headshots. Grades come from the records
+release. Filters work locally; seats are a dated snapshot and can change.
 
-```mermaid
-flowchart TB
-  accTitle: What one search does
-  accDescr: A search asks Ohio State for the sections and reads the two snapshots that started downloading when the page opened. rank.js merges and scores them, render.js groups them by instructor, and changing a filter redraws from memory without touching the network.
+Opening the page is at most 36 requests across two hosts: 35 files from this repo
+and the term list from `content.osu.edu`. The budget includes HTML, three stylesheets,
+up to three font files, 24 modules, the ratings snapshot, two seat files and the favicon.
 
-  typed["you type CSE 2221 and press Enter"] --> osu["content.osu.edu/v2<br>the 22 sections, live"]
-  typed --> snaps["data/ratings.json, Paolo Bucci 3.0 from 147<br>data/seats-1268.json, 5168 has 33 of 40"]
-  osu --> rank["rank.js<br>merge the pages, score every course against your words"]
-  snaps --> rank
-  rank --> render["render.js<br>group the sections by instructor, rating beside the name"]
-  render --> page["the page you are looking at"]
-  page -- "change a filter" --> filters["filters.js<br>redraws from memory, no network"]
-  filters --> page
-```
+Opening search adds the local catalog, grade identity index and photo index.
+Professor queries can make a debounced request to the OSU class API to discover
+verified instructor addresses. Only matching people from the latest query can
+enrich suggestions. Photos load from `opic.osu.edu` when OSU lists one. Class
+searches request live sections and up to four subject grade archives for the
+comparison list; other subjects load on opening a section. Rating course counts
+load on first detail. Failures stay retryable and ambiguous identities are not
+guessed. No third-party fonts, icon CDN, or external JavaScript is used.
 
-The two files start downloading when the page opens, so a search usually waits
-on Ohio State alone.
+The production site sends a page-view ping to the first-party analytics worker.
+Local browser checks skip it. Schedules stay in this browser unless explicitly
+shared from the optional schedule view.
 
-Only the newest search is allowed to draw, so a slow first search can never
-paint over a fast second one.
-
-That diagram is only the part a search waits on. Opening the page is 32 requests
-across two hosts, counted in Chrome against a local copy with the cache
-cleared: 31 files from this repo and the term list from `content.osu.edu`. The
-31 are the HTML, two stylesheets, three font files, 21 modules, the
-ratings snapshot, two seat files and the favicon. The live page adds one more,
-the page-view ping to the analytics worker, which local runs skip.
-
-Opening a section adds requests the page load does not make: the rating course
-codes, the grade curves, the list of instructors who have a photo, and, if this
-one does, their headshot from `opic.osu.edu`. That is Ohio State's own photo service and a third
-host, and the request tells it which instructor was opened.
-
-The share card is not one of them. `og.png` is fetched by whatever is unfurling
-the link and `apple-touch-icon.png` by iOS when someone saves the site to a home
-screen, so neither costs a visitor anything.
-
-None of them go to Google. The three families are woff2 files in
-`assets/fonts/`, served with everything else.
-
-## Run it locally
-
-No build step and no dependencies. Serve the folder over HTTP:
+## Run locally
 
 ```bash
 python -m http.server 8000
 ```
 
-Then open <http://localhost:8000>. Opening `index.html` off the filesystem
-fails, because `file://` pages cannot make cross-origin requests.
-
-The snapshot scripts are Node 22:
+Open <http://localhost:8000>. Run the offline suite with Node 22 and Python 3:
 
 ```bash
-node scripts/fetch-seats.mjs 1268
+npm test
 ```
 
-All four refuse to write a snapshot that came back far short of the one already
-committed, and leave the old file in place. `FORCE_WRITE=1`, or the force input
-on the workflow, writes it anyway, which is how a real shrink gets shipped. A
-file that failed to parse is refused either way, and so is a short answer from
-the term list, which takes `ALLOW_TERM_DROP=1` because it deletes the files of
-terms the run never fetched.
-
-`npm test` runs the suite through `node --test`, with nothing installed. The one
-file that calls Ohio State is skipped unless `FINDER_LIVE=1`, so a default run
-stays offline. The runner prints the count at the end; it is not written out
-here, because the copy went stale every time the suite grew.
+No npm dependencies or Python packages are required. Optional live tests run only
+with `FINDER_LIVE=1`. Snapshot jobs refuse unexpectedly small or malformed data
+instead of replacing a healthy snapshot.
 
 ## Repo layout
 
 ```
 index.html            the whole page
-css/finder.css        the app stylesheet, no framework
+css/finder.css        shared calendar, schedule and filter primitives
+css/workspace.css     the workspace, command palette and responsive design
 css/fonts.css         the three families, self hosted
 css/stats.css         the /stats page
 assets/fonts/         the woff2 files and their licenses
 js/
   app.js              wiring, state, URL sync
+  command-search.js   Ctrl/Cmd+K palette, live professor photo enrichment
+  search-index.js     bounded fuzzy ranking and deliberate name matching
+  icons.js            local SVG icons
   api.js              client for OSU's class API
   rank.js             merging, scoring, splitting results
   render.js           list view, grouped by instructor
@@ -286,7 +132,7 @@ js/
   sort.js             ordering by rating, difficulty, seats or start time
   deeplink.js         the section a link points at
   ratings.js          RMP snapshot and name matching
-  grades.js           five years of grade curves, joined by OSU address
+  grades.js           historical grades, full-name matching and subject archives
   headshots.js        which instructors have a photo, and the initials fallback
   seats.js            Barrett snapshot and the term guard
   trend.js            what moved between two seat snapshots

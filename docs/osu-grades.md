@@ -102,7 +102,8 @@ result as one version so the index and subject files stay together.
 - `data/grades.json`: release metadata, global instructor identity index and
   subject paths. The full history archive is not downloaded on page load.
 - `data/grades/<SUBJECT>.json`: instructor/course aggregates plus per-term
-  history. Only the opened section's subject is fetched; requests are shared,
+  history. Search preloads up to four subjects for GPA comparisons, with other
+  subjects fetched when a section is opened; requests are shared,
   cached, and retryable after failure.
 - `data/grades-provenance.json`: original filenames, SHA-256 hashes, per-file
   row counts, campus counts, term coverage and reconciliation results.

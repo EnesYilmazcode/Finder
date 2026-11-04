@@ -273,7 +273,7 @@ test("labs and recitations follow the lecturer groups without TA ratings", () =>
   assert.equal(rendered.querySelector(".supporting .score"), null);
   assert.equal(rendered.querySelector(".supporting [data-flag='assistant']"), null);
   assert.deepEqual(rendered.querySelectorAll(".supporting .linked").map((node) => node.textContent), ["with 1001 30/40", "with 1001 30/40"]);
-  assert.match(rendered.querySelector(".supporting-note").textContent, /after the lecture/i);
+  assert.equal(rendered.querySelector(".supporting-note"), null);
 });
 
 test("large courses start collapsed and build their sections only when opened", () => {
@@ -285,7 +285,7 @@ test("large courses start collapsed and build their sections only when opened", 
   const toggle = rendered.querySelector(".course-toggle");
   const body = rendered.querySelector(".course-body");
 
-  assert.equal(toggle.textContent, "Show sections");
+  assert.equal(toggle.textContent, ""); // Icon button; the accessible label names its action.
   assert.equal(toggle.getAttribute("aria-expanded"), "false");
   assert.equal(toggle.getAttribute("aria-label"), "Show sections for GENED 1201");
   assert.equal(body.hidden, true);
@@ -293,7 +293,7 @@ test("large courses start collapsed and build their sections only when opened", 
   assert.match(rendered.querySelector(".course-meta").textContent, new RegExp(`${COURSE_COLLAPSE_AT} sections`));
 
   toggle.click();
-  assert.equal(toggle.textContent, "Hide sections");
+  assert.equal(toggle.textContent, "");
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
   assert.equal(toggle.getAttribute("aria-label"), "Hide sections for GENED 1201");
   assert.equal(body.hidden, false);

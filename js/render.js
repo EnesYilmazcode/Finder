@@ -7,10 +7,13 @@
 // it per section would tell students a full section is open. See #13.
 
 import { formatWhen, formatPlace, formatUnits, instructorsOf, distinctMeetings, attributeLabel, courseBadges, sectionBadges, sectionFlags } from "./format.js";
-import { ratingFor, searchUrl, profileUrl } from "./ratings.js";
+import { ratingFor } from "./ratings.js";
 import { linkedTo, seatsFor, unreachable } from "./seats.js";
 import { openedOn } from "./trend.js";
 import { orderBy } from "./sort.js";
+import { faceFor, initials } from "./headshots.js";
+import { gradesFor } from "./grades.js";
+import { icon } from "./icons.js";
 
 export const ROW_CHIPS = 2;
 export const COURSE_COLLAPSE_AT = 50;
@@ -100,23 +103,36 @@ function surname(name) {
 /**
  * Instructor heading, with a rating when we have one.
  *
- * Only about a third of instructors appear on RateMyProfessors, so the
- * unmatched case has to cost nothing visually. The name itself is the link,
- * which means an unrated professor adds no extra marks to the page at all.
+ * Names open the instructor's first section in Finder. Ratings and historical
+ * course GPA sit alongside, without inventing numbers for unmatched people.
  */
-function renderTeacher(group) {
+function renderTeacher(group, course) {
   const nodes = [];
   const people = group.people.length ? group.people : [{ name: group.key }];
 
   people.forEach((person, i) => {
     if (i) nodes.push(document.createTextNode(" & "));
     const rating = ratingFor(person.name);
+    const avatar = el("span", "teacher-avatar", initials(person.name));
+    avatar.setAttribute("aria-hidden", "true");
+    const photo = faceFor(person.email);
+    if (photo) {
+      const img = el("img"); img.src = photo; img.alt = ""; img.loading = "lazy";
+      img.addEventListener("error", () => img.remove(), { once: true }); avatar.append(img);
+    }
+    nodes.push(avatar);
 
-    const link = el("a", "teacher-link", person.name);
-    link.href = rating ? profileUrl(rating.legacyId) : searchUrl(person.name);
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
+    const link = el("button", "teacher-link teacher-open", person.name);
+    link.type = "button";
+    link.dataset.openClass = String(group.sections[0]?.classNumber ?? "");
+    link.setAttribute("aria-label", `View ${person.name}'s grades and sections`);
     nodes.push(link);
+    const grade = gradesFor(person, course);
+    if (grade) {
+      const gpa = el("span", "teacher-gpa", `${grade.gpa.toFixed(2)} GPA`);
+      gpa.title = `${grade.n.toLocaleString()} historical letter grades in this course`;
+      nodes.push(gpa);
+    }
 
     if (!rating) return;
 
@@ -266,7 +282,8 @@ export function renderCourse({ course, sections }, term, sort = "", { forceOpen 
   body.hidden = !initiallyOpen;
 
   const courseCode = `${course.subject} ${course.catalogNumber}`;
-  const toggle = el("button", "course-toggle", initiallyOpen ? "Hide sections" : "Show sections");
+  const toggle = el("button", "course-toggle", "");
+  toggle.append(icon("down", 16));
   toggle.setAttribute("type", "button");
   toggle.setAttribute("aria-controls", bodyId);
   toggle.setAttribute("aria-expanded", String(initiallyOpen));
@@ -290,7 +307,7 @@ export function renderCourse({ course, sections }, term, sort = "", { forceOpen 
         heading.classList.add("is-unlisted");
         heading.textContent = group.key;
       } else {
-        heading.append(...renderTeacher(group));
+        heading.append(...renderTeacher(group, course));
       }
       block.append(heading);
 
@@ -304,7 +321,6 @@ export function renderCourse({ course, sections }, term, sort = "", { forceOpen 
     if (support.length) {
       const block = el("section", "supporting");
       block.append(el("h3", "supporting-title", "Labs and recitations"));
-      block.append(el("p", "supporting-note", "Pick these after the lecture. When registration links are published, the paired section is shown on the row."));
       const list = el("ul", "sections");
       for (const section of sortSections(support, sort, term)) {
         list.append(renderSection(section, term, { showInstructor: true }));
@@ -319,7 +335,7 @@ export function renderCourse({ course, sections }, term, sort = "", { forceOpen 
     const open = body.hidden;
     if (open) build();
     body.hidden = !open;
-    toggle.textContent = open ? "Hide sections" : "Show sections";
+    toggle.replaceChildren(icon("down", 16));
     toggle.setAttribute("aria-expanded", String(open));
     toggle.setAttribute("aria-label", `${open ? "Hide" : "Show"} sections for ${courseCode}`);
   });

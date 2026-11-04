@@ -131,7 +131,7 @@ test("the class number is copyable where the browser has a clipboard", async (t)
   const page = await followed(`${PAGE}?class=1001`);
 
   const copy = page.el(".d-act");
-  assert.equal(copy?.textContent, "Copy number");
+  assert.equal(copy?.getAttribute("aria-label"), "Copy class number");
   copy.click();
   await until(() => copied.length === 1, "the class number to reach the clipboard");
   assert.deepEqual(copied, ["1001"]);
@@ -145,37 +145,28 @@ function stubShare(t, share) {
   t.after(() => Object.defineProperty(globalThis, "navigator", original));
 }
 
-test("the section is shareable where the browser has a share sheet", async (t) => {
+test("the detail keeps the URL link without a share-sheet action", async (t) => {
   const shared = [];
   stubShare(t, async (data) => { shared.push(data); });
   t.after(serve());
 
   const page = await followed(`${PAGE}?class=1001`);
-  const share = page.el(".d-act");
-  assert.equal(share?.textContent, "Share", "no share button where the browser offers a sheet");
-
-  share.click();
-  await until(() => shared.length === 1, "the section to reach the share sheet");
-
-  assert.equal(shared[0].title, "CSE 2221 section 1001");
-  // The link the sheet sends has to be the one on screen, or the friend opens
-  // the page on somebody else's section.
-  assert.equal(shared[0].url, page.location.href);
-  assert.match(shared[0].url, /class=1001/);
+  assert.equal(page.all(".d-act").some((node) => node.textContent === "Share"), false);
+  assert.equal(shared.length, 0);
+  assert.match(page.location.search, /class=1001/);
 });
 
 // Closing the sheet without sending rejects, and an unhandled rejection is a
 // crash on the page rather than a student changing their mind.
-test("regression #64: dismissing the share sheet is not an error", async (t) => {
+test("a browser share API is never invoked by saving a section", async (t) => {
   let tried = 0;
   stubShare(t, async () => { tried += 1; throw new Error("AbortError"); });
   t.after(serve());
 
   const page = await followed(`${PAGE}?class=1001`);
   page.el(".d-act").click();
-  await until(() => tried === 1, "the share sheet to open");
   await settle(2);
-
+  assert.equal(tried, 0);
   assert.equal(page.el(".section.is-selected")?.dataset.classNumber, "1001");
 });
 

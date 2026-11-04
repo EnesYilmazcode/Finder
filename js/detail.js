@@ -9,6 +9,7 @@ import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { trendFor } from "./trend.js";
 import { SCALE, gradesFor, gradesStatus, gradeSpread, aShare, gradesRange, withheldFor, gradeRecord, gradeHistory, gradeCurveForTerm, gradeTermLabel, gradesRelease, gradeLoadState } from "./grades.js";
 import { isIndividualStudy } from "./rank.js";
+import { icon } from "./icons.js";
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -40,8 +41,7 @@ function figure(value, label, tone) {
 }
 
 /**
- * The class number and the two things students do with it: type it into
- * BuckeyeLink, and send the section to a friend.
+ * Class number, compact copy action, and an optional saved-schedule action.
  */
 function sectionHead(section, course, shareUrl, scheduled, onSchedule) {
   const head = el("div", "d-head");
@@ -50,36 +50,31 @@ function sectionHead(section, course, shareUrl, scheduled, onSchedule) {
   // navigator.clipboard is undefined on plain http, so the button is only
   // drawn where it can do something.
   if (navigator.clipboard) {
-    const label = "Copy number";
+    const label = "Copy class number";
     const copy = el("button", "d-act", label);
+    copy.replaceChildren(icon("copy", 15));
+    copy.setAttribute("aria-label", label);
+    copy.title = label;
     copy.type = "button";
     // The label is the only feedback there is, so it has to be spoken too.
     copy.setAttribute("aria-live", "polite");
     let timer = 0;
     copy.addEventListener("click", async () => {
       const done = await navigator.clipboard.writeText(String(section.classNumber)).then(() => true, () => false);
-      copy.textContent = done ? "Copied" : "Copy failed";
+      copy.replaceChildren(icon(done ? "check" : "close", 15));
+      copy.setAttribute("aria-label", done ? "Class number copied" : "Copy failed");
       // Restart the flash rather than let the last click's timer cut it short.
       clearTimeout(timer);
-      timer = setTimeout(() => { copy.textContent = label; }, 1200);
+      timer = setTimeout(() => { copy.replaceChildren(icon("copy", 15)); copy.setAttribute("aria-label", label); }, 1200);
     });
     head.append(copy);
   }
 
-  if (shareUrl && navigator.share) {
-    const share = el("button", "d-act", "Share");
-    share.type = "button";
-    share.addEventListener("click", () => {
-      // Dismissing the sheet rejects, and that is not a failure.
-      navigator.share({
-        title: `${course.subject} ${course.catalogNumber} section ${section.classNumber}`,
-        url: shareUrl,
-      }).catch(() => {});
-    });
-    head.append(share);
-  }
   if (onSchedule) {
-    const plan = el("button", "d-act d-plan", scheduled ? "Remove from schedule" : "Add to schedule");
+    const plan = el("button", "d-act d-plan", scheduled ? "Saved" : "Save");
+    plan.prepend(icon(scheduled ? "check" : "plus", 15));
+    plan.setAttribute("aria-label", scheduled ? "Remove from schedule" : "Add to schedule");
+    plan.title = scheduled ? "Remove from schedule" : "Save to your schedule";
     plan.type = "button";
     plan.setAttribute("aria-pressed", String(Boolean(scheduled)));
     plan.addEventListener("click", onSchedule);
@@ -269,13 +264,13 @@ function gradeBar({ counts, total }) {
  */
 function historicalGrades(person, course) {
   const history = gradeHistory(person, course);
-  const wrap = block("Grades · official OSU records");
+  const wrap = block("Grade history");
   wrap.classList.add("grade-card");
-  wrap.append(el("h3", "grade-heading", `${course.subject} ${course.catalogNumber} grade history`));
+  wrap.append(el("h3", "grade-heading", `${course.subject} ${course.catalogNumber}`));
   wrap.append(el("p", "d-note", `${gradeTermLabel(history[history.length - 1].term)} – ${history[0].label} · Columbus`));
 
   const label = el("label", "grade-filter");
-  label.append(el("span", "d-cap", "View distribution"));
+  label.append(el("span", "visually-hidden", "View distribution"));
   const select = el("select", "grade-select");
   select.setAttribute("aria-label", "Grade distribution term");
   const all = el("option", null, `All ${history.length} terms`);
@@ -319,14 +314,20 @@ function historicalGrades(person, course) {
       });
       content.append(el("p", "grade-chart-caption", "Share of letter grades (%)"), chart);
     } else {
-      content.append(el("p", "d-note", "No letter grades in this selection. Other recorded outcomes are listed below."));
+      const marks = Object.entries(record.other).filter(([mark]) => mark !== "EN");
+      const primary = marks.sort((a, b) => b[1] - a[1])[0];
+      const pass = (record.other.S ?? 0) + (record.other.PA ?? 0) + (record.other.PE ?? 0);
+      const headline = el("div", "nonletter-result");
+      headline.append(el("strong", null, pass ? `${Math.round(pass / record.enrolled * 100)}%` : primary?.[0] ?? "—"),
+        el("span", null, pass ? "Satisfactory / pass" : "Recorded outcomes"));
+      content.append(headline, el("p", "d-note", "No letter grades in this selection. This course uses other recorded marks."));
     }
     content.append(el("p", "grade-sample", `${record.sections.toLocaleString()} ${record.sections === 1 ? "class" : "classes"} · ${record.enrolled.toLocaleString()} recorded enrollments`));
     if (record.other.W) content.append(row("Withdrew", `${record.other.W.toLocaleString()} (${Math.round(record.other.W / record.enrolled * 100)}% of enrollments)`));
     if (record.coTaught) content.append(el("p", "d-note", `${record.coTaught} ${record.coTaught === 1 ? "class was" : "classes were"} team-taught. These are whole-class outcomes shared by the listed instructors.`));
 
     const details = el("details", "grade-details");
-    details.append(el("summary", null, "Every grade & recorded outcome"));
+    details.append(el("summary", null, "Grade breakdown"));
     const table = el("table", "grade-table");
     const caption = el("caption", "visually-hidden", "Grade counts and share of all recorded enrollments");
     table.append(caption);
@@ -352,23 +353,26 @@ function historicalGrades(person, course) {
 
   const timeline = el("details", "grade-details");
   timeline.append(el("summary", null, "Compare terms"));
+  const hasLetters = history.some(({ curve }) => curve != null);
   const table = el("table", "grade-table");
-  table.append(el("caption", "visually-hidden", "Historical average GPA, A share and letter grade counts by term"));
+  table.append(el("caption", "visually-hidden", hasLetters ? "Historical average GPA, A share and letter grade counts by term" : "Recorded outcomes and enrollments by term"));
   const thead = el("thead"); const tr = el("tr");
-  for (const text of ["Term", "GPA", "A / A-", "Grades"]) { const th = el("th", null, text); th.setAttribute("scope", "col"); tr.append(th); }
+  for (const text of hasLetters ? ["Term", "GPA", "A / A-", "Grades"] : ["Term", "Outcomes", "Enrolled"]) { const th = el("th", null, text); th.setAttribute("scope", "col"); tr.append(th); }
   thead.append(tr); table.append(thead);
   const tbody = el("tbody");
-  for (const { label: name, curve } of history) {
+  for (const { label: name, curve, row: record } of history) {
     const tr = el("tr"); const th = el("th", null, name); th.setAttribute("scope", "row");
-    tr.append(th, el("td", null, curve?.gpa.toFixed(2) ?? "—"), el("td", null, curve ? `${Math.round(aShare(curve) * 100)}%` : "—"), el("td", null, (curve?.n ?? 0).toLocaleString()));
+    if (hasLetters) tr.append(th, el("td", null, curve?.gpa.toFixed(2) ?? "—"), el("td", null, curve ? `${Math.round(aShare(curve) * 100)}%` : "—"), el("td", null, (curve?.n ?? 0).toLocaleString()));
+    else tr.append(th, el("td", null, Object.entries(record.other).filter(([mark]) => mark !== "EN").map(([mark, n]) => `${mark} ${n}`).join(" · ")), el("td", null, record.enrolled.toLocaleString()));
     tbody.append(tr);
   }
   table.append(tbody); timeline.append(table); wrap.append(timeline);
-  wrap.append(el("p", "grade-footnote", "Classes with fewer than 10 students and student instructors were omitted by OSU. Historical outcomes describe past classes; they do not predict your grade."));
+  const methodology = el("details", "grade-methodology");
+  methodology.append(el("summary", null, "Source & coverage"), el("p", "grade-footnote", "Official OSU records, 2018–2026. Classes under 10 students and student instructors are omitted. Historical outcomes are not a prediction."));
   const source = el("a", "grade-source", "About these records ↗");
   source.href = "https://github.com/EnesYilmazcode/Finder/blob/main/docs/osu-grades.md";
   source.target = "_blank"; source.rel = "noopener noreferrer";
-  wrap.append(source);
+  methodology.append(source); wrap.append(methodology);
   return wrap;
 }
 
@@ -449,44 +453,47 @@ export function renderDetail({ section, course, term, entries, formatDate, share
   const wrap = document.createDocumentFragment();
   const people = instructorsOf(section);
 
-  wrap.append(sectionHead(section, course, shareUrl, scheduled, onSchedule));
   wrap.append(people.length ? instructorHeading(people) : el("h2", "d-name is-none", "Instructor not listed"));
 
   const units = formatUnits(course);
   const bits = [`${course.subject} ${course.catalogNumber}`, section.component, units].filter(Boolean);
   wrap.append(el("p", "d-sub", bits.join(" · ")));
+  wrap.append(sectionHead(section, course, shareUrl, scheduled, onSchedule));
+  const hasHistory = people.length === 1 && gradeHistory(people[0], course).length > 0;
+  if (hasHistory) wrap.append(gradeBlock(people[0], course));
 
   // Ratings only make sense for a single named instructor. Co-taught sections
   // get no combined figure, because averaging two people is not a rating.
   const rating = people.length === 1 ? ratingFor(people[0].name) : null;
+  const reviews = el("details", "review-details");
   if (rating) {
+    reviews.append(el("summary", null, `Student reviews · ${Number(rating.avgRating).toFixed(1)} / 5 · ${rating.numRatings} ratings`));
     const figs = el("div", "d-figs");
     figs.append(figure(Number(rating.avgRating).toFixed(1), `${rating.numRatings} ratings`, "is-rating"));
     if (rating.avgDifficulty != null) figs.append(figure(Number(rating.avgDifficulty).toFixed(1), "difficulty"));
     if (rating.wouldTakeAgainPercent != null && rating.wouldTakeAgainPercent >= 0) {
       figs.append(figure(`${Math.round(rating.wouldTakeAgainPercent)}%`, "take again"));
     }
-    wrap.append(figs);
+    reviews.append(figs);
 
     const spread = ratingSpread(rating);
     if (spread) {
-      wrap.append(spreadBar(spread));
-      wrap.append(el("div", "d-cap spread-cap", "1 to 5, left to right"));
+      reviews.append(spreadBar(spread));
+      reviews.append(el("div", "d-cap spread-cap", "1 to 5, left to right"));
     }
     // Null while data/ratings-courses.json is still on its way. app.js redraws.
     const share = courseShare(rating, course);
-    if (share) wrap.append(el("p", "d-note", scopeLine(share)));
+    if (share) reviews.append(el("p", "d-note", scopeLine(share)));
 
     if (rating.numRatings < 5) {
-      wrap.append(el("p", "d-note", `Only ${rating.numRatings} ratings, so treat this as thin evidence.`));
+      reviews.append(el("p", "d-note", `Only ${rating.numRatings} ratings, so treat this as thin evidence.`));
     }
-  } else if (people.length === 1) {
-    wrap.append(el("p", "d-note", "No RateMyProfessors ratings. Their name links to a search."));
   }
+  if (rating) wrap.append(reviews);
 
   // Grades sit under the ratings because they answer the same question from the
   // other side: what students said, then what the registrar recorded.
-  if (people.length === 1) {
+  if (people.length === 1 && !hasHistory) {
     const curve = gradeBlock(people[0], course);
     if (curve) wrap.append(curve);
   }

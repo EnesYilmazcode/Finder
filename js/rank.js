@@ -4,6 +4,7 @@
 // before anyone sees them.
 
 import { instructorsOf } from "./format.js";
+import { instructorMatches } from "./search-index.js";
 
 const SUBJECT_RE = /^[A-Z]{2,8}$/;
 const NUMBER_RE = /^\d{3,4}(\.\d+)?[A-Z]*$/;
@@ -78,10 +79,7 @@ function scoreCourse({ course, sections }, parsed) {
 
   if (parsed.tokens.length) {
     const names = sections.flatMap((s) => instructorsOf(s).map((i) => i.name.toUpperCase()));
-    for (const token of parsed.tokens) {
-      if (token.length < 3) continue;
-      if (names.some((n) => n.includes(token))) { score += 200; break; }
-    }
+    if (names.some((name) => instructorMatches(name, parsed.raw))) score += 200;
   }
 
   // Inside an explicitly requested course family, catalog order is the useful
@@ -152,13 +150,27 @@ export function filterCourses(entries, rawQuery) {
   }
 
   // Otherwise keep what scores near the top and drop the long tail.
-  const scored = pool.map((entry) => ({ entry, score: scoreCourse(entry, parsed) }));
+  const relevant = pool.filter((entry) => {
+    const title = `${entry.course.subject} ${entry.course.catalogNumber} ${entry.course.title}`.toUpperCase();
+    return parsed.tokens.every((token) => title.includes(token))
+      || entry.sections.some((section) => instructorsOf(section).some((person) => instructorMatches(person.name, parsed.raw)));
+  });
+  if (!relevant.length) return { primary: [], related: ranked, reason: "none" };
+  const scored = relevant.map((entry) => ({ entry, score: scoreCourse(entry, parsed) }));
   const best = Math.max(...scored.map((s) => s.score));
   const floor = best > 200 ? best * 0.25 : 0;
   const kept = scored.filter((s) => s.score >= floor).map((s) => s.entry);
   const primary = kept.slice(0, 25);
   const related = [...kept.slice(25), ...pool.filter((e) => !kept.includes(e)), ...setAside];
   return { primary, related, reason: "ranked" };
+}
+
+/** A chosen professor means that person, including only their own sections. */
+export function filterInstructorCourses(entries, name) {
+  const primary = mergeCourses(entries).map((entry) => ({ ...entry,
+    sections: entry.sections.filter((section) => instructorsOf(section).some((person) => instructorMatches(person.name, name))),
+  })).filter((entry) => entry.sections.length > 0);
+  return { primary, related: [], reason: "instructor" };
 }
 
 export function rankCourses(entries, rawQuery) {

@@ -1,5 +1,6 @@
 import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } from "./api.js";
-import { filterCourses, parseQuery } from "./rank.js";
+import { filterCourses, filterInstructorCourses, parseQuery } from "./rank.js";
+import { initCommandSearch } from "./command-search.js";
 import { renderResults } from "./render.js";
 import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingFor, ratingsFailed } from "./ratings.js";
 import { loadGrades, loadGradeCourse } from "./grades.js";
@@ -72,6 +73,7 @@ let latestRequest = 0;
 // Whether a search is on the wire. Between asking and answering the status line
 // is that search's, so a repaint underneath it must not write over the line.
 let searching = false;
+let inFlightSearch = "";
 
 // Class number to its section and course, rebuilt on every render. The detail
 // pane needs the real objects, not text scraped back out of the DOM.
@@ -109,6 +111,7 @@ let generatorRequest = 0;
 let pendingClass = "";
 // Metadata shared by all detail panes.
 let detailFiles = null;
+let detailVersion = 0;
 // A `gen` link built before Ohio State reworded the category it names.
 let staleGen = null;
 
@@ -285,11 +288,12 @@ function openRail(open) {
 /**
  * Show a section in the detail pane.
  *
- * On desktop the pane is always visible, so this only swaps content. Collapsed,
- * it takes over the screen and focus moves with it, otherwise a keyboard user
+ * On desktop the pane sits beside results. Collapsed, it takes over the screen
+ * and focus moves with it, otherwise a keyboard user
  * is left on a control that is no longer on screen.
  */
 function showDetail(node) {
+  detailVersion++;
   els.detailBody.replaceChildren(node);
   if (collapsed.matches) {
     els.app.dataset.view = "detail";
@@ -298,6 +302,7 @@ function showDetail(node) {
 }
 
 function resetDetail() {
+  detailVersion++;
   els.detailBody.replaceChildren(
     Object.assign(document.createElement("p"), {
       className: "detail-idle",
@@ -857,6 +862,7 @@ function applySelection(row) {
     onSchedule: () => toggleSchedule(found, term),
   });
   showDetail(draw());
+  const openedVersion = detailVersion;
   history.replaceState(null, "", link);
 
   // Shared detail metadata loads once; each subject's grade archive loads only
@@ -876,7 +882,7 @@ function applySelection(row) {
     // Redrawing the body rather than calling showDetail again leaves focus alone.
     const opened = row.dataset.classNumber;
     Promise.all([detailFiles, loadGradeCourse(found.course).catch((error) => console.warn("grade history unavailable", error))]).then(() => {
-      if (opened === els.results.querySelector(".is-selected")?.dataset.classNumber) {
+      if (openedVersion === detailVersion && opened === els.results.querySelector(".is-selected")?.dataset.classNumber) {
         els.detailBody.replaceChildren(draw());
       }
     });
@@ -901,6 +907,7 @@ function selectSection(row) {
 
 function closeDetail() {
   els.app.dataset.view = "results";
+  resetDetail();
   // The pane is shut, so the link stops naming a section. The row keeps its
   // selection because focus is about to go back to it.
   history.replaceState(null, "", setClassParam(new URL(location.href), ""));
@@ -948,6 +955,7 @@ function replaceParam(key, value) {
 
 function syncUrl(q, term) {
   const url = new URL(location.href);
+  if (els.query.dataset.person !== q.trim()) url.searchParams.delete("person");
   // A link's section belongs to the search it arrived with, so retrying that
   // search after a 429 keeps it and searching for anything else drops it.
   if (!sameSearch(url, q, term)) pendingClass = "";
@@ -1000,7 +1008,7 @@ function showWelcome(term) {
   // snapshot covers everyone RateMyProfessors knows about, and checking who is
   // actually teaching would mean a search per name.
   els.wSub.textContent = rated
-    ? `From ${rated.toLocaleString()} rated instructors, those with at least 50 ratings. Not all teach every term.`
+    ? "50+ reviews each · availability varies by term"
     : "";
 
   els.wList.replaceChildren(
@@ -1050,6 +1058,7 @@ function rerunSearch() {
 }
 
 async function runSearch(q, term, subject, gen = genCategory()) {
+  const selectedPerson = els.query.dataset.person === q.trim() ? q.trim() : "";
   // A new search replaces the results, and collapsed the detail pane is covering
   // them. The empty-query and error paths below never reach paint().
   els.app.dataset.view = "results";
@@ -1084,6 +1093,7 @@ async function runSearch(q, term, subject, gen = genCategory()) {
   els.welcome.hidden = true;
 
   const requestId = ++latestRequest;
+  inFlightSearch = `${q.trim()}|${term}|${selectedPerson}`;
   setBusy(true);
   setStatus("Searching...");
   try {
@@ -1102,7 +1112,12 @@ async function runSearch(q, term, subject, gen = genCategory()) {
     // Barrett's nightly file can name an instructor before the live class API
     // does. It is already awaited above for seats, so applying the fallback
     // adds no request to a course search.
-    lastResult = { ...filterCourses(withSeatInstructors(courses, term), q), totalItems, term };
+    const roster = withSeatInstructors(courses, term);
+    const filtered = selectedPerson ? filterInstructorCourses(roster, selectedPerson) : filterCourses(roster, q);
+    const subjects = [...new Set(filtered.primary.map((entry) => entry.course.subject))].slice(0, 4);
+    await Promise.allSettled(subjects.map((subject) => loadGradeCourse({ subject })));
+    if (requestId !== latestRequest) return;
+    lastResult = { ...filtered, totalItems, term, instructor: selectedPerson };
     lastQuery = q.trim();
     paint(term);
   } catch (error) {
@@ -1297,7 +1312,9 @@ function paint(term = els.term.value) {
     // Name the requirement, or an empty GE browse reads as a broken page.
     const empty = gen
       ? `Nothing in ${termName(term)} is listed under ${gen}${lastQuery ? ` for "${lastQuery}"` : ""}.`
-      : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`;
+      : lastResult.instructor
+        ? `No classes found for ${lastResult.instructor} in ${termName(term)}. Try another term.`
+        : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`;
     // Careful not to claim everything went when related courses may still be
     // on screen underneath this message.
     setStatus(withNotes(
@@ -1400,6 +1417,7 @@ async function init() {
 
   const initialQuery = params.get("q") ?? "";
   els.query.value = initialQuery;
+  if (params.get("person") === initialQuery) els.query.dataset.person = initialQuery;
   if (initialQuery.trim()) reflectQuery(initialQuery);
   // A shared link names a section for the first paint of the search it arrived
   // with. Not gated on the query: a Fulfills browse is a search too.
@@ -1509,6 +1527,12 @@ async function init() {
 
   // Selecting a section is delegated, so results can re-render freely.
   els.results.addEventListener("click", (event) => {
+    const teacher = event.target.closest(".teacher-open");
+    if (teacher) {
+      const section = els.results.querySelector(`.section[data-class-number="${teacher.dataset.openClass}"]`);
+      if (section) selectSection(section);
+      return;
+    }
     const row = event.target.closest(".section, .cal-item, .plan-open");
     if (row && !event.target.closest("a")) selectSection(row);
   });
@@ -1535,8 +1559,10 @@ async function init() {
 
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (els.submit.getAttribute("aria-disabled") === "true") return;
     const q = els.query.value;
+    const person = els.query.dataset.person === q.trim() ? q.trim() : "";
+    if (searching && inFlightSearch === `${q.trim()}|${els.term.value}|${person}`) return;
+    replaceParam("person", els.query.dataset.person === q.trim() ? q.trim() : "");
     reflectQuery(q);
     syncUrl(q, els.term.value);
     // A submitted search is a request to see its results. Keeping Schedule
@@ -1559,6 +1585,8 @@ async function init() {
     const button = event.target.closest("[data-q]");
     if (!button) return;
     els.query.value = button.dataset.q;
+    els.query.dataset.person = button.classList.contains("w-name") ? button.dataset.q : "";
+    replaceParam("person", els.query.dataset.person);
     reflectQuery(button.dataset.q);
     syncUrl(button.dataset.q, els.term.value);
     rerunSearch();
@@ -1648,5 +1676,7 @@ async function init() {
     seats.then(describe);
   }
 }
+
+initCommandSearch();
 
 init();
