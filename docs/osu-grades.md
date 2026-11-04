@@ -1,176 +1,123 @@
-# The grade distribution records
+# Historical grade distributions
 
-Ohio State publishes course grade distributions nowhere. There is no API for
-them, no page on the registrar's site, and nothing in `content.osu.edu/v2`.
-The file behind `js/grades.js` came from a public records request instead, and
-this is what it covers, what it cannot answer, and what has to be true of the
-next one.
+Ohio State delivered 25 Excel workbooks on **November 4, 2026**, in response
+to public records request **27-0272**, submitted August 23. The release covers
+**Spring 2018 through Spring 2026** (25 terms). SEI evaluation data remains
+pending and is not represented by the grade charts or RateMyProfessors ratings.
 
-## The request
+## Coverage
 
-Filed under the Ohio Public Records Act, R.C. 149.43, which makes records of a
-public university available to any person. Grade distributions aggregated to a
-section carry no student identifiers, so they are ordinary public records; the
-request nevertheless conceded the small-enrolment suppression below, because
-it costs a handful of sections and it is the difference between a fulfilled
-request and an argument.
+The original workbooks contain 121,196 instructor/class rows across six campuses.
+Finder searches Columbus, so the published archive retains 103,398 Columbus
+instructor/class rows: **92,242 distinct classes and 8,419 normalized instructor
+names**, across 231 subjects. A name is not a verified unique person.
 
-Asked for, per section, for Autumn 2021 through Spring 2026:
+The records office explicitly stated:
 
-| Field | Why |
-| --- | --- |
-| Term, and the term code | Orders the five years, and `1218` style codes sort without parsing |
-| Subject and catalog number | The course key the site already searches on |
-| Class number and section number | Two different fields at OSU. `classNumber` 5168 is what BuckeyeLink wants; `section` 0010 is the number within the course |
-| Campus | Columbus only is what the site searches; regional sections would otherwise land on a Columbus professor |
-| Primary instructor name **and OSU email** | The email is the join. See below |
-| Counts per letter grade | A through E, plus S, U, PA, NP, W and I |
-| Total enrolled | Lets a row be checked against the counts that are supposed to sum to it |
+- Classes with fewer than 10 enrolled students do not appear.
+- Classes with student instructors do not appear.
+- Classes with multiple instructors appear once per instructor.
 
-## The email is the whole point
+These are omissions of whole rows, not blanked grade cells. The number of
+omitted classes is unknown. A missing match cannot establish that someone
+never taught a course. Blank grade cells in the delivered rows mean zero;
+every row's complete set of grade counts reconciles exactly to its `Total`.
 
-Every other join in Finder guesses. `js/ratings.js` matches RateMyProfessors on
-a first and last name, drops middle names and suffixes, and returns nothing
-when two people share a name, because a wrong rating is worse than no rating.
-That costs real coverage: both Alan Reeds get nothing.
+## What students see
 
-`content.osu.edu/v2` already publishes an instructor's address beside every
-section — `{"displayName": "Paolo Bucci", "email": "bucci.2@osu.edu"}` — and
-the records request asked for the same field. So a grade curve is keyed on
-`bucci.2` and joins exactly, to one person or to nobody.
+Opening a section shows historical outcomes for that instructor and exact
+subject/catalog number. The card offers all terms combined or an individual
+term, a chart of all eleven letter grades, mean grade points, A/A- share,
+enrollment and class counts, a withdrawal rate, a complete outcome table and
+a term comparison table. The card labels its actual date range and Columbus
+scope. An unavailable download displays a retry message; an unmatched record
+displays a coverage explanation.
 
-Name matching survives as a fallback for rows that came back without an
-address, and it inherits the same refusal: two people under one name return
-nothing.
+The GPA is the mean of recorded letter-grade points, weighted by grade count.
+It is not an official student GPA or an average of class averages. Values are
+A=4, A-=3.7, B+=3.3, B=3, B-=2.7, C+=2.3, C=2, C-=1.7, D+=1.3, D=1, E=0.
+EN (non-attendance) is included in E and the denominator, as required by
+[faculty rule 3335-8-21(I)](https://trustees.osu.edu/bylaws-and-rules/3335-8).
+The raw EN count is retained and disclosed separately without counting it twice.
 
-## What the file cannot tell you
+W, S, U, PA, NP, PE, P, I, IX, NEN, UEN, NG and No Grade stay outside the
+mean. All published marks are retained. P means progress, not pass. I/IX are
+incomplete/extended incomplete; PA/NP are pass/non-pass; PE is emergency pass;
+S/U are satisfactory/unsatisfactory. No Grade and NG indicate no recorded grade.
+The exact outcome table uses all recorded enrollments as its percentage
+denominator; the chart and A/A- share use letter grades only. A course with
+no letter grades still shows its other recorded outcomes.
 
-**A curve is a cohort.** The largest thing moving a distribution is usually who
-enrolled, not who taught. Honours sections, majors-only sections, summer
-sections and 8am sections are different populations taking the same course
-number from the same person. Nothing in these records separates them, so a
-curve is evidence about a class, not a measurement of a professor.
+Historical cohorts differ. Honors classes, summer enrollment and pandemic-era
+grading policies can change outcomes even with the same instructor. These
+records describe past classes and cannot predict a student's grade.
 
-**Small sections are missing.** Ohio State withholds distributions for sections
-small enough that one student's grade could be inferred. The request asked for
-those rows to be retained and flagged rather than dropped, so the snapshot
-carries a `suppressed` count per course and the pane can say how many sections
-are not in the curve. Where every section of a course was withheld, the record
-exists and the curve does not, which `gradesStatus` reports as `withheld` —
-distinct from a professor with no record at all.
+## Instructor matching and team teaching
 
-**Withdrawals are not in the mean.** They cannot be: a W carries no grade
-points. That makes the mean of a course a third of the class drops flattering,
-so the withdrawal count and its share sit beside the curve rather than inside
-it.
+The actual release contains **names, without instructor emails**. Earlier
+scaffolding assumed an email join, but that is unavailable in this delivery.
+The importer converts `Last,First Middle` to natural name order and keys on
+the complete normalized name, preserving middle names and compound surnames.
+Different middle names are not merged into one record.
 
-**Pass-fail courses have no curve.** S, U, PA and NP carry no points either. A
-course graded entirely on them reports `ungraded` rather than an empty
-distribution, which would read as a course nobody passed.
+The browser tries an email identifier when a future source supplies one,
+then a full normalized name, then a first/last match only if the global
+instructor index has exactly one candidate. There is no fuzzy or nickname
+matching. Ambiguity is checked globally, not just within one subject. Identical
+full names cannot be distinguished without identifiers; spelling changes can
+split one person's record. A unique abbreviated match is still a name match,
+not an authenticated identity.
 
-**It stops where the live data starts.** Grades exist for terms that are over.
-The terms the site searches are the ones OSU's API exposes, which are current
-and future. The two never overlap, by construction.
+For each term/campus/class number, counts are checked for consistency across
+instructor rows. Repeated copies of the same instructor/class are deduplicated;
+conflicting copies abort import. Team-taught classes count once for each listed
+instructor, and the card discloses how many included classes were shared.
+There are 7,154 distinct team-taught Columbus classes. Do not sum instructor
+enrollment totals to estimate unique student enrollments across the university.
+Current sections with multiple instructors retain Finder's existing behavior
+of not presenting a combined instructor curve.
 
-**Team-taught sections are attributed to one person.** The request asked for
-the primary instructor, so a section with co-instructors puts its whole
-distribution under the PI. Finder draws no curve for a section listing more
-than one instructor, for the reason it draws no rating: an average across two
-people is not either person's.
+## Rebuild and provenance
 
-## The import
-
-`scripts/fetch-grades.mjs` reads the spreadsheet off disk. It fetches nothing
-— the records office sends a file once:
+Save the original email attachments in `.local/grade-records/`, then run:
 
 ```bash
-node scripts/fetch-grades.mjs records.csv
+python scripts/import-grade-records.py .local/grade-records
+npm test
 ```
 
-Save an XLSX as CSV first. The script reads one sheet of flat rows and nothing
-about that needs a spreadsheet parser.
+The importer uses Python 3's standard library to read XLSX XML directly, so
+there is no lossy manual CSV conversion or added runtime dependency. It handles
+shared strings, inline strings and sparse cells. The 25 original workbooks
+remain locally preserved and ignored by Git. No email bodies, attachment URLs
+or correspondence are included in the public dataset.
 
-**The column names are not known in advance.** They are whatever the
-registrar's export tool produced. Every field is resolved through the alias
-tables at the top of the script, and an unresolved one aborts the run printing
-the headers the file actually had:
+Before publishing, it validates headers, identifiers, nonnegative integer
+counts, the release's minimum class size, every row's enrollment reconciliation,
+and duplicate/co-instructor consistency. All parsing completes before writing.
+Under 200 instructor names is refused as an incomplete import. Outputs are
+deterministic and each file is replaced atomically. Commit and deploy the
+result as one version so the index and subject files stay together.
 
-```
-Refusing to write data/grades.json.
-grades: could not find grade B-, instructor email or name.
-The file's headers are: Term | Subject | Catalog | Instructor | A | A- | B+ | B | ...
-Add the spelling to HEADERS or GRADE_ALIASES in scripts/fetch-grades.mjs.
-```
+- `data/grades.json`: release metadata, global instructor identity index and
+  subject paths. The full history archive is not downloaded on page load.
+- `data/grades/<SUBJECT>.json`: instructor/course aggregates plus per-term
+  history. Only the opened section's subject is fetched; requests are shared,
+  cached, and retryable after failure.
+- `data/grades-provenance.json`: original filenames, SHA-256 hashes, per-file
+  row counts, campus counts, term coverage and reconciliation results.
 
-Adding the spelling is the entire adaptation step. It refuses rather than
-guesses because the failure it is avoiding is silent: a file whose `B-` column
-went unrecognised would write a curve missing every B-minus in five years and
-look completely normal doing it.
+The earlier `scripts/fetch-grades.mjs` CSV importer remains for its documented
+legacy format and fixtures. Use the XLSX importer for this release: its blank
+cell semantics and additional marks differ from the hypothetical CSV format.
 
-One normalising rule is worth knowing about. Field names have their
-punctuation stripped, so `catalog_nbr`, `Catalog Nbr` and `CATALOGNBR` are one
-spelling. Grade columns do **not**: `A-` would normalise to `a`, which is also
-what `A` normalises to, and both columns would resolve to whichever came
-first. Every A-minus in the file would be read out of the A column. Grade
-headers keep their sign, which is why `markSlug` exists next to `slug`.
+## Data shape
 
-### What it refuses to write
-
-The same gate as the other three snapshotters, from `scripts/guards.mjs`:
-
-- Under 200 instructors, which is a file the parser did not understand rather
-  than a small year. Not forceable.
-- More than 10% below the committed count, which is a partial parse. Forceable
-  with `FORCE_WRITE=1`, because a corrected smaller dataset is a real thing to
-  ship.
-- More than 10% of rows unreadable. Rows from another campus and rows taught by
-  "Staff" are skipped rather than failed, and do not count toward this.
-
-`Staff`, `TBA`, `TBD` and `Unassigned` are dropped outright. Folding five years
-of unstaffed sections into one key would invent the most prolific instructor
-at the university.
-
-## The shape it writes
-
-```json
-{
-  "source": "The Ohio State University, public records request under R.C. 149.43",
-  "campus": "columbus",
-  "firstTerm": "1218",
-  "lastTerm": "1262",
-  "termCount": 15,
-  "scale": ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "E"],
-  "count": 4211,
-  "instructors": {
-    "bucci.2": {
-      "name": "Paolo Bucci",
-      "terms": 9,
-      "courses": {
-        "CSE 2221": {
-          "counts": [180, 120, 95, 140, 60, 45, 70, 25, 15, 20, 90],
-          "other": { "W": 61, "I": 4 },
-          "sections": 22,
-          "terms": 9,
-          "suppressed": 2
-        }
-      }
-    }
-  }
-}
-```
-
-`counts` is positional against `scale`, which the file states rather than
-assumes, so a reader never has to know the order from somewhere else.
-`suppressed` is sections withheld, not students.
-
-Written compact rather than indented, like `data/ratings-courses.json` and for
-the same reason: only the detail pane reads it, so indenting it costs every
-visitor who opens a section.
-
-## Until it arrives
-
-There is no `data/grades.json` in the repo. `loadGrades` treats a 404 as "not
-published yet" rather than as a failure — settled, never retried, and distinct
-from the 500 that stays retryable — so the block does not render and nothing
-else on the page changes. Everything above is written and tested against
-fixtures in `tests/fixtures.js`.
+Subject files map instructor keys to exact course codes, such as `CSE 2221`.
+Each course has `counts` in the manifest's explicit eleven-mark `scale`, `other`
+outcomes, `sections`, `enrolled`, `coTaught`, `terms`, and `history` keyed by OSU
+term code. History rows carry the same counts and outcomes for a single term.
+EN appears in both the E count and `other.EN` for disclosure; only the E count
+is included when reconciling letter grades plus other outcomes to enrollment.
+`suppressed: 0` is retained for compatibility; it does not mean no classes were
+omitted, because those classes were not delivered and cannot be counted.

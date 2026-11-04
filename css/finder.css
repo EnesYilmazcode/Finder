@@ -759,6 +759,37 @@ body {
 .gspread i.g9  { background: var(--scarlet); opacity: 0.88; }
 .gspread i.g10 { background: var(--scarlet); }
 
+/* Historical grades: a compact record card, readable in either theme. */
+.grade-card { padding: 1rem; border: 1px solid var(--rule); border-top: 3px solid var(--scarlet); border-radius: 6px; background: var(--paper); margin: 1.3rem 0; }
+.grade-card > .eyebrow { color: var(--scarlet); font-size: 0.59rem; }
+.grade-heading { font-family: var(--display); font-size: 1.15rem; letter-spacing: -0.025em; margin: 0.6rem 0 0.2rem; }
+.grade-filter { display: grid; gap: 0.4rem; margin: 1rem 0; }
+.grade-select { width: 100%; min-width: 0; padding: 0.55rem 0.6rem; font: inherit; font-size: 0.8rem; border: 1px solid var(--field); border-radius: 4px; color: var(--ink); background: var(--paper); }
+.grade-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+.grade-figures .d-num { font-size: clamp(1.3rem, 2vw, 1.8rem); }
+.grade-figures .d-cap { font-size: 0.61rem; letter-spacing: 0; }
+.grade-chart-caption { font: 0.63rem var(--data); color: var(--mute); margin: 1.1rem 0 0.8rem; }
+.grade-chart { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 4px; }
+.grade-column { display: grid; grid-template-rows: auto 85px auto; gap: 0.35rem; min-width: 0; text-align: center; }
+.grade-percent { font: 0.57rem var(--data); color: var(--mute); }
+.grade-track { display: flex; align-items: flex-end; background: var(--wash); border-radius: 2px; overflow: hidden; }
+.grade-fill { width: 100%; min-height: 0; border-radius: 2px 2px 0 0; }
+.grade-band-a { background: var(--open); }
+.grade-band-b { background: #468b9b; }
+.grade-band-c { background: var(--wait); }
+.grade-band-e { background: var(--scarlet); }
+.grade-mark { font: 0.6rem var(--data); }
+.grade-sample { font: 0.64rem var(--data); color: var(--mute); margin: 0.85rem 0 1rem; }
+.grade-details { border-top: 1px solid var(--rule); margin-top: 0.8rem; font-size: 0.78rem; }
+.grade-details > summary { cursor: pointer; padding: 0.7rem 0; font-weight: 500; }
+.grade-details > summary:hover { color: var(--scarlet); }
+.grade-table { width: 100%; border-collapse: collapse; font: 0.61rem var(--data); margin-bottom: 0.5rem; }
+.grade-table th, .grade-table td { text-align: right; padding: 0.5rem 0.15rem; border-bottom: 1px solid var(--rule); font-weight: 400; }
+.grade-table th:first-child { text-align: left; }
+.grade-table thead { color: var(--mute); }
+.grade-footnote { color: var(--mute); font-size: 0.69rem; line-height: 1.55; margin: 0.9rem 0 0.5rem; }
+.grade-source { color: var(--scarlet); font-size: 0.7rem; text-underline-offset: 3px; }
+
 .spread-cap { margin-bottom: 0.6rem; }
 
 .section:focus-visible {

@@ -18,6 +18,10 @@ jobs:
         with:
           node-version: '22'
 
-      # node:test and node:assert only, so there is nothing to install.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # Node's test runner and Python's standard library; no packages to install.
       - name: Run the suite
         run: node --test

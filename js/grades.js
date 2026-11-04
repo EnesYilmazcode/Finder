@@ -1,12 +1,6 @@
-// Per-instructor grade distributions, from a five-year public records request.
-//
-// OSU publishes nothing like this. The file behind it arrived under R.C. 149.43
-// as a spreadsheet of one row per section, which scripts/fetch-grades.mjs folds
-// into one curve per instructor per course. See docs/osu-grades.md for what the
-// request covered and what it cannot answer.
-//
-// Loaded the way data/ratings-courses.json is: only the detail pane reads it, so
-// it is fetched when the first section is opened rather than when the page loads.
+// Historical instructor/course outcomes from OSU's November 2026 records
+// release. The global name index and per-subject archives load only on opening
+// a section. See scripts/import-grade-records.py and docs/osu-grades.md.
 
 import { nameKey } from "./ratings.js";
 
@@ -23,20 +17,34 @@ let failed = false;
 // nothing should ask again. Distinct from `failed` for the same reason seats.js
 // separates "missing" from "unknown".
 let absent = false;
+const subjectLoads = new Map();
+const loadedSubjects = new Set();
+const failedSubjects = new Set();
 
 /**
- * The join key, which is the local part of an OSU address: bucci.2@osu.edu is
- * bucci.2. The class API already publishes this beside every instructor, and
- * the records request asked for the same field, so the two sides meet on a
- * string the registrar and the course search both issued.
- *
- * This is the one join in Finder that does not have to guess. Name matching is
- * the fallback for rows that came back without an address, and it inherits
- * ratings.js's refusal to choose between two people with one name.
+ * The local part of an OSU email, for legacy fixtures and future records that
+ * include identifiers. The delivered 2026 release has names only; its joins
+ * use full names first and refuse ambiguous abbreviated matches.
  */
 export function gradeKey(email) {
   const at = String(email ?? "").indexOf("@");
   return at > 0 ? String(email).slice(0, at).toLowerCase() : "";
+}
+
+// Preserve middle names and compound surnames for the name-only records release.
+// A first/last fallback is allowed only when it identifies one record.
+export function gradeNameKey(name) {
+  const parts = String(name ?? "").split(",", 2);
+  const natural = parts.length === 2 ? `${parts[1]} ${parts[0]}` : parts[0];
+  return natural.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}_\s]/gu, "")
+    .trim().replace(/\s+/g, " ");
+}
+
+export function gradeTermLabel(term) {
+  const code = String(term);
+  if (!/^1\d{2}[248]$/.test(code)) return code;
+  const season = { 2: "Spring", 4: "Summer", 8: "Autumn" }[code[3]];
+  return `${season} ${2000 + Number(code.slice(1, 3))}`;
 }
 
 /**
@@ -63,15 +71,21 @@ export async function loadGrades(baseUrl = "data/grades.json") {
 
     const byKey = new Map();
     const byName = new Map();
+    const byFullName = new Map();
     for (const [key, row] of Object.entries(data.instructors ?? {})) {
       byKey.set(key.toLowerCase(), row);
+      const full = gradeNameKey(row?.name);
+      if (full) {
+        if (!byFullName.has(full)) byFullName.set(full, []);
+        byFullName.get(full).push(row);
+      }
       const name = nameKey(row?.name ?? "");
       if (!name) continue;
       if (!byName.has(name)) byName.set(name, []);
       byName.get(name).push(row);
     }
 
-    index = { meta: data, byKey, byName };
+    index = { meta: data, byKey, byName, byFullName };
     failed = false;
     return index;
   })().catch((error) => {
@@ -167,6 +181,9 @@ function curveFrom(row, meta) {
     // S/U and PA/NP are a pass-fail enrolment, not a grade anyone can compare.
     ungraded: (other.S ?? 0) + (other.U ?? 0) + (other.PA ?? 0) + (other.NP ?? 0),
     incomplete: other.I ?? 0,
+    other,
+    enrolled: row.enrolled ?? summed.n + Object.entries(other).reduce((n, [mark, count]) => n + (mark === "EN" ? 0 : count), 0),
+    coTaught: row.coTaught ?? 0,
     sections: row.sections ?? 0,
     terms: row.terms ?? 0,
     // Sections the registrar withheld under the small-enrolment rule. Held on
@@ -242,6 +259,65 @@ export function withheldFor(person, course, idx = index) {
   return entry?.suppressed ?? 0;
 }
 
+/** Fetch just this subject's history, with shared requests and retryable failures. */
+export async function loadGradeCourse(course) {
+  const idx = await loadGrades();
+  const subject = String(course?.subject ?? "").toUpperCase();
+  const path = idx?.meta?.subjects?.[subject];
+  if (!path) return idx;
+  if (!subjectLoads.has(subject)) {
+    const request = (async () => {
+      const response = await fetch(`data/${path}`);
+      if (!response.ok) throw new Error(`grades ${subject} ${response.status}`);
+      const data = await response.json();
+      if (data.subject !== subject || !data.instructors) throw new Error(`invalid grades ${subject}`);
+      for (const [key, courses] of Object.entries(data.instructors)) {
+        const person = idx.byKey.get(key);
+        if (person) Object.assign(person.courses, courses);
+      }
+      loadedSubjects.add(subject);
+      failedSubjects.delete(subject);
+      failed = false;
+      return idx;
+    })().catch((error) => {
+      subjectLoads.delete(subject);
+      failedSubjects.add(subject);
+      failed = true;
+      throw error;
+    });
+    subjectLoads.set(subject, request);
+  }
+  return subjectLoads.get(subject);
+}
+
+export function gradeLoadState(course) {
+  const subject = String(course?.subject ?? "").toUpperCase();
+  if (failedSubjects.has(subject) || (!index && failed)) return "failed";
+  if (!index && loading && !absent) return "loading";
+  if (index?.meta?.subjects?.[subject] && !loadedSubjects.has(subject)) return "loading";
+  return "ready";
+}
+
+export function gradesRelease() { return index?.meta?.released ?? null; }
+
+/** Raw outcomes for this instructor/course, optionally scoped to a historical term. */
+export function gradeRecord(person, course, term = "", idx = index) {
+  const personRow = instructorRow(person, idx);
+  const code = `${String(course?.subject ?? "").toUpperCase()} ${String(course?.catalogNumber ?? "").toUpperCase()}`;
+  const row = personRow?.courses?.[code];
+  return term ? row?.history?.[term] ?? null : row ?? null;
+}
+
+export function gradeHistory(person, course, idx = index) {
+  return Object.entries(gradeRecord(person, course, "", idx)?.history ?? {})
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([term, row]) => ({ term, label: gradeTermLabel(term), row, curve: curveFrom(row, null) }));
+}
+
+export function gradeCurveForTerm(person, course, term, idx = index) {
+  return curveFrom(gradeRecord(person, course, term, idx), null);
+}
+
 /**
  * Everything one instructor taught, newest-heaviest first, for the case where
  * they have a record but not in this course.
@@ -278,6 +354,10 @@ function instructorRow(person, idx = index) {
   const key = gradeKey(person?.email);
   const exact = key ? idx.byKey.get(key) : null;
   if (exact) return exact;
+
+  const full = idx.byFullName?.get(gradeNameKey(person?.name)) ?? [];
+  if (full.length === 1) return full[0];
+  if (full.length > 1) return null;
 
   const named = idx.byName.get(nameKey(person?.name ?? "")) ?? [];
   return named.length === 1 ? named[0] : null;

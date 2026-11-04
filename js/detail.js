@@ -7,7 +7,7 @@ import { ratingFor, searchUrl, profileUrl, ratingSpread, courseShare } from "./r
 import { faceFor, initials } from "./headshots.js";
 import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { trendFor } from "./trend.js";
-import { SCALE, gradesFor, gradesStatus, gradeSpread, aShare, gradesRange, withheldFor } from "./grades.js";
+import { SCALE, gradesFor, gradesStatus, gradeSpread, aShare, gradesRange, withheldFor, gradeRecord, gradeHistory, gradeCurveForTerm, gradeTermLabel, gradesRelease, gradeLoadState } from "./grades.js";
 import { isIndividualStudy } from "./rank.js";
 
 function el(tag, className, text) {
@@ -267,10 +267,127 @@ function gradeBar({ counts, total }) {
  * course nobody has a record for are three different things, and only the first
  * two are worth saying out loud.
  */
+function historicalGrades(person, course) {
+  const history = gradeHistory(person, course);
+  const wrap = block("Grades · official OSU records");
+  wrap.classList.add("grade-card");
+  wrap.append(el("h3", "grade-heading", `${course.subject} ${course.catalogNumber} grade history`));
+  wrap.append(el("p", "d-note", `${gradeTermLabel(history[history.length - 1].term)} – ${history[0].label} · Columbus`));
+
+  const label = el("label", "grade-filter");
+  label.append(el("span", "d-cap", "View distribution"));
+  const select = el("select", "grade-select");
+  select.setAttribute("aria-label", "Grade distribution term");
+  const all = el("option", null, `All ${history.length} terms`);
+  all.value = "";
+  select.append(all);
+  for (const item of history) {
+    const option = el("option", null, item.label);
+    option.value = item.term;
+    select.append(option);
+  }
+  label.append(select);
+  wrap.append(label);
+  const content = el("div", "grade-content");
+  content.setAttribute("aria-live", "polite");
+  wrap.append(content);
+
+  const draw = () => {
+    const record = gradeRecord(person, course, select.value);
+    const curve = gradeCurveForTerm(person, course, select.value);
+    content.replaceChildren();
+    if (curve) {
+      const figs = el("div", "d-figs grade-figures");
+      figs.append(figure(curve.gpa.toFixed(2), "average GPA", "is-rating"),
+        figure(`${Math.round(aShare(curve) * 100)}%`, "got A or A-"), figure(curve.n.toLocaleString(), "letter grades"));
+      content.append(figs);
+      const chart = el("div", "grade-chart");
+      chart.setAttribute("role", "img");
+      chart.setAttribute("aria-label", SCALE.map((mark, i) => `${mark}: ${curve.counts[i]} (${Math.round(curve.counts[i] / curve.n * 100)}%)`).join(", "));
+      const max = Math.max(...curve.counts);
+      SCALE.forEach((mark, i) => {
+        const col = el("div", "grade-column");
+        const share = Math.round(curve.counts[i] / curve.n * 100);
+        col.title = `${mark}: ${curve.counts[i].toLocaleString()} grades (${share}%)`;
+        col.append(el("span", "grade-percent", `${share}`));
+        const track = el("div", "grade-track");
+        const bar = el("i", `grade-fill grade-band-${i < 2 ? "a" : i < 5 ? "b" : i < 8 ? "c" : "e"}`);
+        bar.style.height = `${curve.counts[i] / max * 100}%`;
+        track.append(bar);
+        col.append(track, el("span", "grade-mark", mark));
+        chart.append(col);
+      });
+      content.append(el("p", "grade-chart-caption", "Share of letter grades (%)"), chart);
+    } else {
+      content.append(el("p", "d-note", "No letter grades in this selection. Other recorded outcomes are listed below."));
+    }
+    content.append(el("p", "grade-sample", `${record.sections.toLocaleString()} ${record.sections === 1 ? "class" : "classes"} · ${record.enrolled.toLocaleString()} recorded enrollments`));
+    if (record.other.W) content.append(row("Withdrew", `${record.other.W.toLocaleString()} (${Math.round(record.other.W / record.enrolled * 100)}% of enrollments)`));
+    if (record.coTaught) content.append(el("p", "d-note", `${record.coTaught} ${record.coTaught === 1 ? "class was" : "classes were"} team-taught. These are whole-class outcomes shared by the listed instructors.`));
+
+    const details = el("details", "grade-details");
+    details.append(el("summary", null, "Every grade & recorded outcome"));
+    const table = el("table", "grade-table");
+    const caption = el("caption", "visually-hidden", "Grade counts and share of all recorded enrollments");
+    table.append(caption);
+    const head = el("tr");
+    for (const text of ["Grade", "Count", "Share"]) { const th = el("th", null, text); th.setAttribute("scope", "col"); head.append(th); }
+    const thead = el("thead"); thead.append(head); table.append(thead);
+    const body = el("tbody");
+    const outcomes = SCALE.map((m, i) => [m === "E" ? "E (includes EN)" : m, record.counts[i]]);
+    outcomes.push(...Object.entries(record.other).filter(([m]) => m !== "EN"));
+    for (const [mark, count] of outcomes) {
+      const tr = el("tr");
+      const th = el("th", null, mark); th.setAttribute("scope", "row");
+      tr.append(th, el("td", null, count.toLocaleString()), el("td", null, `${(count / record.enrolled * 100).toFixed(1)}%`));
+      body.append(tr);
+    }
+    table.append(body); details.append(table);
+    if (record.other.EN) details.append(el("p", "d-note", `${record.other.EN.toLocaleString()} EN (non-attendance) grades are included in E and the GPA.`));
+    details.append(el("p", "d-note", "GPA and A share use letter grades only. Table shares use all recorded enrollments. Other marks carry no grade points."));
+    content.append(details);
+  };
+  select.addEventListener("change", draw);
+  draw();
+
+  const timeline = el("details", "grade-details");
+  timeline.append(el("summary", null, "Compare terms"));
+  const table = el("table", "grade-table");
+  table.append(el("caption", "visually-hidden", "Historical average GPA, A share and letter grade counts by term"));
+  const thead = el("thead"); const tr = el("tr");
+  for (const text of ["Term", "GPA", "A / A-", "Grades"]) { const th = el("th", null, text); th.setAttribute("scope", "col"); tr.append(th); }
+  thead.append(tr); table.append(thead);
+  const tbody = el("tbody");
+  for (const { label: name, curve } of history) {
+    const tr = el("tr"); const th = el("th", null, name); th.setAttribute("scope", "row");
+    tr.append(th, el("td", null, curve?.gpa.toFixed(2) ?? "—"), el("td", null, curve ? `${Math.round(aShare(curve) * 100)}%` : "—"), el("td", null, (curve?.n ?? 0).toLocaleString()));
+    tbody.append(tr);
+  }
+  table.append(tbody); timeline.append(table); wrap.append(timeline);
+  wrap.append(el("p", "grade-footnote", "Classes with fewer than 10 students and student instructors were omitted by OSU. Historical outcomes describe past classes; they do not predict your grade."));
+  const source = el("a", "grade-source", "About these records ↗");
+  source.href = "https://github.com/EnesYilmazcode/Finder/blob/main/docs/osu-grades.md";
+  source.target = "_blank"; source.rel = "noopener noreferrer";
+  wrap.append(source);
+  return wrap;
+}
+
 function gradeBlock(person, course) {
+  const state = gradeLoadState(course);
+  if (state !== "ready") {
+    const wrap = block("Grades · official OSU records");
+    wrap.append(el("p", "d-note", state === "loading" ? "Loading historical grades…" : "Grade history could not load. Open this section again to retry."));
+    return wrap;
+  }
+  if (gradeHistory(person, course).length) return historicalGrades(person, course);
   const status = gradesStatus(person, course);
   // Nothing to say: either the file is not published or it does not know this
   // pairing. Neither is evidence about how anyone grades.
+  if (status === "unknown" && gradesRelease()) {
+    const wrap = block("Grades · official OSU records");
+    wrap.append(el("p", "d-note", "No matching historical record for this instructor and course. Small classes and student instructors were omitted by OSU; names without a clear match are left unmatched."));
+    return wrap;
+  }
   if (status === "unknown" || status === "unpublished") return null;
 
   const range = gradesRange();

@@ -2,7 +2,7 @@ import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } fro
 import { filterCourses, parseQuery } from "./rank.js";
 import { renderResults } from "./render.js";
 import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingFor, ratingsFailed } from "./ratings.js";
-import { loadGrades } from "./grades.js";
+import { loadGrades, loadGradeCourse } from "./grades.js";
 import { linkedTo, loadSeats, seatsFor, seatsTerm, seatsUpdated, seatsSectionCount, seatsFailed, withSeatInstructors } from "./seats.js";
 import { loadTrend } from "./trend.js";
 import { renderDetail } from "./detail.js";
@@ -107,9 +107,8 @@ let generatorRequest = 0;
 // A section named by the URL. Applied on the next paint and then forgotten, so
 // changing a filter later does not drag the pane back to it.
 let pendingClass = "";
-// The two files only the detail pane reads, and whether they have landed.
+// Metadata shared by all detail panes.
 let detailFiles = null;
-let detailFilesLanded = false;
 // A `gen` link built before Ohio State reworded the category it names.
 let staleGen = null;
 
@@ -860,10 +859,9 @@ function applySelection(row) {
   showDetail(draw());
   history.replaceState(null, "", link);
 
-  // Three files only the detail pane reads, fetched on the first section opened
-  // instead of at startup: the course codes behind "52 of 147 ratings are for CSE
-  // 2221", which instructors have a photo, and the grade curves.
-  if (!detailFilesLanded) {
+  // Shared detail metadata loads once; each subject's grade archive loads only
+  // when a section in that subject is opened. Failed grade loads can retry.
+  {
     // Memoised, so one attempt per page load: a missing snapshot will not appear
     // on the next click, and a loader that fails drops its own in-flight memo, so
     // without this every later click would start the dead fetch again.
@@ -877,8 +875,7 @@ function applySelection(row) {
     // while the files were still in flight would never get its pane back.
     // Redrawing the body rather than calling showDetail again leaves focus alone.
     const opened = row.dataset.classNumber;
-    detailFiles.then(() => {
-      detailFilesLanded = true;
+    Promise.all([detailFiles, loadGradeCourse(found.course).catch((error) => console.warn("grade history unavailable", error))]).then(() => {
       if (opened === els.results.querySelector(".is-selected")?.dataset.classNumber) {
         els.detailBody.replaceChildren(draw());
       }

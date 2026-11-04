@@ -155,47 +155,43 @@ rather than when the page loads.
 
 ### What the registrar recorded, next to what students said
 
-A rating is what people felt. `data/grades.json` is what Ohio State wrote
-down: five academic years of per-section grade distributions, Autumn 2021
-through Spring 2026, obtained under Ohio's public records law because OSU
-publishes nothing like it. `scripts/fetch-grades.mjs` folds that spreadsheet
-into one curve per instructor per course.
+Ohio State fulfilled request 27-0272 on November 4, 2026 with 25 workbooks,
+covering Spring 2018 through Spring 2026. Finder includes 92,242 distinct
+Columbus classes associated with 8,419 instructor names. SEI evaluations are
+still pending; these are registrar grade counts, separate from student ratings.
 
-This is the one join in Finder that does not have to guess. RateMyProfessors
-has to be matched on a name, which is why two professors called Alan Reed get
-no rating at all. The records request asked for the instructor's OSU address,
-which `content.osu.edu` already publishes beside every section, so a curve is
-keyed on `bucci.2` and lands on one person or on nobody.
+Open a section to see the instructor's historical grades for that exact course:
+average GPA, the share receiving A or A-, a labeled grade chart, and a selector
+for individual terms. Expand **Every grade & recorded outcome** for counts and
+percentages, or **Compare terms** for the historical table. Withdrawals and
+other marks stay visible outside the GPA. EN (non-attendance) counts as E,
+as OSU's faculty rules require.
 
-The pane leads with the average and the share who got an A or A-, because the
-two disagree exactly where it matters. A section that is half A and half E
-averages the same as a section that is entirely B, and only one of them is a
-coin flip.
+The release contains names without emails. Finder tries the full normalized
+name first, then a unique first/last match; ambiguous matches stay blank. It
+does not merge different middle names during import. Team-taught classes are
+associated with each listed instructor and labeled as shared outcomes, counted
+once per instructor. Small classes (under 10 students) and student instructors
+were omitted entirely by OSU, so their number cannot be inferred.
 
-Withdrawals sit beside the curve rather than inside it. Nobody who withdrew
-has a grade, so they cannot move a mean, which means a course a third of the
-class drops can post a flattering one. The number that explains it has to be
-on screen next to it.
+`data/grades.json` holds the identity index. `data/grades/<SUBJECT>.json` holds
+history downloaded only when a section in that subject is opened. No grade
+archive loads at startup. The original files remain locally preserved; the
+committed provenance file records their SHA-256 hashes, row counts and coverage.
 
-### A curve is a cohort, not a grading style
+To rebuild from the original XLSX attachments with Python 3 (no dependencies):
 
-The same professor teaching the same course to honours students in Autumn and
-to a summer section averages two different curves, and neither is their
-"difficulty". Finder prints how many sections and how many terms went into
-each one so the number carries its own sample size, and says so outright under
-thirty students. It cannot tell you who the students were, and that is usually
-the larger half of the answer.
+```bash
+python scripts/import-grade-records.py .local/grade-records
+```
 
-Sections too small to publish are missing on purpose. A distribution over four
-students can identify one of them, so Ohio State withholds those, and the
-request asked for the withheld rows to be marked rather than dropped. That is
-why the pane can say "two more sections were too small to publish" instead of
-quietly showing a curve with a hole in it. A course where every section was
-withheld says that too, rather than looking like a professor with no record.
+Every source row must reconcile to its enrollment total before anything is
+written. See [the records documentation](docs/osu-grades.md) for methodology
+and limitations. Historical outcomes describe past cohorts; they cannot
+predict an individual student's grade.
 
-`data/grades.json` is absent until the request is fulfilled. The loader reads
-a 404 as "not published yet" rather than as a failure, so the block simply does
-not appear, and nothing else on the page changes.
+![The historical grade card for CSE 2221: a term selector, average GPA, A share,
+eleven labeled grade bars, exact outcome counts and a term comparison table.](docs/screenshots/finder-grades-desktop.png)
 
 ## What one search does
 

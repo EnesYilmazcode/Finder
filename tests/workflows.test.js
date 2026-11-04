@@ -19,7 +19,7 @@ const FILES = ["seats.json", "seats-1268.json", "ratings.json", "courses.json", 
 
 // One step out of a job, as its `if:` and the body of its `run:` block.
 function step(yaml, name) {
-  const lines = yaml.split("\n");
+  const lines = yaml.split(/\r?\n/);
   const start = lines.findIndex((line) => line.trim() === `- name: ${name}`);
   assert.ok(start >= 0, `no step named ${name}`);
   const indent = lines[start].indexOf("-");
@@ -82,7 +82,7 @@ test("a commit step stages what it can when a run wrote nothing new", () => {
       const names = execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" });
       assert.deepEqual(names.trim().split("\n").sort(), staged, `${file} staged the wrong files`);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   }
 });
