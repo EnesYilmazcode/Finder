@@ -91,6 +91,27 @@ export function formatCoverage({ primary, related, totalItems, pagesFailed = 0 }
   return `This search read ${read.toLocaleString()} of ${size} matching sections.${advice}`;
 }
 
+/**
+ * How old a term's seat snapshot is, short enough to sit beside every count.
+ *
+ * Barrett publishes a date and not a time, so this counts whole days between
+ * that date and today on the student's own calendar. A snapshot dated ahead of
+ * today (Barrett is Eastern, the student may not be) reads as today. A week or
+ * more turns into the date itself, since "41d ago" asks for arithmetic; that is
+ * a term Barrett has frozen, and `stale` flags it along with anything over a
+ * day old. Null when there is no date to describe.
+ */
+export function seatAge(iso, today = new Date()) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ""));
+  if (!match) return null;
+  const taken = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const now = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const days = Math.max(0, Math.round((now - taken) / 86400000));
+  const date = taken.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const label = days === 0 ? "today" : days < 7 ? `${days}d ago` : date;
+  return { label, date, days, stale: days > 1 };
+}
+
 /** Names the result pages Ohio State did not return. Empty when none failed. */
 export function formatLostPages({ pagesFailed = 0, pagesFetched = 0 } = {}) {
   if (!(pagesFailed > 0)) return "";

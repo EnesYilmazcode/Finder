@@ -553,6 +553,23 @@ body {
 .seats[data-state="full"] { color: var(--scarlet); font-weight: 500; }
 .waitlist { margin-left: 0.25rem; }
 
+/* The count and how old it is, on one line. */
+.seat-line { display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 0.35rem; }
+
+/* How old the seat snapshot is. Small and muted while it is fresh, scarlet
+   once it is more than a day old or a frozen term's. */
+.seat-age {
+  padding: 0 0.3rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-family: var(--data);
+  font-size: 0.62rem;
+  line-height: 1.4;
+  color: var(--mute);
+  white-space: nowrap;
+}
+.seat-age[data-stale="true"] { color: var(--scarlet); border-color: currentColor; }
+
 /* Went from full to open in last night's snapshot. Quiet on purpose. */
 .opened {
   margin-left: 0.4rem;
@@ -576,6 +593,7 @@ body {
   }
   .seats,
   .linked { text-align: left; }
+  .seat-line { justify-content: flex-start; }
 }
 
 /* Selection --------------------------------------------------------------- */

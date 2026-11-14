@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { attributesOf, attributeLabel, buildingOf, busyLabel, courseBadges, dayCodes, distinctMeetings, formatDays, formatTime, formatWhen, formatPlace, formatUnits, formatCoverage, formatLostPages, instructorsOf, isOnlineMeeting, sectionBadges, sectionFlags, trendLabel } from "../js/format.js";
+import { attributesOf, attributeLabel, buildingOf, busyLabel, courseBadges, dayCodes, distinctMeetings, formatDays, formatTime, formatWhen, formatPlace, formatUnits, formatCoverage, formatLostPages, instructorsOf, seatAge, isOnlineMeeting, sectionBadges, sectionFlags, trendLabel } from "../js/format.js";
 import { attr, entry, meeting, onlineMeeting, person, section, taught } from "./fixtures.js";
 
 const DASH = "\u2013";
@@ -510,4 +510,25 @@ test("sectionFlags ranks registration blockers first", () => {
 test("sectionFlags survives a section carrying none of the fields", () => {
   assert.deepEqual(sectionFlags({ classNumber: 1001 }), []);
   assert.deepEqual(sectionFlags(null), []);
+});
+
+// Barrett dates a snapshot but does not time it, so age is whole days on the
+// student's own calendar. Built from local dates so the test holds in any zone.
+test("seatAge counts whole days and turns a week or more into the date", () => {
+  const today = new Date(2026, 10, 14, 15, 30);
+  const on = (y, m, d) => new Date(y, m, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+  assert.deepEqual(seatAge("2026-11-14", today), { label: "today", date: on(2026, 10, 14), days: 0, stale: false });
+  assert.deepEqual(seatAge("2026-11-13", today), { label: "1d ago", date: on(2026, 10, 13), days: 1, stale: false });
+  assert.deepEqual(seatAge("2026-11-10", today), { label: "4d ago", date: on(2026, 10, 10), days: 4, stale: true });
+  assert.deepEqual(seatAge("2026-07-29", today), { label: on(2026, 6, 29), date: on(2026, 6, 29), days: 108, stale: true },
+    "a frozen term names its date rather than a count of days");
+});
+
+test("seatAge reads a snapshot dated ahead of today as today, and nothing as null", () => {
+  const today = new Date(2026, 10, 14, 1, 0);
+  assert.equal(seatAge("2026-11-15", today).label, "today", "Barrett is Eastern and the student may be a day behind");
+  assert.equal(seatAge("", today), null);
+  assert.equal(seatAge(null, today), null);
+  assert.equal(seatAge("Nov 14", today), null);
 });
