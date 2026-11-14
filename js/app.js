@@ -486,10 +486,21 @@ function shareSchedule() {
   }
 }
 
-/** Resolve the small class-number-only form a shared link carries against OSU's live API. */
-async function refreshSchedule(ids, term) {
+// Bumped by every schedule refresh, so only the newest one may repaint.
+let scheduleRefresh = 0;
+
+/**
+ * Resolve the small class-number-only form a shared link carries against OSU's
+ * live API, and return the note describing how that went.
+ *
+ * The refresh is many requests long and the student can keep editing while it
+ * runs. Only a shared link may add sections (`addMissing`); otherwise a section
+ * that is no longer saved by the time the answers land was removed meanwhile,
+ * and writing it back would undo that removal.
+ */
+async function refreshSchedule(ids, term, { addMissing = false } = {}) {
   const wanted = [...new Set(ids.map(String))];
-  if (!wanted.length || !term) return;
+  if (!wanted.length || !term) return "";
 
   // A class-number search is allowed to return only that section. Keep the
   // whole response long enough to use a sibling when it is present, but ask
@@ -530,8 +541,10 @@ async function refreshSchedule(ids, term) {
   const resolvedEntries = [...resolved.values()].filter(Boolean).map((part) => ({
     course: part.course, sections: [part.section],
   }));
+  const stillWanted = (number) => addMissing || isScheduled(schedule, term, number);
   for (const [number, found] of baseByNumber) {
     const old = schedule.find((item) => scheduleKey(item) === `${term}:${number}`);
+    if (!old && !addMissing) continue;
     const linked = linkedTo(number, term);
     for (const partner of [...(linked?.enrolls ?? []), ...(linked?.enrolledBy ?? [])]) {
       if (!resolved.get(String(partner))) missingLinked.add(String(partner));
@@ -544,11 +557,20 @@ async function refreshSchedule(ids, term) {
     schedule = addScheduleItem(schedule, scheduleItem(found, term, [...resolvedEntries, ...fallbacks], old));
   }
   saveSchedule(schedule);
-  const missed = wanted.filter((number) => !baseByNumber.has(number));
+  const missed = wanted.filter((number) => !baseByNumber.has(number) && stillWanted(number));
   const notes = [];
   if (missed.length) notes.push(`Could not refresh section${missed.length === 1 ? "" : "s"} ${missed.join(", ")}; ${missed.length === 1 ? "it" : "they"} may no longer be offered this term.`);
   if (missingLinked.size) notes.push(`Could not load linked section${missingLinked.size === 1 ? "" : "s"} ${[...missingLinked].join(", ")}.`);
-  scheduleNote = notes.join(" ") || "Schedule and linked sections refreshed from Ohio State.";
+  return notes.join(" ") || "Schedule and linked sections refreshed from Ohio State.";
+}
+
+/**
+ * Whether a refresh that just finished may still draw the schedule. A newer
+ * refresh, another view or another term means the student has moved on, and
+ * painting would pull them back to a view the toggles no longer name.
+ */
+function refreshStillCurrent(request, term) {
+  return request === scheduleRefresh && view === "schedule" && els.term.value === term;
 }
 
 function paintSchedule(term = els.term.value) {
@@ -1458,10 +1480,16 @@ async function init() {
   els.viewCal.addEventListener("click", () => setView("calendar"));
   els.viewSchedule.addEventListener("click", () => {
     setView("schedule");
-    const ids = scheduleIds(schedule, els.term.value);
+    const term = els.term.value;
+    const ids = scheduleIds(schedule, term);
     if (!ids.length) return;
+    const request = ++scheduleRefresh;
     setStatus("Refreshing your schedule...");
-    refreshSchedule(ids, els.term.value).then(() => paintSchedule());
+    refreshSchedule(ids, term).then((note) => {
+      if (!refreshStillCurrent(request, term)) return;
+      scheduleNote = note;
+      paintSchedule(term);
+    });
   });
 
   els.filters.addEventListener("change", (event) => {
@@ -1635,11 +1663,21 @@ async function init() {
     // merge it with whichever sections the recipient already saved locally.
     schedule = schedule.filter((item) => String(item.term) !== String(els.term.value)
       || sharedPlan.includes(String(item.section.classNumber)));
+    const term = els.term.value;
+    const request = ++scheduleRefresh;
     setStatus("Refreshing the shared schedule...");
-    await Promise.allSettled([loadRatings(), loadSeats(els.term.value)]);
-    await refreshSchedule(sharedPlan, els.term.value);
+    await Promise.allSettled([loadRatings(), loadSeats(term)]);
+    const note = await refreshSchedule(sharedPlan, term, { addMissing: true });
+    // The listeners are live while this runs, so a search started meanwhile
+    // owns the page and the URL. The schedule is kept, just not drawn.
+    if (!refreshStillCurrent(request, term)) {
+      saveSchedule(schedule);
+      els.scheduleCount.textContent = String(scheduleIds(schedule, els.term.value).length);
+      return;
+    }
+    scheduleNote = note;
     storeSchedule();
-    paintSchedule();
+    paintSchedule(term);
     return;
   }
 
