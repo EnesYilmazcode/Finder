@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 
 import { COURSE_COLLAPSE_AT, groupByInstructor, renderCourse, renderSection, sortSections } from "../js/render.js";
 import { attr, entry, meeting, section, taught, TREND } from "./fixtures.js";
+import { seatAge } from "../js/format.js";
 import { setupDom } from "./dom.js";
 import { withRatings, withSeats, withTrend } from "./helpers.js";
 
@@ -334,4 +335,26 @@ test("regression #60: the opened mark waits on the section it enrolls you into",
   const blocked = renderSection(section(1010), "1268");
   assert.equal(blocked.querySelector(".opened"), null, "1002 is 40/40, so nobody can take the seats 1010 opened");
   assert.equal(blocked.querySelector(".seats").textContent, "5/24", "the row still reports its own count");
+});
+
+// Every count is a once-a-day snapshot, so every row says how old it is. The
+// fixture's Autumn snapshot is 2026-08-18.
+test("a row's seat count carries the snapshot's age beside it", async () => {
+  setupDom();
+  await withSeats(["1268"]);
+  const row = renderSection(section(1010), "1268");
+  const badge = row.querySelector(".seat-line .seat-age");
+  const age = seatAge("2026-08-18");
+
+  assert.equal(row.querySelector(".seat-line .seats")?.textContent, "5/24", "the count sits in the same line");
+  assert.equal(badge?.textContent, age.label);
+  assert.equal(badge.dataset.stale, String(age.stale));
+  assert.match(badge.title, new RegExp(`snapshot of ${age.date}`));
+});
+
+test("a row with no seat count shows no age either", async () => {
+  setupDom();
+  await withSeats(["1268"]);
+  const row = renderSection(section(999999), "1268");
+  assert.equal(row.querySelector(".seat-age"), null);
 });

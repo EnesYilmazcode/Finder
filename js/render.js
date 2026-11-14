@@ -6,9 +6,9 @@
 // enrollment figure per course and repeats it onto every section, so rendering
 // it per section would tell students a full section is open. See #13.
 
-import { formatWhen, formatPlace, formatUnits, instructorsOf, distinctMeetings, attributeLabel, courseBadges, sectionBadges, sectionFlags } from "./format.js";
+import { formatWhen, formatPlace, formatUnits, instructorsOf, distinctMeetings, attributeLabel, courseBadges, sectionBadges, sectionFlags, seatAge } from "./format.js";
 import { ratingFor } from "./ratings.js";
-import { linkedTo, seatsFor, unreachable } from "./seats.js";
+import { linkedTo, seatsFor, seatsUpdated, unreachable } from "./seats.js";
 import { openedOn } from "./trend.js";
 import { orderBy } from "./sort.js";
 import { faceFor, initials } from "./headshots.js";
@@ -239,7 +239,20 @@ export function renderSection(section, term, { showInstructor = false } = {}) {
       mark.title = `Full in the previous snapshot, open in the one from ${opened}.`;
       node.append(mark);
     }
-    seatCell.append(node);
+
+    // The count is a once-a-day snapshot, so every count carries its age. A
+    // sibling of .seats rather than a child, so the count reads on its own.
+    const age = seatAge(seatsUpdated(term));
+    if (age) {
+      const line = el("span", "seat-line");
+      const badge = el("span", "seat-age", age.label);
+      badge.dataset.stale = String(age.stale);
+      badge.title = `Seat count from Barrett's snapshot of ${age.date}. Seats can change during the day.`;
+      line.append(node, badge);
+      seatCell.append(line);
+    } else {
+      seatCell.append(node);
+    }
   }
 
   // A lab with seats left is not open if the lecture it enrolls you into is
