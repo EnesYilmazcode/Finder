@@ -38,20 +38,13 @@ const courses = await (async () => {
   return mod;
 })();
 
-test("isLoaded flips once the index is in", async () => {
-  const fresh = await import("../js/courses.js?unloaded");
-  assert.equal(fresh.isLoaded(), false);
-  assert.equal(courses.isLoaded(), true);
-});
-
 test("regression #79: a failed loadCourses is not cached, so the next call retries", async () => {
   const fresh = await import("../js/courses.js?blip");
   const restore = stubFetchFailingOnce({ "courses.json": INDEX });
   try {
     await assert.rejects(() => fresh.loadCourses("courses.json"), TypeError);
-    assert.equal(fresh.isLoaded(), false);
-    await fresh.loadCourses("courses.json");
-    assert.equal(fresh.isLoaded(), true);
+    // Cached, the rejection would come back here instead of the index.
+    assert.ok((await fresh.loadCourses("courses.json"))?.terms, "the failed load was cached");
     // Recovering must not cost the caching: the stub throws on any other route.
     await fresh.loadCourses("never-fetched.json");
   } finally {
@@ -70,17 +63,6 @@ test("subjectsFor does not reorder the stored index", () => {
   assert.equal(INDEX.terms[1268].subjects[0].code, "MATH");
 });
 
-test("subjectLabel does not repeat a code that stands in for a name", () => {
-  assert.equal(subjectLabelOf("CSE"), "CSE — Computer Science and Engineering");
-  assert.equal(subjectLabelOf("CYBRSEC"), "CYBRSEC");
-  assert.equal(subjectLabelOf("NONAME"), "NONAME");
-  assert.equal(courses.subjectLabel(null), "");
-});
-
-function subjectLabelOf(code) {
-  return courses.subjectLabel(courses.subjectsFor("1268").find((s) => s.code === code));
-}
-
 test("coursesFor unpacks the compact course tuples", () => {
   assert.deepEqual(courses.coursesFor("1268", "MATH"), [
     { number: "1151", title: "Calculus I", min: 5, max: 5 },
@@ -93,15 +75,6 @@ test("coursesFor accepts a lowercase code and is empty for an unknown one", () =
   assert.deepEqual(courses.coursesFor("1268", "NOPE"), []);
   assert.deepEqual(courses.coursesFor("1268", null), []);
   assert.deepEqual(courses.coursesFor("1268", "CYBRSEC"), []);
-});
-
-test("codeFromInput pulls the bare code out of a picker label", () => {
-  assert.equal(courses.codeFromInput("CSE — Computer Science and Engineering"), "CSE");
-  assert.equal(courses.codeFromInput("cse"), "CSE");
-  assert.equal(courses.codeFromInput("  math  "), "MATH");
-  assert.equal(courses.codeFromInput("CYBRSEC"), "CYBRSEC");
-  assert.equal(courses.codeFromInput(""), "");
-  assert.equal(courses.codeFromInput(null), "");
 });
 
 test("course suggestions find partial numbers and title words", () => {

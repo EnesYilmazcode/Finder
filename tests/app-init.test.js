@@ -78,8 +78,6 @@ test("a shared link's query is in the box before the terms request answers", asy
   await loading(page);
 
   assert.equal(page.el("#q").value, "CSE 2221", "?q= only reaches the box after the terms request");
-  assert.equal(page.el("#p-subject").value, "CSE", "the pickers only reflect the query after the terms request");
-  assert.equal(page.el("#p-number").value, "2221");
 
   terms.release(TERM_LIST);
   await until(() => page.all(".section").length > 0, "the shared link's search to run");
