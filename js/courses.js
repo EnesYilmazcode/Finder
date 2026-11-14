@@ -1,7 +1,8 @@
-// The course index, used by the subject and number pickers.
+// The course index, used by search suggestions and the schedule generator.
 //
-// Loaded lazily. It is 177 KB gzipped and is only needed once someone opens a
-// picker, so it stays out of the cold-load path where ratings and seats live.
+// Loaded lazily. It is 177 KB gzipped and is only needed once someone opens
+// search or the generator, so it stays out of the cold-load path where ratings
+// and seats live.
 
 let index = null;
 let loading = null;
@@ -24,27 +25,10 @@ export async function loadCourses(url = "data/courses.json") {
   return loading;
 }
 
-export function isLoaded() {
-  return Boolean(index);
-}
-
 /** Subjects offered in a term, sorted by code. */
 export function subjectsFor(term) {
   const subjects = index?.terms?.[String(term)]?.subjects ?? [];
   return [...subjects].sort((a, b) => a.code.localeCompare(b.code));
-}
-
-/**
- * Label for a subject.
- *
- * 15 subjects have no name upstream and fall back to their own code, so
- * "CYBRSEC" would otherwise render as "CYBRSEC CYBRSEC".
- */
-export function subjectLabel(subject) {
-  if (!subject) return "";
-  return subject.name && subject.name !== subject.code
-    ? `${subject.code} — ${subject.name}`
-    : subject.code;
 }
 
 /** Courses for one subject code, in catalog order. */
@@ -121,9 +105,4 @@ export function courseSuggestions(term, raw, limit = 8) {
     if (!unique.has(found.value.key)) unique.set(found.value.key, found.value);
   }
   return [...unique.values()].slice(0, Math.max(1, limit));
-}
-
-/** Pull a bare subject code out of whatever the picker input holds. */
-export function codeFromInput(text) {
-  return String(text ?? "").trim().split(/[\s—-]/)[0].toUpperCase();
 }

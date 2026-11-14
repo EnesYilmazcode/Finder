@@ -1,5 +1,5 @@
 import { fetchTerms, defaultTerm, searchAllPages, GEN_CATEGORIES, ApiError } from "./api.js";
-import { filterCourses, filterInstructorCourses, parseQuery } from "./rank.js";
+import { filterCourses, filterInstructorCourses } from "./rank.js";
 import { initCommandSearch } from "./command-search.js";
 import { renderResults } from "./render.js";
 import { loadRatings, loadRatingCourses, topRated, ratedCount, profileUrl, ratingFor, ratingsFailed } from "./ratings.js";
@@ -12,7 +12,7 @@ import { applyFilters, hiddenFor, isActive, parseBusy, formatBusy, DEFAULTS } fr
 import { busyLabel } from "./format.js";
 import { renderCalendar } from "./calendar.js";
 import { formatCoverage } from "./format.js";
-import { loadCourses, subjectsFor, subjectLabel, coursesFor, courseSuggestions, codeFromInput, isLoaded } from "./courses.js";
+import { loadCourses, courseSuggestions } from "./courses.js";
 import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } from "./deeplink.js";
 import { isSortKey, sortEntries, unknownSections } from "./sort.js";
 import {
@@ -42,12 +42,7 @@ const els = {
   busyHint: document.querySelector("#f-busy-hint"),
   sort: document.querySelector("#f-sort"),
   sortNote: document.querySelector("#f-sort-note"),
-  subject: document.querySelector("#p-subject"),
-  number: document.querySelector("#p-number"),
   gen: document.querySelector("#p-gen"),
-  subjectList: document.querySelector("#subject-list"),
-  numberList: document.querySelector("#number-list"),
-  hint: document.querySelector("#p-hint"),
   welcome: document.querySelector("#welcome"),
   wStats: document.querySelector("#w-stats"),
   wSub: document.querySelector("#w-sub"),
@@ -66,8 +61,8 @@ const els = {
 
 let terms = [];
 let termsError = "";
-// A search refused while the term list was still in flight, held whole. The
-// pickers are live in that window, so a bare query would replay unscoped.
+// A search refused while the term list was still in flight, held whole, since
+// the requirement picker is live in that window too.
 let queued = null;
 let latestRequest = 0;
 // Whether a search is on the wire. Between asking and answering the status line
@@ -85,12 +80,6 @@ let currentEntries = [];
 // box by then.
 let lastResult = null;
 let lastQuery = "";
-// The last search the subject dropdown produced, so switching term re-runs it
-// scoped rather than dropping back to the keyword search. Not read back off
-// the picker, because reflectQuery fills that same box from a typed query and
-// a typed subject is still a guess. The query rides along so an edited box
-// stops matching it.
-let pickedSearch = null;
 let view = "list";
 let schedule = loadSchedule();
 let scheduleNote = "";
@@ -311,92 +300,8 @@ function resetDetail() {
   );
 }
 
-/**
- * Fill the subject list. Called on first focus rather than at startup, since
- * the index is 177 KB gzipped and nobody needs it until they open a picker.
- */
-async function ensureCourses() {
-  if (isLoaded()) return true;
-  els.hint.textContent = "Loading the course list...";
-  try {
-    await loadCourses();
-  } catch {
-    els.hint.textContent = "Could not load the course list. The search box still works.";
-    return false;
-  }
-  fillSubjects();
-  els.hint.textContent = "Pick a subject to browse its courses. You can still type a course or a professor in the search box.";
-  return true;
-}
-
-function fillSubjects() {
-  const subjects = subjectsFor(els.term.value);
-  els.subjectList.replaceChildren(
-    ...subjects.map((subject) => {
-      const option = document.createElement("option");
-      option.value = subjectLabel(subject);
-      return option;
-    })
-  );
-}
-
-function fillNumbers() {
-  const code = codeFromInput(els.subject.value);
-  const courses = coursesFor(els.term.value, code);
-  els.number.disabled = !courses.length;
-  els.numberList.replaceChildren(
-    ...courses.map((course) => {
-      const option = document.createElement("option");
-      // The value is what lands in the field, so it stays a bare number the
-      // search can use. The title rides along as the visible hint.
-      option.value = course.number;
-      option.label = course.title;
-      option.textContent = course.title;
-      return option;
-    })
-  );
-  if (!courses.length) els.number.value = "";
-  return courses;
-}
-
-/**
- * Reflect a query back into the pickers.
- *
- * Deliberately does not touch the course index: a subject and number are
- * parseable from the query itself, so a shared link fills the rail without
- * pulling the 177 KB index that #36 made lazy. The dropdown options still
- * arrive on first focus.
- */
-function reflectQuery(q) {
-  const parsed = parseQuery(q);
-  // A query only maps onto the pickers when it names both. "Bucci" and bare
-  // "CSE" are searches, not course selections, and should leave them empty.
-  if (!parsed.subject || !parsed.number) {
-    els.subject.value = "";
-    els.number.value = "";
-    els.number.disabled = true;
-    return;
-  }
-  els.subject.value = parsed.subject;
-  els.number.value = parsed.number;
-  els.number.disabled = false;
-}
-
 function genCategory() {
   return els.gen.value || null;
-}
-
-/** A picked subject searches that subject, not the word. */
-function searchFromPickers() {
-  const code = codeFromInput(els.subject.value);
-  if (!code) return;
-  const number = els.number.value.trim();
-  const q = number ? `${code} ${number}` : code;
-  els.query.value = q;
-  pickedSearch = { q, subject: code };
-  syncUrl(q, els.term.value);
-  selectView("list");
-  runSearch(q, els.term.value, code);
 }
 
 function selectView(next) {
@@ -1069,17 +974,12 @@ function clearLastSearch() {
   resetDetail();
 }
 
-/**
- * Run the search the page already describes, again. Every trigger goes through
- * here: the query box saying "MATH" does not say whether that was typed or
- * picked, and only the memo knows.
- */
+/** Run the search the page already describes, again. */
 function rerunSearch() {
-  const q = els.query.value;
-  runSearch(q, els.term.value, pickedSearch?.q === q ? pickedSearch.subject : null);
+  runSearch(els.query.value, els.term.value);
 }
 
-async function runSearch(q, term, subject, gen = genCategory()) {
+async function runSearch(q, term, gen = genCategory()) {
   const selectedPerson = els.query.dataset.person === q.trim() ? q.trim() : "";
   // A new search replaces the results, and collapsed the detail pane is covering
   // them. The empty-query and error paths below never reach paint().
@@ -1089,7 +989,7 @@ async function runSearch(q, term, subject, gen = genCategory()) {
     // call for init to run rather than search without a term.
     if (termsError) setStatus(termsError, "error");
     else if (q.trim() || gen) {
-      queued = { q, subject, genCategory: gen };
+      queued = { q, genCategory: gen };
       setStatus("Still loading terms. Your search will run when they arrive.");
     }
     return;
@@ -1123,7 +1023,7 @@ async function runSearch(q, term, subject, gen = genCategory()) {
     // never redraw. Awaited alongside the search rather than before it, so the
     // cost is the slower of the two and only on the first search.
     const [{ courses, totalItems }] = await Promise.all([
-      searchAllPages({ q, term, subject, genCategory: gen }),
+      searchAllPages({ q, term, genCategory: gen }),
       loadRatings().catch(() => null),
       // Seats are per term since #48, so this term's snapshot has to be in hand
       // before the paint, or the first view after a switch shows none.
@@ -1440,36 +1340,13 @@ async function init() {
   const initialQuery = params.get("q") ?? "";
   els.query.value = initialQuery;
   if (params.get("person") === initialQuery) els.query.dataset.person = initialQuery;
-  if (initialQuery.trim()) reflectQuery(initialQuery);
   // A shared link names a section for the first paint of the search it arrived
   // with. Not gated on the query: a Fulfills browse is a search too.
   pendingClass = classFromParams(params);
 
-  // Also before the network: with no submit handler registered yet, Enter is a
-  // plain browser navigation that eats the query, which is what #80 measured.
-  for (const field of [els.subject, els.number]) {
-    field.addEventListener("focus", ensureCourses);
-  }
-
-  els.subject.addEventListener("input", async () => {
-    if (!(await ensureCourses())) return;
-    const courses = fillNumbers();
-    // Committing a whole subject is a useful search on its own, but only once
-    // the typed text actually names one.
-    if (!courses.length) return;
-    // A number left over from the subject before this one is not a course in
-    // this one. Kept, it blocked the search below and left the rail naming a
-    // course nobody had searched for.
-    if (!courses.some((c) => c.number === els.number.value.trim())) els.number.value = "";
-    searchFromPickers();
-  });
-
-  els.number.addEventListener("input", () => {
-    const code = codeFromInput(els.subject.value);
-    const wanted = els.number.value.trim();
-    if (coursesFor(els.term.value, code).some((c) => c.number === wanted)) searchFromPickers();
-  });
-
+  // Listeners go on before the network: with no submit handler registered yet,
+  // Enter is a plain browser navigation that eats the query, which is what #80
+  // measured.
   els.gen.addEventListener("change", () => {
     syncUrl(els.query.value, els.term.value);
     selectView("list");
@@ -1591,7 +1468,6 @@ async function init() {
     const person = els.query.dataset.person === q.trim() ? q.trim() : "";
     if (searching && inFlightSearch === `${q.trim()}|${els.term.value}|${person}`) return;
     replaceParam("person", els.query.dataset.person === q.trim() ? q.trim() : "");
-    reflectQuery(q);
     syncUrl(q, els.term.value);
     // A submitted search is a request to see its results. Keeping Schedule
     // selected completed the request invisibly until the student clicked List.
@@ -1600,7 +1476,6 @@ async function init() {
   });
 
   els.term.addEventListener("change", () => {
-    if (isLoaded()) { fillSubjects(); fillNumbers(); }
     syncUrl(els.query.value, els.term.value);
     // Re-run either way, and let runSearch own the snapshot wait. Repainting
     // only when the box had something in it left the previous term's rows on
@@ -1615,7 +1490,6 @@ async function init() {
     els.query.value = button.dataset.q;
     els.query.dataset.person = button.classList.contains("w-name") ? button.dataset.q : "";
     replaceParam("person", els.query.dataset.person);
-    reflectQuery(button.dataset.q);
     syncUrl(button.dataset.q, els.term.value);
     rerunSearch();
     focusResults();
@@ -1646,10 +1520,6 @@ async function init() {
   const wanted = params.get("term");
   els.term.value = terms.some((t) => t.code === wanted) ? wanted : defaultTerm(terms).code;
   els.term.disabled = false;
-  // A picker opened before this point filled itself from an empty term, and
-  // setting the value in code fires no change event to refill it.
-  if (isLoaded()) { fillSubjects(); fillNumbers(); }
-
   // A shared schedule contains only opaque class numbers. Resolve those
   // against the live course service before drawing it; ratings and today's
   // seat snapshot land alongside that work and never hold it up serially.
@@ -1687,7 +1557,7 @@ async function init() {
     // Its URL was written before there was a term to write, so the link it left
     // in the address bar names none and reopens on whichever term is default.
     if (queued) replaceParam("term", els.term.value);
-    runSearch(pending.q, els.term.value, pending.subject, pending.genCategory);
+    runSearch(pending.q, els.term.value, pending.genCategory);
   } else {
     // Ratings and the seats index are already in flight; fill the landing screen
     // once they land rather than showing an empty frame. The term's own seats

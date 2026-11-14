@@ -65,32 +65,6 @@ test("regression #66: picking a requirement browses it upstream", async (t) => {
   assert.match(page.location.search, /gen=GEN\+Theme/);
 });
 
-// The blocker this branch and #76 were held apart for: both add a parameter to
-// the same four lines of searchAllPages, and destructuring drops whichever one
-// the resolution left out, with no error and a green suite. An empty q with no
-// gen-categories returns the whole term's catalogue as "the courses that fulfil
-// this requirement"; a picked MATH with no subject returns LATIN and ASTRON.
-test("a requirement and a picked subject reach the API together", async (t) => {
-  const asked = rig(t);
-  const page = await mountApp();
-  await ready(page);
-
-  fire(page.el("#p-subject"), "focus");
-  await settle(4); // the course index is lazy, so the first focus fetches it
-  page.el("#p-subject").value = "MATH";
-  fire(page.el("#p-subject"), "input");
-  await until(() => asked.length > 0, "the subject browse");
-  assert.equal(last(asked).searchParams.get("subject"), "math");
-
-  await pickGen(page);
-  await until(() => asked.length > 1, "the requirement to re-run the browse");
-
-  const url = last(asked);
-  assert.equal(url.searchParams.get("gen-categories"), SUSTAINABILITY);
-  assert.equal(url.searchParams.get("subject"), "math", "the re-run dropped back to a keyword search");
-  assert.equal(url.searchParams.get("q"), "", "MATH went back to being matched as text");
-});
-
 // #80 hoisted the listeners above the term request, so the picker is live in a
 // window where there is no term to search. An empty query fails the queue's
 // q.trim() guard, so without the requirement in that test the picker looks

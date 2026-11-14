@@ -50,19 +50,6 @@
     <aside class="rail" id="rail" aria-label="Filters">
       <div class="filter-heading"><h2>Filters</h2><button id="filter-close" class="icon-button" type="button" aria-label="Close filters">×</button></div>
       <form id="picker" class="picker">
-        <div hidden>
-        <label class="f-label" for="p-subject">Subject</label>
-        <input class="f-ctl" id="p-subject" list="subject-list" autocomplete="off"
-               placeholder="CSE, or computer" aria-describedby="p-hint">
-        <datalist id="subject-list"></datalist>
-
-        <label class="f-label" for="p-number">Course number</label>
-        <input class="f-ctl" id="p-number" list="number-list" autocomplete="off"
-               placeholder="2331, or foundations" disabled>
-        <datalist id="number-list"></datalist>
-        <p class="f-hint" id="p-hint">Pick a subject to browse its courses. You can still type a course or a professor in the search box.</p>
-        </div>
-
         <label class="f-label" for="p-gen">Fulfills</label>
         <select class="f-ctl" id="p-gen" aria-describedby="p-gen-hint">
           <option value="">Any requirement</option>

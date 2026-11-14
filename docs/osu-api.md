@@ -326,7 +326,7 @@ everywhere, which is the difference the test keys on.
 
 ## Enumerating the catalog
 
-Everything above describes searching. Building the subject and number pickers
+Everything above describes searching. Building course suggestions
 needs the opposite, a complete list of what exists, and that is a different
 problem. `scripts/fetch-courses.mjs` solves it and writes `data/courses.json`.
 
