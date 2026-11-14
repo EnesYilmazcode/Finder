@@ -130,7 +130,7 @@ js/
   detail.js           right pane
   filters.js          client-side filtering
   sort.js             ordering by rating, difficulty, seats or start time
-  deeplink.js         the section a link points at
+  deeplink.js         the page state a link carries, and its section
   ratings.js          RMP snapshot and name matching
   grades.js           historical grades, full-name matching and subject archives
   headshots.js        which instructors have a photo, and the initials fallback
@@ -154,8 +154,8 @@ stats/                the page that reads the counter
 
 - Seats are a morning snapshot, so a section can fill before you search.
 - Barrett covers fewer sections than the API, so some rows never show seats.
-- Back closes the section pane and puts back the filters it opened with, but
-  it does not undo a search.
+- Back steps through searches and closes the section pane. Filter changes
+  and the saved plan update the current entry rather than adding one.
 - A shared schedule refreshes each section separately, so a long schedule makes
   several requests to Ohio State when it opens.
 - Changing a filter clears whichever section you had selected.

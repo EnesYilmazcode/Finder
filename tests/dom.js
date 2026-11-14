@@ -454,13 +454,22 @@ class FakeWindow extends Listeners {
 
 function makeHistory(location, window) {
   const previous = [];
+  // Entries Back left, newest last. A push drops them, as a browser does.
+  const ahead = [];
   return {
-    get length() { return previous.length + 1; },
-    pushState(_state, _title, next) { previous.push(location.href); location.assign(next); },
+    get length() { return previous.length + 1 + ahead.length; },
+    pushState(_state, _title, next) { previous.push(location.href); ahead.length = 0; location.assign(next); },
     replaceState(_state, _title, next) { location.assign(next); },
     back() {
       if (!previous.length) return;
+      ahead.push(location.href);
       location.href = previous.pop();
+      window.dispatchEvent(new FakeEvent("popstate"));
+    },
+    forward() {
+      if (!ahead.length) return;
+      previous.push(location.href);
+      location.href = ahead.pop();
       window.dispatchEvent(new FakeEvent("popstate"));
     },
   };

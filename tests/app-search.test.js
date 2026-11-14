@@ -21,10 +21,11 @@ const COURSES = [
 // routes are patterns rather than exact URLs. One of them has to be able to
 // fail on demand, which is what the function route is for.
 function serve() {
-  const state = { searchFails: false, lostPage: false };
+  const state = { searchFails: false, lostPage: false, asked: [] };
   const restore = stubFetch([
     [/searchableTermsV2/, { data: { data: [{ strm: "1268", descr: "Autumn 2026" }] } }],
     [/\/classes\/search/, (url) => {
+      state.asked.push(new URL(url).searchParams.get("q"));
       if (state.searchFails) return { ok: false, status: 503, json: async () => ({}) };
       // A second page that 503s while the first answers, the way a rate limit
       // lands partway through a multi-page pull.
@@ -136,4 +137,79 @@ test("a result page Ohio State drops is named and offered back, not blamed on th
   await until(() => !searching() && !/did not return/.test(page.el("#status").textContent), "the retried search");
   assert.equal(page.el(".retry-note"), null, "the retry offer outlived the pages coming back");
   assert.ok(page.all("#results .section").length > 0, "the retried search left nothing on screen");
+});
+
+// Every search used to replace the one history entry, so Back left the site
+// after a few searches. A search now gets its own entry, and Back runs the one
+// before it again.
+test("Back returns to the search before, and runs it again", async (t) => {
+  const { page, searching, search, state } = await start(t);
+  search("CSE 2221");
+  await until(() => !searching() && page.all("#results .section").length > 0, "the first search");
+  const entries = page.history.length;
+
+  search("Bucci");
+  await until(() => !searching() && /q=Bucci/.test(page.location.search), "the second search");
+  assert.equal(page.history.length, entries + 1, "the second search took no history entry of its own");
+
+  const asked = state.asked.length;
+  page.history.back();
+  await until(() => !searching() && page.el("#q").value === "CSE 2221", "Back to restore the first query");
+  await until(() => state.asked.length > asked, "the first search to run again");
+  assert.match(page.location.search, /q=CSE\+2221/);
+  assert.equal(state.asked.at(-1), "2221", "Back ran some other search");
+});
+
+test("running the same search again takes no new history entry", async (t) => {
+  const { page, searching, search } = await start(t);
+  search("CSE 2221");
+  await until(() => !searching() && page.all("#results .section").length > 0, "the first search");
+  const entries = page.history.length;
+
+  search("CSE 2221");
+  await until(() => !searching(), "the repeat");
+  assert.equal(page.history.length, entries);
+});
+
+test("a filter changes the entry it belongs to rather than adding one", async (t) => {
+  const { page, searching, search, state } = await start(t);
+  search("CSE 2221");
+  await until(() => !searching() && page.all("#results .section").length > 0, "the search");
+  const entries = page.history.length;
+  const asked = state.asked.length;
+
+  page.el("#filters").hideFull.checked = true;
+  fire(page.el("#filters"), "change");
+  assert.equal(page.history.length, entries, "a filter click became a place to go Back to");
+  assert.match(page.location.search, /hideFull=1/);
+  assert.equal(state.asked.length, asked, "a filter click fetched again");
+});
+
+test("Back from an open section closes it without searching again", async (t) => {
+  const { page, searching, search, state } = await start(t);
+  search("CSE 2221");
+  await until(() => !searching() && page.all("#results .section").length > 0, "the search");
+  const asked = state.asked.length;
+
+  page.el('#results .section[data-class-number="9001"]').click();
+  assert.match(page.location.search, /class=9001/);
+  page.history.back();
+  assert.doesNotMatch(page.location.search, /class=/);
+  assert.equal(page.el("#results .is-selected"), null);
+  assert.equal(state.asked.length, asked, "closing the pane ran the search again");
+});
+
+// The landing screen is an entry too. Back to it and Forward again has to run
+// the search, not repaint a result the landing screen already cleared.
+test("Forward from the landing screen runs the search it left", async (t) => {
+  const { page, searching, search } = await start(t);
+  search("CSE 2221");
+  await until(() => !searching() && page.all("#results .section").length > 0, "the search");
+
+  page.history.back();
+  await until(() => page.el("#q").value === "" && !page.el("#welcome").hidden, "Back to the landing screen");
+  page.history.forward();
+  await until(() => !searching() && page.el("#q").value === "CSE 2221" && page.all("#results .section").length > 0,
+    "Forward to run the search again");
+  assert.equal(page.el("#welcome").hidden, true);
 });
