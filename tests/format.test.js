@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { attributesOf, attributeLabel, buildingOf, busyLabel, courseBadges, dayCodes, distinctMeetings, formatDays, formatTime, formatWhen, formatPlace, formatUnits, formatCoverage, instructorsOf, isOnlineMeeting, sectionBadges, sectionFlags, trendLabel } from "../js/format.js";
+import { attributesOf, attributeLabel, buildingOf, busyLabel, courseBadges, dayCodes, distinctMeetings, formatDays, formatTime, formatWhen, formatPlace, formatUnits, formatCoverage, formatLostPages, instructorsOf, isOnlineMeeting, sectionBadges, sectionFlags, trendLabel } from "../js/format.js";
 import { attr, entry, meeting, onlineMeeting, person, section, taught } from "./fixtures.js";
 
 const DASH = "\u2013";
@@ -135,6 +135,29 @@ test("formatCoverage speaks up for a lost page, not just a truncated search", ()
     formatCoverage(result(600, 0, 800)),
     "This search read 600 of about 800 matching sections. Narrow the search to see the rest."
   );
+});
+
+// Narrowing cannot bring back a page Ohio State failed to send, so the advice
+// goes and formatLostPages names the real cause.
+test("formatCoverage drops the narrowing advice when a page failed", () => {
+  assert.equal(
+    formatCoverage({ ...result(600, 0, 800), pagesFailed: 1, pagesFetched: 4 }),
+    "This search read 600 of about 800 matching sections."
+  );
+});
+
+test("formatLostPages names the pages Ohio State did not return", () => {
+  assert.equal(
+    formatLostPages({ pagesFailed: 1, pagesFetched: 3 }),
+    "Ohio State did not return 1 of 3 result pages, so some sections may be missing."
+  );
+  assert.equal(
+    formatLostPages({ pagesFailed: 1 }),
+    "Ohio State did not return 1 result page, so some sections may be missing."
+  );
+  assert.equal(formatLostPages({ pagesFailed: 0, pagesFetched: 3 }), "");
+  assert.equal(formatLostPages({}), "");
+  assert.equal(formatLostPages(), "");
 });
 
 // docs/osu-api.md: totalItems stops at 10000 on a broad query, so it is a floor

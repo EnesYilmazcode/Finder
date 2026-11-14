@@ -76,8 +76,10 @@ export function formatUnits(course) {
 /**
  * Owns up to a search that only read part of what matched. Gating on the counts
  * rather than on `sorted` also catches a page that failed and got swallowed.
+ * Narrowing is only advice for a search that ran past the page budget: when a
+ * page failed, the shortfall is Ohio State's, and formatLostPages says so.
  */
-export function formatCoverage({ primary, related, totalItems }) {
+export function formatCoverage({ primary, related, totalItems, pagesFailed = 0 }) {
   // A caller that never set the count cannot be reported on, and one is coming:
   // js/app.js writes lastResult from more than one place.
   if (!Number.isFinite(totalItems)) return "";
@@ -85,7 +87,15 @@ export function formatCoverage({ primary, related, totalItems }) {
   if (read >= totalItems) return "";
   // At the cap totalItems stopped counting, so "more than" is the only honest word for it.
   const size = totalItems >= RESULT_CAP ? `more than ${RESULT_CAP.toLocaleString()}` : `about ${totalItems.toLocaleString()}`;
-  return `This search read ${read.toLocaleString()} of ${size} matching sections. Narrow the search to see the rest.`;
+  const advice = pagesFailed > 0 ? "" : " Narrow the search to see the rest.";
+  return `This search read ${read.toLocaleString()} of ${size} matching sections.${advice}`;
+}
+
+/** Names the result pages Ohio State did not return. Empty when none failed. */
+export function formatLostPages({ pagesFailed = 0, pagesFetched = 0 } = {}) {
+  if (!(pagesFailed > 0)) return "";
+  const of = pagesFetched > 0 ? ` of ${pagesFetched}` : "";
+  return `Ohio State did not return ${pagesFailed}${of} result page${pagesFailed === 1 && !of ? "" : "s"}, so some sections may be missing.`;
 }
 
 /**

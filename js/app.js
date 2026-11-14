@@ -11,7 +11,7 @@ import { loadHeadshots } from "./headshots.js";
 import { applyFilters, hiddenFor, isActive, parseBusy, formatBusy, DEFAULTS } from "./filters.js";
 import { busyLabel } from "./format.js";
 import { renderCalendar } from "./calendar.js";
-import { formatCoverage } from "./format.js";
+import { formatCoverage, formatLostPages } from "./format.js";
 import { loadCourses, courseSuggestions } from "./courses.js";
 import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } from "./deeplink.js";
 import { isSortKey, sortEntries, unknownSections } from "./sort.js";
@@ -1022,7 +1022,7 @@ async function runSearch(q, term, gen = genCategory()) {
     // Ratings must be in hand before rendering, or instructors draw unrated and
     // never redraw. Awaited alongside the search rather than before it, so the
     // cost is the slower of the two and only on the first search.
-    const [{ courses, totalItems }] = await Promise.all([
+    const [{ courses, totalItems, pagesFetched, pagesFailed }] = await Promise.all([
       searchAllPages({ q, term, genCategory: gen }),
       loadRatings().catch(() => null),
       // Seats are per term since #48, so this term's snapshot has to be in hand
@@ -1039,7 +1039,7 @@ async function runSearch(q, term, gen = genCategory()) {
     const subjects = [...new Set(filtered.primary.map((entry) => entry.course.subject))].slice(0, 4);
     await Promise.allSettled(subjects.map((subject) => loadGradeCourse({ subject })));
     if (requestId !== latestRequest) return;
-    lastResult = { ...filtered, totalItems, term, instructor: selectedPerson };
+    lastResult = { ...filtered, totalItems, pagesFetched, pagesFailed, term, instructor: selectedPerson };
     lastQuery = q.trim();
     paint(term);
   } catch (error) {
@@ -1224,9 +1224,19 @@ function paint(term = els.term.value) {
     );
   }
 
-  // A dead snapshot and a link that missed both describe the page rather than
-  // what the search found, so they trail the counts.
-  const notes = [outageNote(term), missed].filter(Boolean).join(" ");
+  // A page Ohio State dropped is a fault in the answer, not the query, so it is
+  // offered back as a retry rather than as advice to narrow the search.
+  const lostPages = formatLostPages(lastResult);
+  if (lostPages) {
+    hiddenNote("Some result pages did not load.", {
+      label: "Try again",
+      act: () => { rerunSearch(); focusResults(); },
+    }, "retry-note");
+  }
+
+  // A lost page, a dead snapshot and a link that missed all describe the page
+  // rather than what the search found, so they trail the counts.
+  const notes = [lostPages, outageNote(term), missed].filter(Boolean).join(" ");
   const withNotes = (line) => (notes ? `${line} ${notes}` : line);
 
   if (!primary.length) {
