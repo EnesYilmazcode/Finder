@@ -163,6 +163,7 @@ test("searchAllPages merges the pages it fetched", async () => {
   }));
   const result = await searchAllPages({ q: "Smith", term: "1268" });
   assert.equal(result.pagesFetched, 3);
+  assert.equal(result.pagesFailed, 0);
   assert.equal(result.courses.length, 3);
   assert.deepEqual(calls.map((u) => u.searchParams.get("p")).sort(), ["1", "2", "3"]);
 });
@@ -221,6 +222,7 @@ test("one failing page does not sink the whole search", async () => {
   const result = await searchAllPages({ q: "Smith", term: "1268" });
   assert.equal(result.courses.length, 1);
   assert.equal(result.pagesFetched, 2);
+  assert.equal(result.pagesFailed, 1, "a swallowed page has to be counted, or the page blames the query");
 });
 
 test("a GE requirement rides along as gen-categories, spelled exactly", async () => {

@@ -228,12 +228,16 @@ export async function searchAllPages({ q, term, maxPages = 5, genCategory }) {
         searchClasses({ ...params, term, sort: SORT, page: i + 2 })
       );
 
-  const rest = await Promise.all(pending.map((r) => r.catch(() => ({ courses: [] }))));
+  // A page that fails does not sink the pages that arrived, but it is counted,
+  // so the caller can say sections are missing rather than blame the query.
+  const settled = await Promise.allSettled(pending);
+  const rest = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
 
   return {
     ...first,
     courses: [...first.courses, ...rest.flatMap((r) => r.courses)],
     pagesFetched: 1 + pending.length,
+    pagesFailed: settled.length - rest.length,
     sorted: !truncated,
     subject: params.subject ?? null,
   };

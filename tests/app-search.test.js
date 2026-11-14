@@ -21,12 +21,17 @@ const COURSES = [
 // routes are patterns rather than exact URLs. One of them has to be able to
 // fail on demand, which is what the function route is for.
 function serve() {
-  const state = { searchFails: false };
+  const state = { searchFails: false, lostPage: false };
   const restore = stubFetch([
     [/searchableTermsV2/, { data: { data: [{ strm: "1268", descr: "Autumn 2026" }] } }],
-    [/\/classes\/search/, () => (state.searchFails
-      ? { ok: false, status: 503, json: async () => ({}) }
-      : { data: { totalItems: 1, totalPages: 1, courses: COURSES } })],
+    [/\/classes\/search/, (url) => {
+      if (state.searchFails) return { ok: false, status: 503, json: async () => ({}) };
+      // A second page that 503s while the first answers, the way a rate limit
+      // lands partway through a multi-page pull.
+      if (!state.lostPage) return { data: { totalItems: 1, totalPages: 1, courses: COURSES } };
+      if (new URL(url).searchParams.get("p") === "2") return { ok: false, status: 503, json: async () => ({}) };
+      return { data: { totalItems: 3, totalPages: 2, courses: COURSES } };
+    }],
     ["data/ratings.json", RATINGS],
     ["data/ratings-courses.json", RATING_COURSES],
     ["data/headshots.json", HEADSHOTS],
@@ -112,4 +117,23 @@ test("regression #81: a failed search clears the detail pane", async (t) => {
   search("MATH 1151");
   await until(() => page.el("#status").dataset.kind === "error", "the error status");
   assert.match(page.el("#detail-body").textContent, /Pick a section/);
+});
+
+test("a result page Ohio State drops is named and offered back, not blamed on the query", async (t) => {
+  const { page, state, searching, search } = await start(t);
+  state.lostPage = true;
+  search("CSE 2221");
+  await until(() => !searching() && /did not return/.test(page.el("#status").textContent), "the lost page note");
+
+  const status = page.el("#status").textContent;
+  assert.match(status, /Ohio State did not return 1 of 2 result pages/);
+  assert.doesNotMatch(status, /Narrow the search/, "narrowing cannot bring back a page that failed");
+  const retry = page.el(".retry-note button");
+  assert.equal(retry?.textContent, "Try again");
+
+  state.lostPage = false;
+  retry.click();
+  await until(() => !searching() && !/did not return/.test(page.el("#status").textContent), "the retried search");
+  assert.equal(page.el(".retry-note"), null, "the retry offer outlived the pages coming back");
+  assert.ok(page.all("#results .section").length > 0, "the retried search left nothing on screen");
 });
