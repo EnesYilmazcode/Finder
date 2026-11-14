@@ -172,10 +172,7 @@ test("removing a section while the schedule refreshes keeps it removed", async (
   await settle();
   assert.equal(page.el(".plan-item"), null, "the refresh drew the removed section back");
   assert.equal(page.el("#schedule-count").textContent, "0");
-  // By saved section rather than raw text: apps mounted by earlier tests share
-  // this global storage, and one of them can land its own lecture here.
-  const saved = JSON.parse(globalThis.localStorage.getItem("finder.schedule.v1") ?? "{}").items ?? [];
-  assert.ok(!saved.some((item) => String(item.section.classNumber) === "1011"),
+  assert.doesNotMatch(globalThis.localStorage.getItem("finder.schedule.v1") ?? "", /1011/,
     "the refresh saved the removed section again");
 });
 

@@ -85,6 +85,41 @@ test("a second mount starts js/ from cold rather than from the first mount's cac
   restore();
 });
 
+// An app still waiting on the network when its test ends used to wake on the
+// next test's fetch stub and write into that test's storage and URL. A later
+// mount now leaves an earlier one talking to nothing.
+test("an app a later mount superseded never reaches the later mount's stubs", async () => {
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const json = (body) => ({ ok: true, status: 200, json: async () => body });
+  const first = (url) => {
+    if (url.includes("searchableTermsV2")) return json(TERMS);
+    if (url.includes("/classes/search")) return { ok: true, status: 200, json: () => held.then(() => ({ data: { totalItems: 2, totalPages: 1, courses: COURSES } })) };
+    if (url.endsWith("data/ratings.json")) return json(RATINGS);
+    if (url.endsWith("data/seats.json")) return json(SEATS_INDEX);
+    if (url.endsWith(`data/seats-${TERM}.json`)) return json(SEATS_TERMS[TERM]);
+    return { ok: false, status: 404, json: async () => null };
+  };
+  let restore = stubFetch(first);
+  const stale = await mountApp({ query: "CSE 2221", term: TERM });
+  await until(() => stale.el("#status").textContent === "Searching...", "the first mount's search to be held");
+  restore();
+
+  const seen = [];
+  restore = stubFetch((url) => { seen.push(url); return first(url); });
+  const live = await mountApp({ term: TERM });
+  await until(() => live.el("#term").options.length > 0, "the second mount to load its terms");
+  await settle();
+  const before = seen.length;
+  const liveUrl = live.location.href;
+
+  release();
+  await settle();
+  assert.deepEqual(seen.slice(before), [], "the superseded app fetched through the live mount's stub");
+  assert.equal(live.location.href, liveUrl, "the superseded app rewrote the live mount's URL");
+  restore();
+});
+
 test("the parser picks the controls up from index.html rather than a list", async () => {
   const page = setupDom();
   assert.equal(page.all("#f-days .f-day").length, 5);
