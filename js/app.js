@@ -13,7 +13,9 @@ import { busyLabel } from "./format.js";
 import { renderCalendar } from "./calendar.js";
 import { formatCoverage, formatLostPages } from "./format.js";
 import { loadCourses, courseSuggestions } from "./courses.js";
-import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } from "./deeplink.js";
+import {
+  FLAG_KEYS, classFromParams, decodeUrl, encodeUrl, hasSection, missOutcome, sameSearch, searchKey,
+} from "./deeplink.js";
 import { isSortKey, sortEntries, unknownSections } from "./sort.js";
 import {
   addScheduleItem, formatPlan, isScheduled, loadSchedule, parsePlan, removeScheduleItem,
@@ -69,6 +71,9 @@ let latestRequest = 0;
 // is that search's, so a repaint underneath it must not write over the line.
 let searching = false;
 let inFlightSearch = "";
+// The searchKey of the search last run, so Back can tell an entry for another
+// search, which has to run again, from one for this search, which only repaints.
+let shownSearch = "";
 
 // Class number to its section and course, rebuilt on every render. The detail
 // pane needs the real objects, not text scraped back out of the DOM.
@@ -351,11 +356,9 @@ function scheduleItem(found, term, entries = currentEntries, old = null) {
 }
 
 function planUrl() {
-  const url = new URL(location.href);
-  const plan = formatPlan(scheduleIds(schedule, els.term.value));
-  if (plan) url.searchParams.set("plan", plan); else url.searchParams.delete("plan");
-  url.searchParams.delete("class");
-  return url;
+  return encodeUrl({
+    ...urlState(), plan: formatPlan(scheduleIds(schedule, els.term.value)), classNumber: "",
+  }, location.href);
 }
 
 function storeSchedule() {
@@ -781,7 +784,7 @@ function paintGenerator(term = els.term.value) {
 }
 
 function sectionLink(classNumber) {
-  return setClassParam(new URL(location.href), classNumber).href;
+  return encodeUrl({ ...urlState(), classNumber: String(classNumber) }, location.href).href;
 }
 
 function deselectRows() {
@@ -862,7 +865,7 @@ function closeDetail() {
   resetDetail();
   // The pane is shut, so the link stops naming a section. The row keeps its
   // selection because focus is about to go back to it.
-  history.replaceState(null, "", setClassParam(new URL(location.href), ""));
+  writeUrl({ ...urlState(), classNumber: "" });
   // Back to the row that opened the pane where possible, so a keyboard user
   // resumes where they left off instead of at the top of the results.
   const selected = els.results.querySelector(".is-selected");
@@ -893,49 +896,70 @@ function setBusy(busy) {
   els.results.setAttribute("aria-busy", String(busy));
 }
 
-/**
- * Rewrite one parameter and leave the rest of the URL alone.
- *
- * Not syncUrl, which also rewrites the filters and drops the section a link
- * arrived with, both of which its own callers have just changed anyway.
- */
-function replaceParam(key, value) {
-  const url = new URL(location.href);
-  if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
-  history.replaceState(null, "", url);
+/** The state the address bar describes right now. */
+function urlState() {
+  return decodeUrl(location.search);
 }
 
-function syncUrl(q, term) {
-  const url = new URL(location.href);
-  if (els.query.dataset.person !== q.trim()) url.searchParams.delete("person");
+/**
+ * Put a state in the address bar. Every URL write goes through here.
+ *
+ * With `push`, a state naming a different search than the one in the address
+ * bar gets its own history entry, so Back returns to the search before it.
+ * Anything else, a filter, the plan, the open section, replaces the entry it
+ * belongs to: those are views of one search, not places to go Back to.
+ */
+function writeUrl(next, { push = false } = {}) {
+  const url = encodeUrl(next, location.href);
+  if (push && searchKey(next) !== searchKey(urlState())) history.pushState(null, "", url);
+  else history.replaceState(null, "", url);
+}
+
+/**
+ * The state the page is showing, read off its controls. The term falls back to
+ * the address bar's while the term list is still loading, so an early filter
+ * click does not drop the term a shared link named.
+ */
+function pageState(q = els.query.value, term = els.term.value) {
+  const f = readFilters();
+  const flags = Object.fromEntries(FLAG_KEYS.map((key) => [key, Boolean(f[key])]));
+  return {
+    q,
+    person: q.trim() && els.query.dataset.person === q.trim() ? q.trim() : "",
+    term: term || urlState().term,
+    plan: formatPlan(scheduleIds(schedule, term)),
+    gen: genCategory() ?? "",
+    // Filters live in the URL so a filtered view can be shared or reloaded.
+    filters: {
+      days: f.days, avoid: f.avoid, busy: f.busy.map(formatBusy),
+      from: f.from, to: f.to, rating: f.rating, sort: sortKey(), ...flags,
+    },
+    // Every caller has just changed the result set, and the repaint that
+    // follows clears the pane, so whichever section was named is gone.
+    classNumber: "",
+  };
+}
+
+/** Write the page's state to the URL. `push` when this starts a new search. */
+function syncUrl(q, term, { push = false } = {}) {
   // A link's section belongs to the search it arrived with, so retrying that
   // search after a 429 keeps it and searching for anything else drops it.
-  if (!sameSearch(url, q, term)) pendingClass = "";
-  if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
-  if (term) url.searchParams.set("term", term);
-  const plan = formatPlan(scheduleIds(schedule, term));
-  if (plan) url.searchParams.set("plan", plan); else url.searchParams.delete("plan");
-  const gen = genCategory();
-  if (gen) url.searchParams.set("gen", gen); else url.searchParams.delete("gen");
+  if (!sameSearch(new URL(location.href), q, term)) pendingClass = "";
+  writeUrl(pageState(q, term), { push });
+}
 
-  // Filters live in the URL so a filtered view can be shared or reloaded.
-  const f = readFilters();
-  url.searchParams.delete("day");
-  url.searchParams.delete("noday");
-  for (const day of f.days) url.searchParams.append("day", day);
-  for (const day of f.avoid) url.searchParams.append("noday", day);
-  url.searchParams.delete("busy");
-  for (const block of f.busy) url.searchParams.append("busy", formatBusy(block));
-  for (const [key, value] of [["from", f.from], ["to", f.to], ["rating", f.rating], ["sort", sortKey()]]) {
-    if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
-  }
-  for (const key of ["hideFull", "hideOnline", "ratedOnly", "hideConsent", "undergradOnly"]) {
-    if (f[key]) url.searchParams.set(key, "1"); else url.searchParams.delete(key);
-  }
-  // Every caller of this has just changed the result set, and the repaint that
-  // follows clears the pane, so whichever section was named is gone.
-  setClassParam(url, "");
-  history.replaceState(null, "", url);
+/**
+ * Go back to a search from history. The entry's filters and section were put
+ * back by the popstate handler; this restores the controls the search reads
+ * and runs it, without writing the URL, which already says what it should.
+ */
+function restoreSearch(state) {
+  els.query.value = state.q;
+  els.query.dataset.person = state.person && state.person === state.q.trim() ? state.person : "";
+  if ([...els.term.options].some((option) => option.value === state.term)) els.term.value = state.term;
+  els.gen.value = GEN_CATEGORIES.includes(state.gen) ? state.gen : "";
+  selectView("list");
+  runSearch(state.q, els.term.value);
 }
 
 /**
@@ -1019,6 +1043,9 @@ async function runSearch(q, term, gen = genCategory()) {
     }
     return;
   }
+  // Before either branch: the landing screen is a place Back and Forward
+  // return to as well, and has to be told apart from the search it replaced.
+  shownSearch = searchKey({ q, person: selectedPerson, term, gen: gen ?? "" });
   // A requirement on its own is a search.
   if (!q.trim() && !gen) {
     // Supersede any search still in flight: it was started for whichever term
@@ -1140,7 +1167,8 @@ function markSources(term) {
     els.sort.value = "";
     // A link is the shared copy of what the page is applying, so an order that
     // was just switched off cannot stay in one.
-    replaceParam("sort", "");
+    const state = urlState();
+    writeUrl({ ...state, filters: { ...state.filters, sort: "" } });
   }
 }
 
@@ -1367,9 +1395,7 @@ async function init() {
   if (GEN_CATEGORIES.includes(gen)) els.gen.value = gen;
   else if (gen) {
     staleGen = gen;
-    const url = new URL(location.href);
-    url.searchParams.delete("gen");
-    history.replaceState(null, "", url);
+    writeUrl({ ...urlState(), gen: "" });
   }
 
   const initialQuery = params.get("q") ?? "";
@@ -1383,7 +1409,7 @@ async function init() {
   // Enter is a plain browser navigation that eats the query, which is what #80
   // measured.
   els.gen.addEventListener("change", () => {
-    syncUrl(els.query.value, els.term.value);
+    syncUrl(els.query.value, els.term.value, { push: true });
     selectView("list");
     rerunSearch();
   });
@@ -1487,14 +1513,20 @@ async function init() {
 
   // An entry is the whole URL, so the filters it was written with come back
   // with the section rather than leaving the address bar describing a page that
-  // is no longer on screen. The query and the term are not: nothing pushes a
-  // search.
+  // is no longer on screen. An entry for another search runs that search again;
+  // one for the search on screen, such as the one Back reaches by closing the
+  // section pane, only repaints.
   window.addEventListener("popstate", () => {
     const params = new URLSearchParams(location.search);
+    const state = urlState();
     writeFilters(params);
     clearSelection();
     pendingClass = classFromParams(params);
-    paint();
+    // An entry written before the term list arrived names no term, and means
+    // the one the page picked.
+    const wanted = { ...state, term: state.term || els.term.value };
+    if (searchKey(wanted) !== shownSearch) restoreSearch(wanted);
+    else paint();
   });
 
   els.form.addEventListener("submit", (event) => {
@@ -1502,8 +1534,7 @@ async function init() {
     const q = els.query.value;
     const person = els.query.dataset.person === q.trim() ? q.trim() : "";
     if (searching && inFlightSearch === `${q.trim()}|${els.term.value}|${person}`) return;
-    replaceParam("person", els.query.dataset.person === q.trim() ? q.trim() : "");
-    syncUrl(q, els.term.value);
+    syncUrl(q, els.term.value, { push: true });
     // A submitted search is a request to see its results. Keeping Schedule
     // selected completed the request invisibly until the student clicked List.
     selectView("list");
@@ -1511,7 +1542,7 @@ async function init() {
   });
 
   els.term.addEventListener("change", () => {
-    syncUrl(els.query.value, els.term.value);
+    syncUrl(els.query.value, els.term.value, { push: true });
     // Re-run either way, and let runSearch own the snapshot wait. Repainting
     // only when the box had something in it left the previous term's rows on
     // screen under the new term's heading, and an empty box goes through the
@@ -1524,8 +1555,7 @@ async function init() {
     if (!button) return;
     els.query.value = button.dataset.q;
     els.query.dataset.person = button.classList.contains("w-name") ? button.dataset.q : "";
-    replaceParam("person", els.query.dataset.person);
-    syncUrl(button.dataset.q, els.term.value);
+    syncUrl(button.dataset.q, els.term.value, { push: true });
     rerunSearch();
     focusResults();
   });
@@ -1591,7 +1621,7 @@ async function init() {
   if (pending.q.trim() || genCategory()) {
     // Its URL was written before there was a term to write, so the link it left
     // in the address bar names none and reopens on whichever term is default.
-    if (queued) replaceParam("term", els.term.value);
+    if (queued) writeUrl({ ...urlState(), term: els.term.value });
     runSearch(pending.q, els.term.value, pending.genCategory);
   } else {
     // Ratings and the seats index are already in flight; fill the landing screen

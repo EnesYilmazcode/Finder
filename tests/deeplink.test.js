@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome } from "../js/deeplink.js";
+import { classFromParams, setClassParam, sameSearch, hasSection, missOutcome, decodeUrl, encodeUrl, searchKey } from "../js/deeplink.js";
 import { entry, section } from "./fixtures.js";
 
 const params = (search) => new URLSearchParams(search);
@@ -93,4 +93,47 @@ test("the three ways a link can miss are told apart", () => {
   assert.equal(gone.offer, "");
   for (const { message } of [grid, filtered, gone]) assert.match(message, /5168/);
   assert.match(filtered.message, /filters/);
+});
+
+const BASE = "https://enesyilmazcode.github.io/Finder/";
+
+test("decodeUrl gives every field, empty when the link leaves it out", () => {
+  assert.deepEqual(decodeUrl(""), {
+    q: "", person: "", term: "", plan: "", gen: "", classNumber: "",
+    filters: {
+      days: [], avoid: [], busy: [], from: "", to: "", rating: "", sort: "",
+      hideFull: false, hideOnline: false, ratedOnly: false, hideConsent: false, undergradOnly: false,
+    },
+  });
+});
+
+test("a state survives a trip through the address bar", () => {
+  const state = {
+    q: "Paolo Bucci", person: "Paolo Bucci", term: "1268", plan: "1001,1011", gen: "GEN Theme: Sustainability",
+    classNumber: "1011",
+    filters: {
+      days: ["monday", "wednesday"], avoid: ["friday"], busy: ["TuTh 09:00-10:30"],
+      from: "09:00", to: "17:00", rating: "4", sort: "rating",
+      hideFull: true, hideOnline: false, ratedOnly: true, hideConsent: false, undergradOnly: true,
+    },
+  };
+  const url = encodeUrl(state, BASE);
+  assert.deepEqual(decodeUrl(url.search), state);
+  assert.equal(url.searchParams.get("hideFull"), "1");
+  assert.equal(url.searchParams.has("hideOnline"), false, "an off flag leaves no key");
+});
+
+test("encodeUrl clears what the state leaves empty and keeps parameters it does not own", () => {
+  const url = encodeUrl({ q: "CSE 2221", term: "1268" }, `${BASE}?utm_source=flyer&q=MATH&class=999&day=monday&hideFull=1`);
+  assert.deepEqual([...url.searchParams], [["utm_source", "flyer"], ["q", "CSE 2221"], ["term", "1268"]]);
+});
+
+test("searchKey names the search, not the view of it", () => {
+  const base = decodeUrl("q=CSE+2221&term=1268");
+  const viewed = decodeUrl("q=CSE+2221&term=1268&hideFull=1&sort=start&class=1001&plan=1001");
+  assert.equal(searchKey(viewed), searchKey(base), "filters, the plan and the section are one search");
+  assert.equal(searchKey(decodeUrl("q=CSE+2221+&term=1268")), searchKey(base), "a trailing space is the same search");
+  assert.notEqual(searchKey(decodeUrl("q=CSE+2221&term=1262")), searchKey(base));
+  assert.notEqual(searchKey(decodeUrl("q=Bucci&person=Bucci&term=1268")), searchKey(decodeUrl("q=Bucci&term=1268")));
+  assert.notEqual(searchKey(decodeUrl("term=1268&gen=GEN+Theme%3A+Sustainability")), searchKey(decodeUrl("term=1268")));
 });
