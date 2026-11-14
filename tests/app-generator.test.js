@@ -33,12 +33,15 @@ const COURSE_INDEX = {
   ] } },
 };
 
-function serve() {
+function serve({ asked = [], failing = new Set() } = {}) {
   return stubFetch([
     [/searchableTermsV2/, { data: { data: [{ strm: TERM, descr: "Autumn 2026" }] } }],
     [/\/classes\/search/, (raw) => {
       const url = new URL(raw);
       const subject = url.searchParams.get("subject")?.toUpperCase();
+      asked.push(subject);
+      // A subject named here answers 503 once, then recovers.
+      if (failing.delete(subject)) return { ok: false, status: 503, json: async () => ({}) };
       const courses = subject === "CSE" ? [CSE] : subject === "MATH" ? [MATH] : subject === "ENGLISH" ? ENGLISH : [];
       return { data: { totalItems: courses.length, totalPages: 1, courses } };
     }],
@@ -99,4 +102,48 @@ test("an unsuffixed course can select any decimal version, including asynchronou
   await until(() => page.el(".gen-result"), "a schedule with a decimal English version");
   assert.match(page.el(".gen-result").textContent, /ENGLISH 1110\.0[12]/);
   assert.match(page.el(".gen-result").textContent, /Time to be announced/);
+});
+
+/** The generator with CSE 2221 and MATH 1151 added, ready to generate. */
+async function twoCourses(page) {
+  await until(() => page.el("#term").options.length, "the term list");
+  page.el("#view-schedule").click();
+  page.el(".plan-generate").click();
+  for (const [index, code] of ["CSE 2221", "MATH 1151"].entries()) {
+    page.el("#gen-course").value = code;
+    fire(page.el(".gen-add"), "submit");
+    await until(() => page.all(".gen-course-chip").length === index + 1, `${code} to be added`);
+  }
+}
+
+test("pinning a package re-ranks without reading every course again", async (t) => {
+  const asked = [];
+  t.after(serve({ asked }));
+  const page = await mountApp();
+  await twoCourses(page);
+
+  fire(page.el(".gen-preferences"), "submit");
+  await until(() => page.el(".gen-result"), "a generated schedule");
+  const before = asked.length;
+  assert.ok(before >= 2, "the first run read both courses");
+
+  page.el(".gen-pin").click();
+  await until(() => page.el(".gen-pin.is-pinned"), "the pinned course to be regenerated");
+  assert.equal(asked.length, before, "the pin fetched sections it already had");
+});
+
+test("a course whose sections failed to load is read again on the next run", async (t) => {
+  const asked = [];
+  t.after(serve({ asked, failing: new Set(["MATH"]) }));
+  const page = await mountApp();
+  await twoCourses(page);
+
+  fire(page.el(".gen-preferences"), "submit");
+  await until(() => /error/i.test(page.el("#status").textContent) || page.el("#status").textContent.includes("503"),
+    "the failed run to say so");
+  assert.equal(page.el(".gen-result"), null);
+
+  fire(page.el(".gen-preferences"), "submit");
+  await until(() => page.el(".gen-result"), "the retried run to generate");
+  assert.equal(asked.filter((subject) => subject === "MATH").length, 2, "the failed course was cached and never retried");
 });

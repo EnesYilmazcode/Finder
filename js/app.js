@@ -613,6 +613,8 @@ async function packagesForExactCourse(code, term) {
     packages: expanded.packages.map((pkg) => describePackage(pkg, term, { seatsFor, ratingFor })),
     missingCourse: false,
     missingLinked: expanded.missing,
+    // A result page that failed may have carried sections of this course.
+    partial: (result.pagesFailed ?? 0) > 0,
   };
 }
 
@@ -633,7 +635,30 @@ async function coursePackages(choice, term) {
     missingLinked: choice.family && packages.length
       ? []
       : [...new Set(variants.flatMap((variant) => variant.missingLinked))],
+    partial: variants.some((variant) => variant.partial),
   };
+}
+
+// One desired course's packages, kept per term for the life of the page. A pin
+// or a preference change only re-ranks, so it should not cost another round of
+// requests for every course already read. Only a complete answer is kept: a
+// load that failed, or came back missing a course, a linked section or a
+// result page, is dropped so the next run asks again.
+const packageCache = new Map();
+
+function cachedCoursePackages(choice, term) {
+  const key = `${term}|${choice.key}|${(choice.codes ?? []).join(",")}`;
+  if (!packageCache.has(key)) {
+    const pending = coursePackages(choice, term).then((group) => {
+      if (group.missingCourse || group.missingLinked.length || group.partial) packageCache.delete(key);
+      return group;
+    }, (error) => {
+      packageCache.delete(key);
+      throw error;
+    });
+    packageCache.set(key, pending);
+  }
+  return packageCache.get(key);
 }
 
 function generatorFailureNote(diagnostics) {
@@ -674,7 +699,7 @@ async function runGenerator(preferences) {
       loadSeats(term),
       loadRatings().catch(() => null),
     ]);
-    const groups = await Promise.all(generator.desired.map((choice) => coursePackages(choice, term)));
+    const groups = await Promise.all(generator.desired.map((choice) => cachedCoursePackages(choice, term)));
     if (request !== generatorRequest) return;
 
     const missing = groups.filter((group) => group.missingCourse).map((group) => group.label);
