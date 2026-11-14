@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mountApp, fire, until } from "./dom.js";
+import { mountApp, fire, settle, until } from "./dom.js";
 import { stubFetch } from "./helpers.js";
 import { HEADSHOTS, RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught } from "./fixtures.js";
 
@@ -13,7 +13,7 @@ const COURSES = [entry("CSE", "2221", "Software 1", [
   taught(1013, ["tuesday", "thursday"], "12:40 PM", "1:35 PM", ["Paolo Bucci"], { component: "Laboratory" }),
 ])];
 
-function serve(queries = []) {
+function serve(queries = [], gate = null) {
   return stubFetch([
     [/searchableTermsV2/, { data: { data: [{ strm: TERM, descr: "Autumn 2026" }] } }],
     [/\/classes\/search/, (raw) => {
@@ -26,7 +26,11 @@ function serve(queries = []) {
         ? COURSES.map((found) => ({ ...found, sections: found.sections.filter((section) => String(section.classNumber) === q) }))
           .filter((found) => found.sections.length)
         : COURSES;
-      return { data: { totalItems: courses.length, totalPages: 1, courses } };
+      const body = { data: { totalItems: courses.length, totalPages: 1, courses } };
+      // A held gate keeps the schedule refresh's class-number lookups in flight.
+      // "CSE 2221" goes out as q=2221 with a subject, so a bare number is the tell.
+      const lookup = numeric && !new URL(raw).searchParams.get("subject");
+      return lookup && gate ? gate.wait.then(() => body) : body;
     }],
     ["data/ratings.json", RATINGS],
     ["data/ratings-courses.json", RATING_COURSES],
@@ -35,6 +39,11 @@ function serve(queries = []) {
     [`data/seats-${TERM}.json`, SEATS_TERMS[TERM]],
     [`data/trend-${TERM}.json`, { ok: false, status: 404, json: async () => null }],
   ]);
+}
+
+function gated() {
+  let open;
+  return { wait: new Promise((resolve) => { open = resolve; }), open: () => open() };
 }
 
 function memoryStorage() {
@@ -134,4 +143,51 @@ test("a section with several valid linked components asks instead of guessing", 
   assert.match(page.el(".plan-item").textContent, /Includes section 1012/);
   assert.deepEqual(new Set(page.all(".plan .cal-item").map((node) => node.dataset.classNumber)),
     new Set(["1001", "1012"]));
+});
+
+/** Save 1011 from a search, then open the schedule with its refresh held. */
+async function savedWithRefreshHeld(t) {
+  const gate = gated();
+  const queries = [];
+  t.after(serve(queries, gate));
+  const before = globalThis.localStorage;
+  globalThis.localStorage = memoryStorage();
+  t.after(() => { globalThis.localStorage = before; });
+
+  const page = await mountApp({ query: "CSE 2221", term: TERM });
+  await until(() => page.el('.section[data-class-number="1011"]'), "the section row");
+  page.el('.section[data-class-number="1011"]').click();
+  page.el("#detail-body .d-plan").click();
+  page.el("#view-schedule").click();
+  await until(() => queries.includes("1011"), "the refresh request");
+  return { page, gate };
+}
+
+test("removing a section while the schedule refreshes keeps it removed", async (t) => {
+  const { page, gate } = await savedWithRefreshHeld(t);
+  page.el(".plan-remove").click();
+  assert.equal(page.el("#schedule-count").textContent, "0");
+
+  gate.open();
+  await settle();
+  assert.equal(page.el(".plan-item"), null, "the refresh drew the removed section back");
+  assert.equal(page.el("#schedule-count").textContent, "0");
+  // By saved section rather than raw text: apps mounted by earlier tests share
+  // this global storage, and one of them can land its own lecture here.
+  const saved = JSON.parse(globalThis.localStorage.getItem("finder.schedule.v1") ?? "{}").items ?? [];
+  assert.ok(!saved.some((item) => String(item.section.classNumber) === "1011"),
+    "the refresh saved the removed section again");
+});
+
+test("leaving the schedule while it refreshes does not pull the page back to it", async (t) => {
+  const { page, gate } = await savedWithRefreshHeld(t);
+  page.el("#view-list").click();
+  await until(() => page.el('.section[data-class-number="1001"]'), "the list results");
+
+  gate.open();
+  await settle();
+  assert.equal(page.el("#view-list").getAttribute("aria-pressed"), "true");
+  assert.equal(page.el(".plan-item"), null, "the finished refresh replaced the list with the schedule");
+  assert.ok(page.el('.section[data-class-number="1001"]'), "the list results are still on screen");
+  assert.equal(page.el("#schedule-count").textContent, "1", "the saved section is kept");
 });
