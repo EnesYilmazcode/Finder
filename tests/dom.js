@@ -9,6 +9,7 @@
 // control: the lookup returned null and init() threw during import, before a
 // single assertion ran.
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 
@@ -47,17 +48,23 @@ class Style {
   setProperty(name, value) { this[name] = String(value); }
 }
 
-/** The listener half of an EventTarget. The window needs one as much as an element does. */
+/**
+ * The listener half of an EventTarget. The window needs one as much as an element does.
+ *
+ * Each handler remembers the mount that registered it and runs inside that
+ * mount, so a click a test fires reaches the globals of the app it clicked
+ * (see `isolateGlobals` below), not whichever app mounted last.
+ */
 class Listeners {
   constructor() { this.handlers = new Map(); }
 
   addEventListener(type, handler) {
     if (!this.handlers.has(type)) this.handlers.set(type, []);
-    this.handlers.get(type).push(handler);
+    this.handlers.get(type).push({ handler, mount: mountContext.getStore() });
   }
 
   removeEventListener(type, handler) {
-    this.handlers.set(type, (this.handlers.get(type) ?? []).filter((h) => h !== handler));
+    this.handlers.set(type, (this.handlers.get(type) ?? []).filter((h) => h.handler !== handler));
   }
 
   // Bubbles, since app.js delegates every click on the results pane. The window
@@ -66,7 +73,10 @@ class Listeners {
     event.target ??= this;
     for (let at = this; at; at = at.parentNode) {
       event.currentTarget = at;
-      for (const handler of at.handlers?.get(event.type) ?? []) handler.call(at, event);
+      for (const { handler, mount } of at.handlers?.get(event.type) ?? []) {
+        if (mount === undefined) handler.call(at, event);
+        else mountContext.run(mount, () => handler.call(at, event));
+      }
     }
     return !event.defaultPrevented;
   }
@@ -538,6 +548,53 @@ export async function resolve(specifier, context, nextResolve) {
 let mounts = 0;
 
 /**
+ * Which mount the running code belongs to. Set around each app.js import and
+ * carried by Node through every await, timer and promise that app starts, and
+ * by Listeners around every handler it registered. Test code runs outside it.
+ */
+const mountContext = new AsyncLocalStorage();
+
+// The globals app.js reaches for by bare name at call time.
+const PAGE_GLOBALS = ["window", "document", "location", "history", "localStorage"];
+// Per mount, the page and storage that were current when it started.
+const mountGlobals = new Map();
+// What tests and setupDom last assigned, the way a plain global would hold it.
+const assigned = new Map();
+// A request that never answers. A superseded app waits on it forever instead of
+// carrying on against the next test's stubs.
+const never = () => new Promise(() => {});
+
+/**
+ * Keep an app that a later mount superseded off the later test's globals.
+ *
+ * Every mount runs in one process against one set of globals, and app.js reads
+ * them at call time. An app still mid-refresh when its test ended used to wake
+ * on the next test's fetch stub and write into that test's storage and URL,
+ * failing tests it had nothing to do with. Each global is now an accessor:
+ * test code and the newest mount see what was last assigned, as before. An
+ * older mount sees its own page and storage, and a fetch that never answers,
+ * so it stops where it is rather than touching anyone else's state.
+ */
+function isolateGlobals() {
+  for (const name of [...PAGE_GLOBALS, "fetch"]) {
+    const original = Object.getOwnPropertyDescriptor(globalThis, name);
+    // Node's own localStorage is a getter; read it only if nothing replaces it.
+    const fallback = () => (original?.get ? original.get.call(globalThis) : original?.value);
+    const current = () => (assigned.has(name) ? assigned.get(name) : fallback());
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      enumerable: original?.enumerable ?? false,
+      get() {
+        const mount = mountContext.getStore();
+        if (mount === undefined || mount === mounts) return current();
+        return name === "fetch" ? never : mountGlobals.get(mount)?.[name];
+      },
+      set(value) { assigned.set(name, value); },
+    });
+  }
+}
+
+/**
  * Start app.js against a fresh page and return an accessor for it.
  *
  * The `?mount=` suffix gives each mount its own copy of app.js, which holds the
@@ -550,10 +607,15 @@ let mounts = 0;
 export async function mountApp({ query = "", term = "", fetch, html = INDEX, url = PAGE } = {}) {
   // Registered on first use, so a file that only calls setupDom never starts
   // the loader thread.
-  if (!mounts) register(`data:text/javascript,${encodeURIComponent(PROPAGATE_MOUNT)}`);
+  if (!mounts) {
+    register(`data:text/javascript,${encodeURIComponent(PROPAGATE_MOUNT)}`);
+    isolateGlobals();
+  }
   const page = setupDom(html, { query, term, url });
   if (fetch) globalThis.fetch = fetch;
-  await import(`../js/app.js?mount=${++mounts}`);
+  const mount = ++mounts;
+  mountGlobals.set(mount, Object.fromEntries(PAGE_GLOBALS.map((name) => [name, globalThis[name]])));
+  await mountContext.run(mount, () => import(`../js/app.js?mount=${mount}`));
   return page;
 }
 
