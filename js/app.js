@@ -81,13 +81,17 @@ const VIEWS = ["list", "calendar", "schedule", "generator"];
  * this, not read back off the controls, so it names the search that ran rather
  * than whatever is sitting in the search box.
  *
- * The filters are not here yet: their controls in the rail are still the record
- * of them, read by readFilters().
+ * The rail's controls show the filters but are not the record of them: their
+ * handlers copy them in here, and everything that filters, counts or writes the
+ * URL reads them from here.
  */
 const state = {
   // The search last run, or being run: what the URL names, what a term or
   // requirement change and a retry run again, and what Back compares against.
   search: { q: "", person: "", term: "", gen: "" },
+  // The filters on the results, in the shape filters.js applies: days, busy
+  // blocks, times, rating and the on/off flags.
+  filters: { ...DEFAULTS },
   // list, calendar, schedule or generator.
   view: "list",
   // The class number open in the detail pane. Kept across repaints of the same
@@ -217,11 +221,13 @@ function addBusy() {
 
   renderBusy([...busyBlocks(), { days, start, end }]);
   resetBusyFields();
+  captureFilters();
   syncUrl();
   paint();
 }
 
-function readFilters() {
+/** The filters the rail's controls show right now. */
+function filtersFromControls() {
   const data = new FormData(els.filters);
   const { required, avoided } = dayStates();
   return {
@@ -237,8 +243,12 @@ function readFilters() {
     ratedOnly: els.filters.ratedOnly.checked,
     hideConsent: els.filters.hideConsent.checked,
     undergradOnly: els.filters.undergradOnly.checked,
-    term: els.term.value,
   };
+}
+
+/** Take the rail into state after a control in it changed. */
+function captureFilters() {
+  state.filters = filtersFromControls();
 }
 
 function sortKey() {
@@ -265,14 +275,15 @@ function writeFilters(params) {
   // unknown sort has to be written back as relevance.
   const sort = params.get("sort") ?? "";
   els.sort.value = isSortKey(sort) ? sort : "";
+  captureFilters();
 }
 
 /**
  * The one way filters come off, so the rail, the status line and the URL can
  * never describe a set that is no longer on screen.
  *
- * The contract for anything added after this: whatever readFilters() reads has
- * to be resettable here. els.filters.reset() reaches only what lives in the
+ * The contract for anything added after this: whatever filtersFromControls()
+ * reads has to be resettable here. els.filters.reset() reaches only what lives in the
  * form, and filter state has already started escaping it.
  */
 function clearFilters() {
@@ -283,6 +294,7 @@ function clearFilters() {
   els.sort.value = "";
   renderBusy([]);
   resetBusyFields();
+  captureFilters();
   syncUrl();
   paint();
 }
@@ -745,7 +757,7 @@ async function runGenerator(preferences) {
     }
 
     const generated = generateSchedules(groups, {
-      busy: busyBlocks(),
+      busy: state.filters.busy,
       weights: preferences.weights,
       earliest: fieldMinutes(preferences.earliest),
       latest: fieldMinutes(preferences.latest),
@@ -957,7 +969,7 @@ function writeUrl(next, { push = false } = {}) {
  * the term a shared link named.
  */
 function pageState(search = state.search) {
-  const f = readFilters();
+  const f = state.filters;
   const flags = Object.fromEntries(FLAG_KEYS.map((key) => [key, Boolean(f[key])]));
   const term = search.term || els.term.value || urlState().term;
   // The open section belongs to the search on screen; a search about to start
@@ -1265,7 +1277,8 @@ function paint(term = els.term.value) {
   // Collapsed, an open section covers the results; a repaint that keeps it
   // open keeps it covering them.
   const wasDetail = els.app.dataset.view === "detail";
-  const filters = readFilters();
+  // Seat filters read the term the results are painted for.
+  const filters = { ...state.filters, term };
   // The clear button tracks the filters, not the result, so it is set before
   // the bail below.
   els.clear.hidden = !isActive(filters);
@@ -1530,6 +1543,7 @@ async function init() {
   els.filters.addEventListener("change", (event) => {
     // The busy fields are not a filter until Add is pressed.
     if (event.target.closest("#f-busy")) return;
+    captureFilters();
     syncUrl();
     paint();
   });
@@ -1557,6 +1571,7 @@ async function init() {
     const item = chip.closest("li");
     (item.nextElementSibling?.querySelector(".f-chip") ?? els.busyAdd).focus();
     item.remove();
+    captureFilters();
     syncUrl();
     paint();
   });
@@ -1570,6 +1585,7 @@ async function init() {
     const button = event.target.closest(".f-day");
     if (!button) return;
     setDayState(button, NEXT_STATE[button.dataset.state] ?? "require");
+    captureFilters();
     syncUrl();
     paint();
   });
