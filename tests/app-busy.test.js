@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mountApp, until } from "./dom.js";
+import { fire, mountApp, until } from "./dom.js";
 import { stubFetch } from "./helpers.js";
 import { RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught } from "./fixtures.js";
 
@@ -177,4 +177,24 @@ test("regression #62: clearing the filters takes a half-written block too", asyn
   assert.deepEqual(page.all("#f-busy-days .f-day").map((day) => day.dataset.state), ["any", "any", "any", "any", "any"]);
   assert.equal(page.el("#f-busy-hint").textContent, HINT);
   assert.equal(page.all(".section").length, 4);
+});
+
+// The blocks live in state now, not on their chips, so Back has to put them
+// back into state as well as onto the rail, or the chip returns and the block
+// does not.
+test("Back to an earlier search puts its busy block back in force", async (t) => {
+  t.after(serve());
+  const page = await painted(`?busy=${MONDAY_MORNING}`, { rows: 3 });
+
+  page.el("#q").value = "CSE 2231";
+  fire(page.el("#search"), "submit");
+  await until(() => /q=CSE\+2231/.test(page.location.search), "the second search");
+  page.el("#f-busy-list .f-chip").click();
+  assert.deepEqual(busyKeys(page), [], "the chip came off the second search");
+
+  page.history.back();
+  await until(() => page.el("#q").value === "CSE 2221" && page.all(".section").length === 3, "the first search, filtered");
+  assert.deepEqual(chips(page), [`Mo 9:00a${DASH}10:00a`]);
+  assert.deepEqual(numbers(page), ["1002", "1003", "1004"], "the chip came back but the block is not in force");
+  assert.deepEqual(busyKeys(page), [MONDAY_MORNING]);
 });

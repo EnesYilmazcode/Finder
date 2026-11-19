@@ -200,3 +200,26 @@ test("a link to the builder opens on it", async (t) => {
   assert.deepEqual(pressed(page), ["#view-plan"]);
   assert.equal(page.el("#welcome").hidden, true);
 });
+
+// The builder's busy periods are the rail's, read from state. A Monday and
+// Wednesday morning block rules out 1101 and 2002, leaving one schedule.
+test("the builder keeps clear of the busy blocks in the rail", async (t) => {
+  t.after(serve());
+  const page = await mountApp({ url: `https://enesyilmazcode.github.io/Finder/?term=${TERM}&busy=MoWe-570-660` });
+  await until(() => page.el("#term").options.length, "the term list");
+  assert.equal(page.all("#f-busy-list .f-chip").length, 1, "the link's block never reached the rail");
+
+  page.el("#view-plan").click();
+  for (const [index, code] of ["CSE 2221", "MATH 1151"].entries()) {
+    page.el("#gen-course").value = code;
+    fire(page.el(".gen-add"), "submit");
+    await until(() => page.all(".gen-course-chip").length === index + 1, `${code} to be added`);
+  }
+  fire(page.el(".gen-preferences"), "submit");
+  await until(() => page.el(".gen-result"), "a generated schedule");
+
+  const text = page.all(".gen-result").map((card) => card.textContent).join(" ");
+  assert.match(text, /Sections 1102/);
+  assert.match(text, /Sections 2001/);
+  assert.doesNotMatch(text, /Sections 1101|Sections 2002/, "a section inside the busy block was scheduled");
+});
