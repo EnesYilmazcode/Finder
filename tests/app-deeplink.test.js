@@ -225,7 +225,9 @@ test("regression #64: Back undoes a filter set after the pane opened", async (t)
   page.el("#f-online").checked = true;
   fire(page.el("#filters"), "change");
   assert.equal(page.all(".section").length, 1);
-  assert.doesNotMatch(page.location.search, /class=/, "the repaint closed the pane and the link still names it");
+  // 1001 survives the filter, so it stays open and the link keeps naming it.
+  assert.equal(selected(page)?.dataset.classNumber, "1001");
+  assert.match(page.location.search, /class=1001/);
 
   page.history.back();
 

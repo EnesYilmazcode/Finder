@@ -158,7 +158,8 @@ stats/                the page that reads the counter
   and the saved plan update the current entry rather than adding one.
 - A shared schedule refreshes each section separately, so a long schedule makes
   several requests to Ohio State when it opens.
-- Changing a filter clears whichever section you had selected.
+- A filter that hides the open section closes it. One that keeps it on screen
+  leaves it open.
 - Columbus only, and only the three terms OSU's API exposes at a time.
 - A section listed in two rooms of the same building at the same hour shows
   one of them.
