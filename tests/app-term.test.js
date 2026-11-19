@@ -113,21 +113,42 @@ function clickSection(page, classNumber) {
   fire(rowFor(page, classNumber), "click");
 }
 
+/** Back to the landing screen the way a student gets there: an empty search. */
+function emptySearch(page) {
+  page.el("#q").value = "";
+  fire(page.el("#search"), "submit");
+}
+
 // Regression, #89. The term handler repainted unconditionally but only
-// refetched when the box had text, so clearing the box and switching term left
-// the old term's sections on screen with the new term's seats under them.
+// refetched when the box had text, so the old term's sections stayed on screen
+// with the new term's seats under them. A term change now runs the search on
+// screen for the new term, so Autumn's rows are replaced by Spring's, never
+// repainted against Spring's seats.
 test("regression #89: switching term drops sections fetched for the old one", async () => {
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve() });
   await searched(page);
   assert.deepEqual(seatsOn(page, 5477), { text: "40/40+1", state: "full" }, "Autumn 5477 is full");
 
+  switchTerm(page, SPRING);
+  await settle();
+
+  assert.deepEqual(sectionNumbers(page), ["3101"], "Autumn's rows are gone and Spring's took their place");
+  assert.match(page.el("#status").textContent, /Spring 2026/);
+});
+
+// Typed text that was never submitted is not the search on screen, so a term
+// change runs the search that is.
+test("a term change runs the search on screen, not text that was never submitted", async () => {
+  const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve() });
+  await searched(page);
+
   page.el("#q").value = "";
   switchTerm(page, SPRING);
   await settle();
 
-  assert.deepEqual(sectionNumbers(page), [], "Autumn's rows are gone rather than repainted");
-  assert.equal(page.el("#status").textContent, "", "no count claimed for a term nothing was fetched for");
-  assert.equal(page.el("#welcome").hidden, false, "the landing screen takes their place");
+  assert.deepEqual(sectionNumbers(page), ["3101"]);
+  assert.equal(page.el("#q").value, "CSE 2221", "the box names the search on screen again");
+  assert.match(page.location.search, /q=CSE\+2221&term=1262/);
 });
 
 // The same stale rows also reach the screen through a filter change, which is
@@ -136,7 +157,7 @@ test("regression #89: a filter change cannot bring the old term's rows back", as
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve() });
   await searched(page);
 
-  page.el("#q").value = "";
+  emptySearch(page);
   switchTerm(page, SPRING);
   await settle();
 
@@ -150,7 +171,7 @@ test("regression #89: switching away and back does not restore the first term's 
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve() });
   await searched(page);
 
-  page.el("#q").value = "";
+  emptySearch(page);
   switchTerm(page, SPRING);
   switchTerm(page, AUTUMN);
   await settle();
@@ -168,13 +189,12 @@ test("regression #89: a search still in flight when the term changes never paint
   const page = await mountApp({ query: "CSE 2221", term: AUTUMN, fetch: serve({ slow: autumn }) });
   await until(() => page.el("#status").textContent === "Searching...", "the search to start");
 
-  page.el("#q").value = "";
   switchTerm(page, SPRING);
   autumn.release();
   await settle();
 
-  assert.deepEqual(sectionNumbers(page), [], "the search that landed late did not paint");
-  assert.equal(page.el("#welcome").hidden, false, "the landing screen is still up");
+  assert.deepEqual(sectionNumbers(page), ["3101"], "the Autumn search that landed late did not paint over Spring's");
+  assert.match(page.el("#status").textContent, /Spring 2026/);
   assert.equal(page.el("#go").getAttribute("aria-disabled"), "false", "and the search button works again");
 });
 

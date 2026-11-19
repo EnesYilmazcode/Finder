@@ -99,7 +99,7 @@ const BASE = "https://enesyilmazcode.github.io/Finder/";
 
 test("decodeUrl gives every field, empty when the link leaves it out", () => {
   assert.deepEqual(decodeUrl(""), {
-    q: "", person: "", term: "", plan: "", gen: "", classNumber: "",
+    q: "", person: "", term: "", plan: "", gen: "", view: "", classNumber: "",
     filters: {
       days: [], avoid: [], busy: [], from: "", to: "", rating: "", sort: "",
       hideFull: false, hideOnline: false, ratedOnly: false, hideConsent: false, undergradOnly: false,
@@ -109,7 +109,7 @@ test("decodeUrl gives every field, empty when the link leaves it out", () => {
 
 test("a state survives a trip through the address bar", () => {
   const state = {
-    q: "Paolo Bucci", person: "Paolo Bucci", term: "1268", plan: "1001,1011", gen: "GEN Theme: Sustainability",
+    q: "Paolo Bucci", person: "Paolo Bucci", term: "1268", plan: "1001,1011", gen: "GEN Theme: Sustainability", view: "calendar",
     classNumber: "1011",
     filters: {
       days: ["monday", "wednesday"], avoid: ["friday"], busy: ["TuTh 09:00-10:30"],
@@ -130,7 +130,7 @@ test("encodeUrl clears what the state leaves empty and keeps parameters it does 
 
 test("searchKey names the search, not the view of it", () => {
   const base = decodeUrl("q=CSE+2221&term=1268");
-  const viewed = decodeUrl("q=CSE+2221&term=1268&hideFull=1&sort=start&class=1001&plan=1001");
+  const viewed = decodeUrl("q=CSE+2221&term=1268&hideFull=1&sort=start&class=1001&plan=1001&view=calendar");
   assert.equal(searchKey(viewed), searchKey(base), "filters, the plan and the section are one search");
   assert.equal(searchKey(decodeUrl("q=CSE+2221+&term=1268")), searchKey(base), "a trailing space is the same search");
   assert.notEqual(searchKey(decodeUrl("q=CSE+2221&term=1262")), searchKey(base));

@@ -56,16 +56,31 @@ async function onSection(t) {
   return { page, view, codes, searching, search };
 }
 
-test("regression #86: a repaint that empties the detail pane leaves the detail view", async (t) => {
+// A filter click repaints. A section it still shows stays open, so the phone
+// stays on it rather than being thrown back to the list.
+test("a filter that keeps the open section keeps the phone on it", async (t) => {
   const { page, view, codes } = await onSection(t);
 
-  // A filter click repaints, and the repaint resets the pane the phone is
-  // looking at. Sections meet Tuesday, so the rows survive it.
+  // Sections meet Tuesday, so 9001 survives requiring it.
   fire(page.el('#f-days .f-day[data-day="tuesday"]'), "click");
 
-  assert.match(page.el("#detail-body").textContent, /Pick a section/);
+  assert.match(page.el("#detail-body").textContent, /Section 9001/);
   assert.deepEqual(codes(), ["CSE 2221"]);
+  assert.equal(view(), "detail");
+  assert.match(page.location.search, /class=9001/);
+});
+
+// The other half: a section the filter hides closes, and a phone is never left
+// looking at an empty pane.
+test("regression #86: a repaint that empties the detail pane leaves the detail view", async (t) => {
+  const { page, view } = await onSection(t);
+
+  // Nothing meets Monday, so requiring it hides 9001 with everything else.
+  fire(page.el('#f-days .f-day[data-day="monday"]'), "click");
+
+  assert.match(page.el("#detail-body").textContent, /Pick a section/);
   assert.equal(view(), "results");
+  assert.doesNotMatch(page.location.search, /class=/, "a closed pane is still named in the link");
 });
 
 test("regression #86: emptying the query leaves the detail view", async (t) => {

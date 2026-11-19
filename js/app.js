@@ -71,9 +71,28 @@ let latestRequest = 0;
 // is that search's, so a repaint underneath it must not write over the line.
 let searching = false;
 let inFlightSearch = "";
-// The searchKey of the search last run, so Back can tell an entry for another
-// search, which has to run again, from one for this search, which only repaints.
-let shownSearch = "";
+
+const VIEWS = ["list", "calendar", "schedule", "generator"];
+
+/**
+ * What the page is showing, in one place. The address bar is written from
+ * this, not read back off the controls, so it names the search that ran rather
+ * than whatever is sitting in the search box.
+ *
+ * The filters are not here yet: their controls in the rail are still the record
+ * of them, read by readFilters().
+ */
+const state = {
+  // The search last run, or being run: what the URL names, what a term or
+  // requirement change and a retry run again, and what Back compares against.
+  search: { q: "", person: "", term: "", gen: "" },
+  // list, calendar, schedule or generator.
+  view: "list",
+  // The class number open in the detail pane. Kept across repaints of the same
+  // search, so a filter change or a switch to the calendar does not close a
+  // section that is still on screen. Cleared when a new search starts.
+  selected: "",
+};
 
 // Class number to its section and course, rebuilt on every render. The detail
 // pane needs the real objects, not text scraped back out of the DOM.
@@ -84,8 +103,6 @@ let currentEntries = [];
 // ran with, since a repaint has to quote that and not whatever is sitting in the
 // box by then.
 let lastResult = null;
-let lastQuery = "";
-let view = "list";
 let schedule = loadSchedule();
 let scheduleNote = "";
 let generator = {
@@ -197,7 +214,7 @@ function addBusy() {
 
   renderBusy([...busyBlocks(), { days, start, end }]);
   resetBusyFields();
-  syncUrl(els.query.value, els.term.value);
+  syncUrl();
   paint();
 }
 
@@ -263,7 +280,7 @@ function clearFilters() {
   els.sort.value = "";
   renderBusy([]);
   resetBusyFields();
-  syncUrl(els.query.value, els.term.value);
+  syncUrl();
   paint();
 }
 
@@ -286,10 +303,12 @@ function openRail(open) {
  * and focus moves with it, otherwise a keyboard user
  * is left on a control that is no longer on screen.
  */
-function showDetail(node) {
+function showDetail(node, { quiet = false } = {}) {
   detailVersion++;
   els.detailBody.replaceChildren(node);
-  if (collapsed.matches) {
+  // A repaint that keeps a section open redraws it where it is. Taking over the
+  // screen and moving focus there is for a section the student just picked.
+  if (!quiet && collapsed.matches) {
     els.app.dataset.view = "detail";
     els.detail.focus();
   }
@@ -310,7 +329,7 @@ function genCategory() {
 }
 
 function selectView(next) {
-  view = next;
+  state.view = VIEWS.includes(next) ? next : "list";
   const selected = next === "generator" ? "schedule" : next;
   for (const [button, name] of [[els.viewList, "list"], [els.viewCal, "calendar"], [els.viewSchedule, "schedule"]]) {
     button.classList.toggle("is-on", name === selected);
@@ -326,6 +345,8 @@ function setView(next) {
     if (els.term.value) showWelcome(els.term.value);
   }
   paint();
+  // A view is part of the entry it was picked on, not a place to go Back to.
+  syncUrl();
 }
 
 function linkedParts(numbers, entries) {
@@ -372,7 +393,7 @@ function toggleSchedule(found, term) {
   if (isScheduled(schedule, term, number)) schedule = removeScheduleItem(schedule, term, number);
   else schedule = addScheduleItem(schedule, scheduleItem(found, term));
   storeSchedule();
-  if (view === "schedule") paintSchedule(term);
+  if (state.view === "schedule") paintSchedule(term);
   else {
     const row = els.results.querySelector(`[data-class-number="${number}"]`);
     if (row) applySelection(row);
@@ -478,11 +499,11 @@ async function refreshSchedule(ids, term, { addMissing = false } = {}) {
  * painting would pull them back to a view the toggles no longer name.
  */
 function refreshStillCurrent(request, term) {
-  return request === scheduleRefresh && view === "schedule" && els.term.value === term;
+  return request === scheduleRefresh && state.view === "schedule" && els.term.value === term;
 }
 
 function paintSchedule(term = els.term.value) {
-  view = "schedule";
+  state.view = "schedule";
   const entries = scheduleEntries(schedule, term);
   currentEntries = entries;
   sectionIndex = new Map(entries.flatMap((entry) => entry.sections.map((section) => [
@@ -766,7 +787,7 @@ function toggleGeneratorPin(pkg) {
 }
 
 function paintGenerator(term = els.term.value) {
-  view = "generator";
+  state.view = "generator";
   els.welcome.hidden = true;
   els.results.replaceChildren(renderGenerator({
     ...generator,
@@ -794,10 +815,15 @@ function deselectRows() {
   }
 }
 
-/** Show a row's section and name it in the URL. */
-function applySelection(row) {
+/**
+ * Show a row's section and name it in the URL. `quiet` when a repaint is
+ * putting back a section that was already open, rather than the student
+ * picking one.
+ */
+function applySelection(row, { quiet = false } = {}) {
   const found = sectionIndex.get(row.dataset.classNumber);
   if (!found) return false;
+  state.selected = row.dataset.classNumber;
 
   deselectRows();
   // Any note about a link that missed was about some other section.
@@ -816,7 +842,7 @@ function applySelection(row) {
     scheduled: isScheduled(schedule, term, found.section.classNumber),
     onSchedule: () => toggleSchedule(found, term),
   });
-  showDetail(draw());
+  showDetail(draw(), { quiet });
   const openedVersion = detailVersion;
   history.replaceState(null, "", link);
 
@@ -846,6 +872,7 @@ function applySelection(row) {
 }
 
 function clearSelection() {
+  state.selected = "";
   deselectRows();
   resetDetail();
   if (collapsed.matches) els.app.dataset.view = "results";
@@ -861,6 +888,7 @@ function selectSection(row) {
 }
 
 function closeDetail() {
+  state.selected = "";
   els.app.dataset.view = "results";
   resetDetail();
   // The pane is shut, so the link stops naming a section. The row keeps its
@@ -916,50 +944,68 @@ function writeUrl(next, { push = false } = {}) {
 }
 
 /**
- * The state the page is showing, read off its controls. The term falls back to
- * the address bar's while the term list is still loading, so an early filter
- * click does not drop the term a shared link named.
+ * The state to put in the address bar: the search from `state` (or the one
+ * about to start), the filters off their controls, the plan, the view and the
+ * open section. The term falls back to the selector's, then the address bar's,
+ * while the term list is still loading, so an early filter click does not drop
+ * the term a shared link named.
  */
-function pageState(q = els.query.value, term = els.term.value) {
+function pageState(search = state.search) {
   const f = readFilters();
   const flags = Object.fromEntries(FLAG_KEYS.map((key) => [key, Boolean(f[key])]));
+  const term = search.term || els.term.value || urlState().term;
+  // The open section belongs to the search on screen; a search about to start
+  // has none yet.
+  const same = searchKey(search) === searchKey(state.search);
   return {
-    q,
-    person: q.trim() && els.query.dataset.person === q.trim() ? q.trim() : "",
-    term: term || urlState().term,
+    q: search.q,
+    person: search.person,
+    term,
     plan: formatPlan(scheduleIds(schedule, term)),
-    gen: genCategory() ?? "",
+    gen: search.gen,
+    view: state.view === "list" ? "" : state.view,
     // Filters live in the URL so a filtered view can be shared or reloaded.
     filters: {
       days: f.days, avoid: f.avoid, busy: f.busy.map(formatBusy),
       from: f.from, to: f.to, rating: f.rating, sort: sortKey(), ...flags,
     },
-    // Every caller has just changed the result set, and the repaint that
-    // follows clears the pane, so whichever section was named is gone.
-    classNumber: "",
+    classNumber: same ? state.selected : "",
   };
 }
 
-/** Write the page's state to the URL. `push` when this starts a new search. */
-function syncUrl(q, term, { push = false } = {}) {
+/** Write the page's state to the URL. `push` when `search` is a new one. */
+function syncUrl(search = state.search, { push = false } = {}) {
   // A link's section belongs to the search it arrived with, so retrying that
   // search after a 429 keeps it and searching for anything else drops it.
-  if (!sameSearch(new URL(location.href), q, term)) pendingClass = "";
-  writeUrl(pageState(q, term), { push });
+  if (!sameSearch(new URL(location.href), search.q, search.term || els.term.value)) pendingClass = "";
+  writeUrl(pageState(search), { push });
+}
+
+/** A search the student asked for: give it a history entry, then run it. */
+function startSearch(search) {
+  syncUrl(search, { push: true });
+  runSearch(search);
+}
+
+/** The search the controls describe: the box, the person picked, the term and the requirement. */
+function searchFromControls(q = els.query.value) {
+  return {
+    q,
+    person: q.trim() && els.query.dataset.person === q.trim() ? q.trim() : "",
+    term: els.term.value,
+    gen: genCategory() ?? "",
+  };
 }
 
 /**
  * Go back to a search from history. The entry's filters and section were put
- * back by the popstate handler; this restores the controls the search reads
- * and runs it, without writing the URL, which already says what it should.
+ * back by the popstate handler; this runs the entry's search in the entry's
+ * view, without writing the URL, which already says what it should.
  */
-function restoreSearch(state) {
-  els.query.value = state.q;
-  els.query.dataset.person = state.person && state.person === state.q.trim() ? state.person : "";
-  if ([...els.term.options].some((option) => option.value === state.term)) els.term.value = state.term;
-  els.gen.value = GEN_CATEGORIES.includes(state.gen) ? state.gen : "";
-  selectView("list");
-  runSearch(state.q, els.term.value);
+function restoreSearch(entry) {
+  if ([...els.term.options].some((option) => option.value === entry.term)) els.term.value = entry.term;
+  selectView(entry.view || "list");
+  runSearch({ ...entry, term: els.term.value });
 }
 
 /**
@@ -1023,13 +1069,22 @@ function clearLastSearch() {
   resetDetail();
 }
 
-/** Run the search the page already describes, again. */
+/** Run the search on screen again. */
 function rerunSearch() {
-  runSearch(els.query.value, els.term.value);
+  runSearch(state.search);
 }
 
-async function runSearch(q, term, gen = genCategory()) {
-  const selectedPerson = els.query.dataset.person === q.trim() ? q.trim() : "";
+/**
+ * Run a search and paint it. `search` is { q, person, term, gen }: the person a
+ * name was narrowed to, if any, and the requirement, if any. The search box,
+ * the person and the requirement picker are set to match, so the controls name
+ * the search on screen even when it came from history or a term change.
+ */
+async function runSearch(search) {
+  const q = String(search?.q ?? "");
+  const term = search?.term ?? "";
+  const gen = search?.gen || null;
+  const selectedPerson = search?.person && search.person === q.trim() ? q.trim() : "";
   // A new search replaces the results, and collapsed the detail pane is covering
   // them. The empty-query and error paths below never reach paint().
   els.app.dataset.view = "results";
@@ -1038,14 +1093,20 @@ async function runSearch(q, term, gen = genCategory()) {
     // call for init to run rather than search without a term.
     if (termsError) setStatus(termsError, "error");
     else if (q.trim() || gen) {
-      queued = { q, genCategory: gen };
+      queued = { q, person: selectedPerson, gen: gen ?? "" };
       setStatus("Still loading terms. Your search will run when they arrive.");
     }
     return;
   }
   // Before either branch: the landing screen is a place Back and Forward
   // return to as well, and has to be told apart from the search it replaced.
-  shownSearch = searchKey({ q, person: selectedPerson, term, gen: gen ?? "" });
+  const next = { q, person: selectedPerson, term, gen: gen ?? "" };
+  // A section open in another search is not open in this one.
+  if (searchKey(next) !== searchKey(state.search)) state.selected = "";
+  state.search = next;
+  els.query.value = q;
+  els.query.dataset.person = selectedPerson;
+  els.gen.value = gen && GEN_CATEGORIES.includes(gen) ? gen : "";
   // A requirement on its own is a search.
   if (!q.trim() && !gen) {
     // Supersede any search still in flight: it was started for whichever term
@@ -1092,7 +1153,6 @@ async function runSearch(q, term, gen = genCategory()) {
     await Promise.allSettled(subjects.map((subject) => loadGradeCourse({ subject })));
     if (requestId !== latestRequest) return;
     lastResult = { ...filtered, totalItems, pagesFetched, pagesFailed, term, instructor: selectedPerson };
-    lastQuery = q.trim();
     paint(term);
   } catch (error) {
     if (requestId !== latestRequest) return;
@@ -1121,7 +1181,7 @@ const SORT_UNKNOWN = {
 
 /** The tail the sort cannot place in the list on screen, counted rather than left unexplained. */
 function showSortNote(entries, sort, term) {
-  const n = view === "list" ? unknownSections(entries, sort, term) : 0;
+  const n = state.view === "list" ? unknownSections(entries, sort, term) : 0;
   // Not "at the end": an unplaceable section sits at the end of its own block,
   // and that block is placed by whatever its other sections score.
   els.sortNote.textContent = n
@@ -1194,8 +1254,11 @@ function hiddenNote(text, offer, extra = "") {
 function paint(term = els.term.value) {
   markSources(term);
   els.scheduleCount.textContent = String(scheduleIds(schedule, term).length);
-  if (view === "schedule") { paintSchedule(term); return; }
-  if (view === "generator") { paintGenerator(term); return; }
+  if (state.view === "schedule") { paintSchedule(term); return; }
+  if (state.view === "generator") { paintGenerator(term); return; }
+  // Collapsed, an open section covers the results; a repaint that keeps it
+  // open keeps it covering them.
+  const wasDetail = els.app.dataset.view === "detail";
   const filters = readFilters();
   // The clear button tracks the filters, not the result, so it is set before
   // the bail below.
@@ -1232,9 +1295,12 @@ function paint(term = els.term.value) {
   // not built until it is opened, so counting it put a number beside the status
   // line bigger than the page's own total. #63.
   showSortNote(primary, sort, term);
-  const { hiddenSections, hiddenCourses } = hiddenFor(view, p, r);
+  const { hiddenSections, hiddenCourses } = hiddenFor(state.view, p, r);
+  // A link's section is opened once and says so if it cannot be. A section the
+  // student had open stays open if this repaint still shows it.
   const wanted = pendingClass;
   pendingClass = "";
+  const kept = wanted ? "" : state.selected;
 
     currentEntries = [...primary, ...related];
     sectionIndex = new Map();
@@ -1243,7 +1309,7 @@ function paint(term = els.term.value) {
         sectionIndex.set(String(section.classNumber), { section, course: entry.course });
       }
     }
-  if (view === "calendar") {
+  if (state.view === "calendar") {
     els.results.replaceChildren(renderCalendar(primary, term));
     // Related courses are deliberately not plotted, since a grid of a hundred
     // courses is unreadable. Deliberate is not the same as silent.
@@ -1263,6 +1329,7 @@ function paint(term = els.term.value) {
   els.app.dataset.view = "results";
 
   const missed = wanted ? openLinked(wanted, term) : "";
+  if (kept) keepSelection(kept, wasDetail);
 
   if (hiddenSections || hiddenCourses) {
     const parts = [];
@@ -1296,7 +1363,7 @@ function paint(term = els.term.value) {
     const gen = genCategory();
     // Name the requirement, or an empty GE browse reads as a broken page.
     const empty = gen
-      ? `Nothing in ${termName(term)} is listed under ${gen}${lastQuery ? ` for "${lastQuery}"` : ""}.`
+      ? `Nothing in ${termName(term)} is listed under ${gen}${state.search.q.trim() ? ` for "${state.search.q.trim()}"` : ""}.`
       : lastResult.instructor
         ? `No classes found for ${lastResult.instructor} in ${termName(term)}. Try another term.`
         : `Nothing matched in ${termName(term)}. Try a subject and number, like CSE 2221.`;
@@ -1321,6 +1388,22 @@ function paint(term = els.term.value) {
   // filters hide rows: the search really did read only part of the answer.
   const coverage = formatCoverage(lastResult);
   setStatus(withNotes(coverage ? `${counts} ${coverage}` : counts));
+}
+
+/**
+ * Put back the section that was open before a repaint, without moving focus or
+ * the layout. One the repaint no longer shows, filtered out or not plotted,
+ * closes quietly: the student changed what is on screen, and a note for every
+ * filter click would be noise.
+ */
+function keepSelection(classNumber, wasDetail) {
+  const row = els.results.querySelector(`[data-class-number="${classNumber}"]`);
+  if (row && applySelection(row, { quiet: true })) {
+    if (wasDetail && collapsed.matches) els.app.dataset.view = "detail";
+    return;
+  }
+  state.selected = "";
+  writeUrl({ ...urlState(), classNumber: "" });
 }
 
 /**
@@ -1401,6 +1484,9 @@ async function init() {
   const initialQuery = params.get("q") ?? "";
   els.query.value = initialQuery;
   if (params.get("person") === initialQuery) els.query.dataset.person = initialQuery;
+  // A link can name its view. The plan link opens the schedule regardless.
+  const linkedView = params.get("view");
+  if (VIEWS.includes(linkedView)) selectView(linkedView);
   // A shared link names a section for the first paint of the search it arrived
   // with. Not gated on the query: a Fulfills browse is a search too.
   pendingClass = classFromParams(params);
@@ -1409,9 +1495,8 @@ async function init() {
   // Enter is a plain browser navigation that eats the query, which is what #80
   // measured.
   els.gen.addEventListener("change", () => {
-    syncUrl(els.query.value, els.term.value, { push: true });
     selectView("list");
-    rerunSearch();
+    startSearch({ ...state.search, term: state.search.term || els.term.value, gen: genCategory() ?? "" });
   });
 
   els.viewList.addEventListener("click", () => setView("list"));
@@ -1433,7 +1518,7 @@ async function init() {
   els.filters.addEventListener("change", (event) => {
     // The busy fields are not a filter until Add is pressed.
     if (event.target.closest("#f-busy")) return;
-    syncUrl(els.query.value, els.term.value);
+    syncUrl();
     paint();
   });
 
@@ -1460,12 +1545,12 @@ async function init() {
     const item = chip.closest("li");
     (item.nextElementSibling?.querySelector(".f-chip") ?? els.busyAdd).focus();
     item.remove();
-    syncUrl(els.query.value, els.term.value);
+    syncUrl();
     paint();
   });
 
   els.sort.addEventListener("change", () => {
-    syncUrl(els.query.value, els.term.value);
+    syncUrl();
     paint();
   });
 
@@ -1473,7 +1558,7 @@ async function init() {
     const button = event.target.closest(".f-day");
     if (!button) return;
     setDayState(button, NEXT_STATE[button.dataset.state] ?? "require");
-    syncUrl(els.query.value, els.term.value);
+    syncUrl();
     paint();
   });
 
@@ -1518,45 +1603,42 @@ async function init() {
   // section pane, only repaints.
   window.addEventListener("popstate", () => {
     const params = new URLSearchParams(location.search);
-    const state = urlState();
+    const entry = urlState();
     writeFilters(params);
     clearSelection();
     pendingClass = classFromParams(params);
     // An entry written before the term list arrived names no term, and means
     // the one the page picked.
-    const wanted = { ...state, term: state.term || els.term.value };
-    if (searchKey(wanted) !== shownSearch) restoreSearch(wanted);
-    else paint();
+    const wanted = { ...entry, term: entry.term || els.term.value };
+    if (searchKey(wanted) !== searchKey(state.search)) { restoreSearch(wanted); return; }
+    selectView(entry.view || "list");
+    paint();
   });
 
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const q = els.query.value;
-    const person = els.query.dataset.person === q.trim() ? q.trim() : "";
-    if (searching && inFlightSearch === `${q.trim()}|${els.term.value}|${person}`) return;
-    syncUrl(q, els.term.value, { push: true });
+    const search = searchFromControls();
+    if (searching && inFlightSearch === `${search.q.trim()}|${search.term}|${search.person}`) return;
     // A submitted search is a request to see its results. Keeping Schedule
     // selected completed the request invisibly until the student clicked List.
     selectView("list");
-    runSearch(q, els.term.value);
+    startSearch(search);
   });
 
   els.term.addEventListener("change", () => {
-    syncUrl(els.query.value, els.term.value, { push: true });
     // Re-run either way, and let runSearch own the snapshot wait. Repainting
     // only when the box had something in it left the previous term's rows on
     // screen under the new term's heading, and an empty box goes through the
-    // welcome branch, which re-marks the controls for the new term.
-    rerunSearch();
+    // welcome branch, which re-marks the controls for the new term. The search
+    // re-run is the one on screen, not whatever was typed and never submitted.
+    startSearch({ ...state.search, term: els.term.value });
   });
 
   els.welcome.addEventListener("click", (event) => {
     const button = event.target.closest("[data-q]");
     if (!button) return;
-    els.query.value = button.dataset.q;
-    els.query.dataset.person = button.classList.contains("w-name") ? button.dataset.q : "";
-    syncUrl(button.dataset.q, els.term.value, { push: true });
-    rerunSearch();
+    const q = button.dataset.q;
+    startSearch({ q, person: button.classList.contains("w-name") ? q : "", term: els.term.value, gen: genCategory() ?? "" });
     focusResults();
   });
 
@@ -1589,11 +1671,7 @@ async function init() {
   // against the live course service before drawing it; ratings and today's
   // seat snapshot land alongside that work and never hold it up serially.
   if (sharedPlan.length) {
-    for (const [button, name] of [[els.viewList, "list"], [els.viewCal, "calendar"], [els.viewSchedule, "schedule"]]) {
-      button.classList.toggle("is-on", name === "schedule");
-      button.setAttribute("aria-pressed", String(name === "schedule"));
-    }
-    view = "schedule";
+    selectView("schedule");
     // The link is the sender's schedule for this term, not an instruction to
     // merge it with whichever sections the recipient already saved locally.
     schedule = schedule.filter((item) => String(item.term) !== String(els.term.value)
@@ -1617,12 +1695,15 @@ async function init() {
   }
 
   // A search asked for while the terms were loading was refused, not dropped.
-  const pending = queued ?? { q: initialQuery };
-  if (pending.q.trim() || genCategory()) {
+  const pending = queued ?? searchFromControls(initialQuery);
+  if (pending.q.trim() || pending.gen) {
     // Its URL was written before there was a term to write, so the link it left
     // in the address bar names none and reopens on whichever term is default.
     if (queued) writeUrl({ ...urlState(), term: els.term.value });
-    runSearch(pending.q, els.term.value, pending.genCategory);
+    runSearch({ ...pending, term: els.term.value });
+  } else if (state.view === "schedule" || state.view === "generator") {
+    // A link to the schedule or the builder opens on it, not on the landing screen.
+    paint();
   } else {
     // Ratings and the seats index are already in flight; fill the landing screen
     // once they land rather than showing an empty frame. The term's own seats

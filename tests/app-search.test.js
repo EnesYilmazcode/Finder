@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mountApp, fire, until } from "./dom.js";
+import { mountApp, fire, settle, until } from "./dom.js";
 import { stubFetch } from "./helpers.js";
 import { RATING_COURSES, RATINGS, SEATS_INDEX, SEATS_TERMS, entry, taught, HEADSHOTS } from "./fixtures.js";
 
@@ -212,4 +212,57 @@ test("Forward from the landing screen runs the search it left", async (t) => {
   await until(() => !searching() && page.el("#q").value === "CSE 2221" && page.all("#results .section").length > 0,
     "Forward to run the search again");
   assert.equal(page.el("#welcome").hidden, true);
+});
+
+// The view is part of the entry: a link names it and reopens on it.
+test("the view rides in the link and a link reopens on it", async (t) => {
+  const { page, searching, search } = await start(t);
+  search("CSE 2221");
+  await until(() => !searching() && page.all("#results .section").length > 0, "the search");
+
+  page.el("#view-cal").click();
+  assert.match(page.location.search, /view=calendar/);
+  page.el("#view-list").click();
+  assert.doesNotMatch(page.location.search, /view=/, "list is the default and leaves no key");
+
+  const opened = await mountApp({ url: "https://enesyilmazcode.github.io/Finder/?q=CSE+2221&term=1268&view=calendar" });
+  await until(() => opened.el(".cal-item"), "the linked calendar");
+  assert.equal(opened.el("#view-cal").getAttribute("aria-pressed"), "true");
+});
+
+test("Back returns to the view the earlier search was in", async (t) => {
+  const { page, searching, search } = await start(t);
+  search("CSE 2221");
+  await until(() => !searching() && page.all("#results .section").length > 0, "the first search");
+  page.el("#view-cal").click();
+
+  search("Bucci");
+  await until(() => !searching() && /q=Bucci/.test(page.location.search), "the second search");
+  assert.equal(page.el("#view-list").getAttribute("aria-pressed"), "true", "a new search opens on the list");
+
+  page.history.back();
+  await until(() => !searching() && page.el("#q").value === "CSE 2221", "Back to the first search");
+  await until(() => page.el(".cal-item"), "the first search's calendar");
+  assert.equal(page.el("#view-cal").getAttribute("aria-pressed"), "true");
+});
+
+// A section stays open across a switch of view and a filter that keeps it.
+test("the open section survives a switch to the calendar and a filter that keeps it", async (t) => {
+  const { page, searching, search } = await start(t);
+  search("CSE 2221");
+  await until(() => !searching() && page.all("#results .section").length > 0, "the search");
+  page.el('#results .section[data-class-number="9001"]').click();
+
+  page.el("#view-cal").click();
+  assert.equal(page.el("#results .is-selected")?.dataset.classNumber, "9001", "the calendar dropped the open section");
+  assert.match(page.el("#detail-body").textContent, /Section 9001/);
+  assert.match(page.location.search, /class=9001/);
+
+  page.el("#view-list").click();
+  page.el("#filters").hideConsent.checked = true;
+  fire(page.el("#filters"), "change");
+  assert.equal(page.el("#results .is-selected")?.dataset.classNumber, "9001", "a filter that keeps it closed it");
+  assert.match(page.el("#detail-body").textContent, /Section 9001/);
+  assert.match(page.location.search, /class=9001/);
+  await settle(5);
 });

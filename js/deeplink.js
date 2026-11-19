@@ -65,7 +65,7 @@ export function missOutcome(classNumber, { inResults, inSearch }) {
 export const FLAG_KEYS = ["hideFull", "hideOnline", "ratedOnly", "hideConsent", "undergradOnly"];
 
 // Every key the codec owns, in the order encodeUrl writes them.
-const SINGLE_KEYS = ["q", "person", "term", "plan", "gen"];
+const SINGLE_KEYS = ["q", "person", "term", "plan", "gen", "view"];
 const LIST_KEYS = { days: "day", avoid: "noday", busy: "busy" };
 const FILTER_VALUE_KEYS = ["from", "to", "rating", "sort"];
 const OWNED = [...SINGLE_KEYS, ...Object.values(LIST_KEYS), ...FILTER_VALUE_KEYS, ...FLAG_KEYS, "class"];
@@ -87,6 +87,7 @@ export function decodeUrl(search) {
     term: one("term"),
     plan: one("plan"),
     gen: one("gen"),
+    view: one("view"),
     filters,
     classNumber: one("class"),
   };
