@@ -31,8 +31,11 @@ using S/U or pass marks show those outcomes instead of a misleading zero GPA.
 Student reviews, methodology and supporting detail use progressive disclosure.
 Copying a class number is a small labeled icon; **Save** adds the section to the
 optional schedule. **Filters** opens a compact panel for days, time, availability,
-ratings and GE requirements. List, calendar and saved schedule views share the
-same data. Linked labs and recitations are preserved in registration packages.
+ratings and GE requirements. **Plan** builds conflict-free schedules from the
+courses you pick, keeping linked labs and recitations together, and ranks them by
+your priorities; it is also on the landing screen. List, calendar, saved schedule
+and plan views share the same data. Linked labs and recitations are preserved in
+registration packages.
 
 ![The single search palette with professor suggestions and keyboard navigation.](docs/screenshots/finder-search.png)
 

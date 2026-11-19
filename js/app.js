@@ -52,6 +52,8 @@ const els = {
   viewList: document.querySelector("#view-list"),
   viewCal: document.querySelector("#view-cal"),
   viewSchedule: document.querySelector("#view-schedule"),
+  viewPlan: document.querySelector("#view-plan"),
+  welcomePlan: document.querySelector("#welcome-plan"),
   scheduleCount: document.querySelector("#schedule-count"),
   clear: document.querySelector("#f-clear"),
   query: document.querySelector("#q"),
@@ -155,8 +157,9 @@ function setDayState(button, state) {
 }
 
 // Busy blocks are chips in the rail, never clicks on the calendar. A clickable
-// grid reads as an invitation to mark the overlaps too, and marking overlaps is
-// a schedule builder. Finder searches, it does not plan.
+// grid reads as an invitation to mark the overlaps too, and fitting a week
+// around them is what the Plan view's builder is for. Its busy periods are
+// these same chips.
 
 const BUSY_HINT = els.busyHint.textContent;
 
@@ -330,16 +333,19 @@ function genCategory() {
 
 function selectView(next) {
   state.view = VIEWS.includes(next) ? next : "list";
-  const selected = next === "generator" ? "schedule" : next;
-  for (const [button, name] of [[els.viewList, "list"], [els.viewCal, "calendar"], [els.viewSchedule, "schedule"]]) {
-    button.classList.toggle("is-on", name === selected);
-    button.setAttribute("aria-pressed", String(name === selected));
+  // The schedule builder has its own tab, Plan, beside the saved schedule.
+  const tabs = [[els.viewList, "list"], [els.viewCal, "calendar"], [els.viewSchedule, "schedule"], [els.viewPlan, "generator"]];
+  for (const [button, name] of tabs) {
+    button.classList.toggle("is-on", name === state.view);
+    button.setAttribute("aria-pressed", String(name === state.view));
   }
 }
 
 function setView(next) {
   selectView(next);
-  if (next !== "schedule" && !lastResult) {
+  // The saved schedule and the builder stand on their own; the search views
+  // with nothing searched fall back to the landing screen.
+  if (next !== "schedule" && next !== "generator" && !lastResult) {
     els.results.replaceChildren();
     resetDetail();
     if (els.term.value) showWelcome(els.term.value);
@@ -1500,6 +1506,12 @@ async function init() {
   });
 
   els.viewList.addEventListener("click", () => setView("list"));
+  els.viewPlan.addEventListener("click", () => setView("generator"));
+  // The landing screen hides the view tabs, so it carries its own way in.
+  els.welcomePlan.addEventListener("click", () => {
+    setView("generator");
+    (els.results.querySelector("#gen-course") ?? els.results).focus();
+  });
   els.viewCal.addEventListener("click", () => setView("calendar"));
   els.viewSchedule.addEventListener("click", () => {
     setView("schedule");

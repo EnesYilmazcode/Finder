@@ -14,6 +14,7 @@ const paths = {
   check: ['m5 12 4 4L19 6'],
   copy: ['M9 9h12v12H9zM15 5V3H3v12h2'],
   star: ['m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z'],
+  plan: ['M4 5h7v6H4zM13 13h7v6h-7zM11 8h4a2 2 0 0 1 2 2v3M13 16H9a2 2 0 0 1-2-2v-3'],
 };
 
 export function icon(name, size = 18) {
