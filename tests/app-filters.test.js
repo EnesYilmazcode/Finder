@@ -278,3 +278,24 @@ test("regression #63: a link's order comes back on the control and on the page",
   assert.equal(bogus.el("#f-sort").value, "");
   assert.deepEqual(numbers(bogus), ["1001", "1002"]);
 });
+
+// Clearing resets state and draws the rail from it, so the order, which lives
+// outside the form, goes with everything else.
+test("clearing the filters takes the order with them, on the control and in the link", async (t) => {
+  const restore = stubFetch(new Map([
+    ["data/ratings.json", RATINGS],
+    ["data/seats.json", SEATS_INDEX],
+    [`data/seats-${TERM}.json`, SEATS_TERMS[TERM]],
+    [/searchableTermsV2/, TERMS],
+    [/\/classes\/search/, { data: { totalItems: 3, totalPages: 1, courses: SPLIT } }],
+  ]));
+  t.after(restore);
+  const page = await mountApp({ query: "CSE 2221", term: TERM, url: "https://enesyilmazcode.github.io/Finder/?sort=start&hideOnline=1" });
+  await until(() => page.all(".section").length > 0, "the filtered results");
+  assert.equal(page.el("#f-sort").value, "start");
+
+  page.el("#f-clear").click();
+  assert.equal(page.el("#f-sort").value, "", "the order outlived Clear filters");
+  assert.equal(page.el("#f-online").checked, false);
+  assert.doesNotMatch(page.location.search, /sort=|hideOnline/);
+});
