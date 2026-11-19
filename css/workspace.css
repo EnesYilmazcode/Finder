@@ -167,6 +167,12 @@ kbd { border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 5p
 .quick-courses button { display: flex; gap: 18px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); font: 11px var(--body); cursor: pointer; }
 .quick-courses button span { color: var(--mute); }
 .quick-courses button:hover { border-color: var(--field); }
+/* The way into the schedule builder from the landing screen, where the view
+   tabs are hidden. A step up from the quick courses, not a second hero. */
+.welcome-plan { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; margin-top: 18px; padding: 11px 14px; border-radius: 8px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); font: 12px var(--body); text-align: left; cursor: pointer; }
+.welcome-plan strong { font-weight: 600; color: var(--scarlet); }
+.welcome-plan span { color: var(--mute); font-size: 11px; }
+.welcome-plan:hover { border-color: var(--field); }
 .w-stats { display: none; }
 .w-head { font: 600 16px var(--display); margin: 8px 0; letter-spacing: -0.2px; }
 .w-sub { font-size: 12px; margin-bottom: 20px; }

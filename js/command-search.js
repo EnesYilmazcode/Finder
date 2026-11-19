@@ -30,7 +30,7 @@ export function initCommandSearch() {
     if (id === 'rail-toggle') button.append(document.createTextNode('Filters'));
     button.title = button.getAttribute('aria-label') ?? 'Filters';
   }
-  for (const [id, name, text] of [['view-list', 'list', 'List'], ['view-cal', 'calendar', 'Calendar']]) {
+  for (const [id, name, text] of [['view-list', 'list', 'List'], ['view-cal', 'calendar', 'Calendar'], ['view-plan', 'plan', 'Plan']]) {
     const button = document.querySelector(`#${id}`);
     button.replaceChildren(icon(name, 16), document.createTextNode(text));
   }

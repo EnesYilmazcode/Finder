@@ -147,3 +147,56 @@ test("a course whose sections failed to load is read again on the next run", asy
   await until(() => page.el(".gen-result"), "the retried run to generate");
   assert.equal(asked.filter((subject) => subject === "MATH").length, 2, "the failed course was cached and never retried");
 });
+
+const pressed = (page) => ["#view-list", "#view-cal", "#view-schedule", "#view-plan"]
+  .filter((id) => page.el(id).getAttribute("aria-pressed") === "true");
+
+// Finder plans as well as searches, so the builder has a tab of its own rather
+// than living two clicks deep inside the saved schedule.
+test("the Plan tab opens the schedule builder and is the tab shown pressed", async (t) => {
+  t.after(serve());
+  const page = await mountApp({ query: "CSE 2221", term: TERM });
+  await until(() => page.el("#results .section"), "the search");
+
+  page.el("#view-plan").click();
+  assert.match(page.el(".generator")?.textContent ?? "", /Build a conflict-free schedule/);
+  assert.deepEqual(pressed(page), ["#view-plan"]);
+  assert.match(page.location.search, /view=generator/);
+
+  page.el("#view-list").click();
+  assert.ok(page.el("#results .section"), "List came back to the search");
+  assert.deepEqual(pressed(page), ["#view-list"]);
+});
+
+// The landing screen hides the view tabs, so it needs its own way in, and it
+// must not fall back to the landing screen for having no search behind it.
+test("the landing screen's Plan a schedule opens the builder with the course box focused", async (t) => {
+  t.after(serve());
+  const page = await mountApp();
+  await until(() => page.el("#welcome").hidden === false, "the landing screen");
+
+  page.el("#welcome-plan").click();
+  assert.equal(page.el("#welcome").hidden, true, "the landing screen stayed over the builder");
+  assert.ok(page.el(".generator"), "the builder never opened");
+  assert.equal(page.document.activeElement?.id, "gen-course");
+  assert.deepEqual(pressed(page), ["#view-plan"]);
+});
+
+test("the saved schedule's Build schedule button lands on the Plan tab", async (t) => {
+  t.after(serve());
+  const page = await mountApp();
+  await until(() => page.el("#term").options.length, "the term list");
+
+  page.el("#view-schedule").click();
+  page.el(".plan-generate").click();
+  assert.ok(page.el(".generator"));
+  assert.deepEqual(pressed(page), ["#view-plan"]);
+});
+
+test("a link to the builder opens on it", async (t) => {
+  t.after(serve());
+  const page = await mountApp({ url: `https://enesyilmazcode.github.io/Finder/?term=${TERM}&view=generator` });
+  await until(() => page.el(".generator"), "the linked builder");
+  assert.deepEqual(pressed(page), ["#view-plan"]);
+  assert.equal(page.el("#welcome").hidden, true);
+});
