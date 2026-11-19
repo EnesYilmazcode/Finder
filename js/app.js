@@ -172,11 +172,6 @@ function setBusyDay(button, busy) {
   button.setAttribute("aria-pressed", String(busy));
 }
 
-/** Blocks are read back off their chips, the way day states are read off theirs. */
-function busyBlocks() {
-  return [...els.busyList.querySelectorAll(".f-chip")].map((chip) => parseBusy(chip.dataset.busy)).filter(Boolean);
-}
-
 /** Two ways of writing the same block, "TuTh" and "ThTu", are one chip. */
 function uniqueBlocks(blocks) {
   return [...new Map(blocks.map((b) => [formatBusy(b), b])).values()];
@@ -219,9 +214,10 @@ function addBusy() {
     return;
   }
 
-  renderBusy([...busyBlocks(), { days, start, end }]);
+  const busy = uniqueBlocks([...state.filters.busy, { days, start, end }]);
+  state.filters = { ...state.filters, busy };
+  renderBusy(busy);
   resetBusyFields();
-  captureFilters();
   syncUrl();
   paint();
 }
@@ -234,7 +230,8 @@ function filtersFromControls() {
     ...DEFAULTS,
     days: required,
     avoid: avoided,
-    busy: busyBlocks(),
+    // The chips are drawn from state, so state is where the blocks are read.
+    busy: state.filters.busy,
     from: data.get("from") ?? "",
     to: data.get("to") ?? "",
     rating: els.filters.rating.value,
@@ -258,46 +255,52 @@ function sortKey() {
   return state.filters.sort;
 }
 
-function writeFilters(params) {
-  const required = params.getAll("day");
-  const avoided = params.getAll("noday");
+/** Draw the rail's controls from a set of filters. */
+function renderFilters(filters) {
   for (const button of els.days.querySelectorAll(".f-day")) {
     const day = button.dataset.day;
-    setDayState(button, required.includes(day) ? "require" : avoided.includes(day) ? "avoid" : "any");
+    setDayState(button, filters.days.includes(day) ? "require" : filters.avoid.includes(day) ? "avoid" : "any");
   }
-  renderBusy(params.getAll("busy").map(parseBusy).filter(Boolean));
-  els.filters.from.value = params.get("from") ?? "";
-  els.filters.to.value = params.get("to") ?? "";
-  els.filters.rating.value = params.get("rating") ?? "";
-  els.filters.hideFull.checked = params.get("hideFull") === "1";
-  els.filters.hideOnline.checked = params.get("hideOnline") === "1";
-  els.filters.ratedOnly.checked = params.get("ratedOnly") === "1";
-  els.filters.hideConsent.checked = params.get("hideConsent") === "1";
-  els.filters.undergradOnly.checked = params.get("undergradOnly") === "1";
-  // A select set to a value it has no option for shows nothing at all, so an
-  // unknown sort has to be written back as relevance.
-  const sort = params.get("sort") ?? "";
-  els.sort.value = isSortKey(sort) ? sort : "";
+  renderBusy(filters.busy);
+  els.filters.from.value = filters.from;
+  els.filters.to.value = filters.to;
+  els.filters.rating.value = filters.rating;
+  for (const key of FLAG_KEYS) els.filters[key].checked = Boolean(filters[key]);
+  els.sort.value = filters.sort;
+}
+
+/**
+ * Put back the filters an address names: into state, then onto the rail. The
+ * controls are read back once drawn, so a value a control cannot show, an
+ * unknown order or a day that is not a button, is dropped rather than kept in
+ * state as a filter nobody can see or clear.
+ */
+function restoreFilters(fromUrl) {
+  state.filters = {
+    ...DEFAULTS,
+    days: fromUrl.days,
+    avoid: fromUrl.avoid,
+    busy: uniqueBlocks(fromUrl.busy.map(parseBusy).filter(Boolean)),
+    from: fromUrl.from,
+    to: fromUrl.to,
+    rating: fromUrl.rating,
+    ...Object.fromEntries(FLAG_KEYS.map((key) => [key, fromUrl[key]])),
+    sort: isSortKey(fromUrl.sort) ? fromUrl.sort : "",
+  };
+  renderFilters(state.filters);
   captureFilters();
 }
 
 /**
  * The one way filters come off, so the rail, the status line and the URL can
- * never describe a set that is no longer on screen.
- *
- * The contract for anything added after this: whatever filtersFromControls()
- * reads has to be resettable here. els.filters.reset() reaches only what lives in the
- * form, and filter state has already started escaping it.
+ * never describe a set that is no longer on screen. Resetting state and drawing
+ * the rail from it reaches every control, inside the form or not.
  */
 function clearFilters() {
-  els.filters.reset();
-  for (const button of els.days.querySelectorAll(".f-day")) setDayState(button, "any");
-  // Filter state that lives outside the form is reset here. reset() clears the
-  // two busy time fields, but the blocks themselves live on their chips.
-  els.sort.value = "";
-  renderBusy([]);
+  state.filters = { ...DEFAULTS, sort: "" };
+  renderFilters(state.filters);
+  // The two busy time fields are a block being written, not a filter yet.
   resetBusyFields();
-  captureFilters();
   syncUrl();
   paint();
 }
@@ -1485,7 +1488,7 @@ async function init() {
   // Before the network, not after: a shared link's filters and the day chips'
   // spoken state must not wait on the term service, which #38 measured
   // leaving all five chips announcing as "Mo" when it failed.
-  writeFilters(params);
+  restoreFilters(decodeUrl(params).filters);
 
   els.gen.append(
     ...GEN_CATEGORIES.map((name) => {
@@ -1575,7 +1578,7 @@ async function init() {
     const item = chip.closest("li");
     (item.nextElementSibling?.querySelector(".f-chip") ?? els.busyAdd).focus();
     item.remove();
-    captureFilters();
+    state.filters = { ...state.filters, busy: state.filters.busy.filter((block) => formatBusy(block) !== chip.dataset.busy) };
     syncUrl();
     paint();
   });
@@ -1637,7 +1640,7 @@ async function init() {
   window.addEventListener("popstate", () => {
     const params = new URLSearchParams(location.search);
     const entry = urlState();
-    writeFilters(params);
+    restoreFilters(entry.filters);
     clearSelection();
     pendingClass = classFromParams(params);
     // An entry written before the term list arrived names no term, and means
