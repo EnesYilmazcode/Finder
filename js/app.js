@@ -90,8 +90,8 @@ const state = {
   // requirement change and a retry run again, and what Back compares against.
   search: { q: "", person: "", term: "", gen: "" },
   // The filters on the results, in the shape filters.js applies: days, busy
-  // blocks, times, rating and the on/off flags.
-  filters: { ...DEFAULTS },
+  // blocks, times, rating and the on/off flags, plus the order, `sort`.
+  filters: { ...DEFAULTS, sort: "" },
   // list, calendar, schedule or generator.
   view: "list",
   // The class number open in the detail pane. Kept across repaints of the same
@@ -243,6 +243,9 @@ function filtersFromControls() {
     ratedOnly: els.filters.ratedOnly.checked,
     hideConsent: els.filters.hideConsent.checked,
     undergradOnly: els.filters.undergradOnly.checked,
+    // A select set to a value it has no option for shows nothing at all, so
+    // anything but a known order reads as relevance.
+    sort: isSortKey(els.sort.value) ? els.sort.value : "",
   };
 }
 
@@ -252,7 +255,7 @@ function captureFilters() {
 }
 
 function sortKey() {
-  return isSortKey(els.sort.value) ? els.sort.value : "";
+  return state.filters.sort;
 }
 
 function writeFilters(params) {
@@ -1241,12 +1244,13 @@ function markSources(term) {
   // on screen for being unplaceable. #63.
   const dead = { ratings, seats };
   for (const option of els.sort.options) option.disabled = Boolean(dead[SORT_SOURCE[option.value]]);
-  if (dead[SORT_SOURCE[els.sort.value]]) {
+  if (dead[SORT_SOURCE[state.filters.sort]]) {
     els.sort.value = "";
+    state.filters = { ...state.filters, sort: "" };
     // A link is the shared copy of what the page is applying, so an order that
     // was just switched off cannot stay in one.
-    const state = urlState();
-    writeUrl({ ...state, filters: { ...state.filters, sort: "" } });
+    const entry = urlState();
+    writeUrl({ ...entry, filters: { ...entry.filters, sort: "" } });
   }
 }
 
@@ -1577,6 +1581,7 @@ async function init() {
   });
 
   els.sort.addEventListener("change", () => {
+    captureFilters();
     syncUrl();
     paint();
   });
