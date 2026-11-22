@@ -182,8 +182,9 @@ async function fetchSubjects() {
 // well-formed code is not a searchable one, so it is read rather than derived.
 async function searchableTerms() {
   const body = JSON.parse(await fetchText(`${API}/searchableTermsV2`, { accept: 'application/json' }));
-  const terms = body?.data?.data;
-  if (!Array.isArray(terms) || !terms.length) throw new Error('searchableTermsV2 returned nothing');
+  // It has answered [null] during OSU outages, so drop non-objects first.
+  const terms = (Array.isArray(body?.data?.data) ? body.data.data : []).filter((t) => t && typeof t === 'object');
+  if (!terms.length) throw new Error('searchableTermsV2 returned nothing');
   return terms
     .filter((t) => t.classSearch === 'Y' && /^\d{4}$/.test(t.strm ?? ''))
     .map((t) => t.strm)
@@ -607,11 +608,21 @@ async function exists(path) {
 
 async function main() {
   const requested = process.argv.slice(2).filter((a) => /^\d{4}$/.test(a));
-  const searchable = await searchableTerms();
+  const committed = await readIndex();
+  // The term list is the only thing this script takes from that API; seats
+  // come from Barrett. When the API is down, reuse the committed terms, which
+  // also means no term file gets deleted on its say.
+  let searchable;
+  try {
+    searchable = await searchableTerms();
+  } catch (err) {
+    const kept = (committed?.terms ?? []).map((t) => t?.term).filter((t) => /^\d{4}$/.test(t ?? ''));
+    if (!kept.length) throw err;
+    console.error(`::warning::${err.message}; reusing committed terms ${kept.join(', ')}`);
+    searchable = [...kept].sort((a, b) => a.localeCompare(b));
+  }
   const terms = requested.length ? searchable.filter((t) => requested.includes(t)) : searchable;
   if (!terms.length) throw new Error(`none of ${requested.join(', ')} is searchable`);
-
-  const committed = await readIndex();
 
   // searchableTermsV2 is one uncached call to an API that pages
   // non-deterministically, and a term missing from that answer has its file
