@@ -45,6 +45,9 @@ jobs:
       # retired subject means re-running this workflow by hand with force set.
       - name: Build course index
         env:
+          # OSU's server stopped sending its intermediate cert (Nov 2026). Browsers
+          # fetch it themselves; Node does not, so every fetch failed.
+          NODE_EXTRA_CA_CERTS: scripts/certs/ssl-com-tls-issuing-rsa-r1.pem
           FORCE_WRITE: ${{ inputs.force && '1' || '' }}
           ALLOW_TERM_DROP: ${{ inputs.dropTerms && '1' || '' }}
         run: node scripts/fetch-courses.mjs
